@@ -1,0 +1,23 @@
+[package]
+name = "rimv"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+audio-capture.workspace = true
+audio-core.workspace = true
+clap = { version = "4", features = ["derive"] }
+ctrlc = "3"
+engine-protocol.workspace = true
+engine-runtime.workspace = true
+model-manager.workspace = true
+hound = "3.5"
+serde.workspace = true
+serde_json.workspace = true
+speech-transcription = { workspace = true, features = ["whisper", "parakeet"] }
+symphonia = { version = "0.6.1", default-features = false, features = ["flac", "mp3", "pcm", "wav"] }
+system-profile.workspace = true
+tracing.workspace = true
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }

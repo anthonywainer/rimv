@@ -1,0 +1,27 @@
+[package]
+name = "speech-transcription"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[features]
+default = []
+whisper = ["dep:whisper-rs"]
+silero-vad = ["dep:sherpa-onnx"]
+parakeet = ["dep:sherpa-onnx"]
+
+[dependencies]
+audio-core.workspace = true
+engine-protocol = { workspace = true, features = ["serde"] }
+thiserror.workspace = true
+rubato = "0.16"
+serde.workspace = true
+whisper-rs = { version = "0.16", optional = true }
+# The maintained macOS static archive for 1.13.8 omits libonnxruntime.a.
+# Use the upstream shared package instead; its build script copies the required
+# dylibs alongside produced binaries and sets the appropriate runtime rpath.
+sherpa-onnx = { version = "1.13.8", default-features = false, features = ["shared"], optional = true }
+
+[dev-dependencies]
+tempfile = "3"

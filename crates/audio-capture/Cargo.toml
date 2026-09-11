@@ -1,0 +1,13 @@
+[package]
+name = "audio-capture"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+[dependencies]
+audio-core.workspace = true
+tracing.workspace = true
+cpal = "0.16"
+crossbeam-queue = "0.3"
+[target.'cfg(target_os = "macos")'.dependencies]
+screencapturekit = { version = "=10.0.3", features = ["macos_13_0"] }

@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+    <key>CFBundleExecutable</key><string>rimv-menu-bar</string>
+    <key>CFBundleIdentifier</key><string>dev.rimv.menu</string>
+    <key>CFBundleName</key><string>rimv</string>
+    <key>CFBundleDisplayName</key><string>rimv</string>
+    <key>CFBundlePackageType</key><string>APPL</string>
+    <key>CFBundleShortVersionString</key><string>0.1.0</string>
+    <key>CFBundleVersion</key><string>8</string>
+    <key>CFBundleGetInfoString</key><string>rimv 0.1.0-beta</string>
+    <key>LSMinimumSystemVersion</key><string>13.0</string>
+    <key>LSUIElement</key><true/>
+    <key>NSMicrophoneUsageDescription</key><string>rimv records your microphone when you start capture.</string>
+    <key>NSScreenCaptureUsageDescription</key><string>rimv records system audio when you enable system capture.</string>
+    <key>NSHighResolutionCapable</key><true/>
+</dict></plist>

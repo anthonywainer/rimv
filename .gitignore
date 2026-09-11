@@ -1,0 +1,41 @@
+# Cargo build output
+/target/
+/target/benchmarks/
+
+# Locally captured audio, background-agent state, and temporary recording data
+/recordings/
+*.wav
+*.flac
+*.partial
+*.tmp
+*.log
+/resources/models/
+/resources/specs/
+
+**/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8/
+*.bin
+*.gguf
+*.onnx
+*.ort
+*.tar.bz2
+/tmp/
+/.tmp/
+
+# Local tooling and developer configuration
+/.rust-tools/
+.env
+.env.*
+!.env.example
+.DS_Store
+.idea/
+.vscode/
+
+# Node/Vite local dependencies, generated bundles, and diagnostics
+/apps/web/node_modules/
+/apps/web/dist/
+/apps/web/.vite/
+/apps/web/coverage/
+/apps/web/*.log
+/apps/web/npm-debug.log*
+/apps/web/yarn-debug.log*
+/apps/web/pnpm-debug.log*

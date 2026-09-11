@@ -1,0 +1,5 @@
+[env]
+MACOSX_DEPLOYMENT_TARGET = { value = "13.0", force = false }
+
+[target.'cfg(target_os = "macos")']
+rustflags = ["-C", "link-arg=-Wl,-rpath,/usr/lib/swift"]

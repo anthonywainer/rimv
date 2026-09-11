@@ -1,0 +1,55 @@
+[workspace]
+members = [
+    "crates/audio-core",
+    "crates/audio-capture",
+    "crates/engine-protocol",
+    "crates/engine-runtime",
+    "crates/model-manager",
+    "crates/speech-transcription",
+    "crates/system-profile",
+    "crates/whisper-models",
+    "apps/capture-cli",
+    "apps/engine-cli",
+    "apps/menu-bar",
+    "apps/rimv-cli",
+    "apps/transcribe-cli",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0-beta"
+edition = "2024"
+license = "MIT"
+authors = ["Anthony Wainer <awainerc@gmail.com>"]
+
+[workspace.dependencies]
+audio-core = { path = "crates/audio-core" }
+audio-capture = { path = "crates/audio-capture" }
+engine-protocol = { path = "crates/engine-protocol" }
+engine-runtime = { path = "crates/engine-runtime" }
+model-manager = { path = "crates/model-manager" }
+speech-transcription = { path = "crates/speech-transcription" }
+system-profile = { path = "crates/system-profile" }
+whisper-models = { path = "crates/whisper-models" }
+thiserror = "2"
+tracing = "0.1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls"] }
+axum = { version = "0.8", features = ["ws"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "sync"] }
+futures-util = "0.3"
+
+# Keep the distributable CLI small without changing the library API or its
+# downstream panic behavior.
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = "symbols"
+
+# Optimized code with symbols for sample/Instruments call stacks.
+[profile.profiling]
+inherits = "release"
+debug = 1
+strip = "none"

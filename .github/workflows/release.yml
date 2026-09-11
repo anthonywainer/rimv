@@ -1,0 +1,262 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Dry-run release tag to validate, for example v0.1.0-beta'
+        required: false
+        default: 'v0.1.0-beta'
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  MACOSX_DEPLOYMENT_TARGET: '13.0'
+
+jobs:
+  validate:
+    name: Validate Release
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+      version: ${{ steps.version.outputs.version }}
+      publish: ${{ steps.version.outputs.publish }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Validate tag and version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+            tag="${{ inputs.tag }}"
+            publish=false
+          else
+            tag="${GITHUB_REF_NAME}"
+            publish=true
+          fi
+
+          if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "Invalid release tag: $tag" >&2
+            exit 1
+          fi
+
+          manifest_version="$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -n 1)"
+          version="${tag#v}"
+          if [[ "$version" != "$manifest_version" ]]; then
+            echo "Tag $tag does not match Cargo workspace version $manifest_version" >&2
+            exit 1
+          fi
+
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "publish=$publish" >> "$GITHUB_OUTPUT"
+
+  test:
+    name: Release Tests
+    needs: validate
+    runs-on: macos-15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Show Xcode version
+        run: |
+          sudo xcode-select --switch /Applications/Xcode_26.3.app/Contents/Developer
+          xcodebuild -version
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          # Keep the build script and its downloaded Sherpa native libraries
+          # in sync by caching registries only, not target/ artifacts.
+          cache-targets: false
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Check workspace
+        run: cargo check --workspace --locked
+
+      - name: Lint workspace
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+      - name: Test workspace
+        run: cargo test --workspace --locked
+
+  package:
+    name: Package ${{ matrix.kind }} (${{ matrix.name }})
+    needs:
+      - validate
+      - test
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS arm64
+            os: macos-15
+            kind: capture
+          - name: macOS arm64
+            os: macos-15
+            kind: transcribe
+          - name: macOS arm64
+            os: macos-15
+            kind: server
+          - name: Windows x64
+            os: windows-latest
+            kind: capture
+          - name: Windows x64
+            os: windows-latest
+            kind: transcribe
+          - name: Windows x64
+            os: windows-latest
+            kind: server
+          - name: Linux x64
+            os: ubuntu-latest
+            kind: capture
+          - name: Linux x64
+            os: ubuntu-latest
+            kind: transcribe
+          - name: Linux x64
+            os: ubuntu-latest
+            kind: server
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Select Xcode 26.3
+        if: runner.os == 'macOS'
+        run: |
+          sudo xcode-select --switch /Applications/Xcode_26.3.app/Contents/Developer
+          xcodebuild -version
+
+      - name: Install Linux audio build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libasound2-dev pkg-config zip unzip
+
+      - name: Install Windows archive tools
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: choco install zip unzip -y --no-progress
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          # See the release test job: cached target artifacts can retain a
+          # link search path to a missing Sherpa native-library directory.
+          cache-targets: false
+
+      - name: Stage distribution
+        id: stage
+        shell: bash
+        run: |
+          set -euo pipefail
+          staged="$(scripts/stage-distribution.sh "${{ matrix.kind }}")"
+          echo "path=$staged" >> "$GITHUB_OUTPUT"
+          test -d "$staged"
+
+      - name: Archive distribution
+        id: archive
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ needs.validate.outputs.tag }}
+        run: |
+          set -euo pipefail
+          archive="$(scripts/archive-distribution.sh "${{ matrix.kind }}" "${{ steps.stage.outputs.path }}")"
+          echo "path=$archive" >> "$GITHUB_OUTPUT"
+          echo "name=$(basename "$archive")" >> "$GITHUB_OUTPUT"
+          test -s "$archive"
+          test -s "$archive.contents.txt"
+
+      - name: Upload package artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: ${{ steps.archive.outputs.name }}
+          path: |
+            ${{ steps.archive.outputs.path }}
+            ${{ steps.archive.outputs.path }}.contents.txt
+          if-no-files-found: error
+
+  checksums:
+    name: SHA256SUMS
+    needs:
+      - validate
+      - package
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download package artifacts
+        uses: actions/download-artifact@v6
+        with:
+          path: target/release-artifacts
+          merge-multiple: true
+
+      - name: Generate SHA256SUMS
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd target/release-artifacts
+          find . -maxdepth 1 -type f \( -name '*.tar.gz' -o -name '*.zip' \) -print0 \
+            | sort -z \
+            | xargs -0 shasum -a 256 > SHA256SUMS
+          test -s SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Upload checksum artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: SHA256SUMS
+          path: target/release-artifacts/SHA256SUMS
+          if-no-files-found: error
+
+  publish:
+    name: Publish GitHub Release
+    needs:
+      - validate
+      - checksums
+    if: needs.validate.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Download release artifacts
+        uses: actions/download-artifact@v6
+        with:
+          path: target/release-artifacts
+          merge-multiple: true
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.validate.outputs.tag }}
+          name: rimv ${{ needs.validate.outputs.tag }}
+          body_path: RELEASES.md
+          files: |
+            target/release-artifacts/*.tar.gz
+            target/release-artifacts/*.zip
+            target/release-artifacts/SHA256SUMS

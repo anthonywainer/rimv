@@ -1,0 +1,12 @@
+[package]
+name = "transcribe-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+hound = "3.5"
+speech-transcription = { workspace = true, features = ["whisper"] }
+engine-protocol.workspace = true
