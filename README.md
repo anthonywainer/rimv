@@ -91,8 +91,8 @@ Model weights are not bundled in the beta staging output.
 | Platform | Build status | Runtime capture | Transcription | Release status |
 |---|---|---|---|---|
 | macOS arm64 | Verified locally | Microphone and ScreenCaptureKit system capture have been exercised on this host | Parakeet path has been exercised on this host | Primary beta target |
-| Windows x64 | GitHub CI and release builds configured | Microphone and WASAPI loopback adapter exist in code, but were not runtime-tested on Windows hardware | Not runtime-tested | Preview |
-| Linux x64 | GitHub CI and release builds configured | Microphone uses CPAL/ALSA; system capture is explicitly unsupported pending PipeWire | Not runtime-tested | Experimental/partial |
+| Windows x64 | Scheduled/manual validation configured | Microphone and WASAPI loopback adapter exist in code, but were not runtime-tested on Windows hardware | Not runtime-tested | Preview; no public beta binary |
+| Linux x64 | Scheduled/manual validation configured | Microphone uses CPAL/ALSA; system capture is explicitly unsupported pending PipeWire | Not runtime-tested | Experimental/partial; no public beta binary |
 
 Compilation alone does not mean runtime support. Hardware and permission-based
 capture tests must be run on each target operating system before promoting that
@@ -277,11 +277,26 @@ redistribution has not been verified.
 
 ## Release Pipeline
 
-`.github/workflows/release.yml` validates release tags, runs locked workspace
-checks, builds the distribution matrix, archives each package, inspects archive
-contents, generates `SHA256SUMS`, and publishes a GitHub Release only for tag
-pushes. Manual `workflow_dispatch` runs are dry runs: they build and upload
-workflow artifacts but do not publish a GitHub Release.
+`.github/workflows/release.yml` validates release tags, runs one locked Linux
+quality gate for the exact tagged commit, then builds and archives macOS arm64
+beta packages, inspects archive contents, generates `SHA256SUMS`, and publishes
+a GitHub Release only for tag pushes. Windows and Linux remain
+scheduled/manual validation targets and are not public beta artifacts. Manual
+`workflow_dispatch` runs are dry runs: they build and upload workflow artifacts
+but do not publish a GitHub Release.
+
+For `v0.1.0-beta`, the public release attaches:
+
+```text
+rimv-capture-v0.1.0-beta-macos-arm64.tar.gz
+rimv-transcribe-v0.1.0-beta-macos-arm64.tar.gz
+rimv-server-v0.1.0-beta-macos-arm64.tar.gz
+SHA256SUMS
+```
+
+The archive script derives the version from the release tag. Windows and Linux
+equivalent names are retained by the packaging format for future validated
+releases, but are not published in this beta.
 
 Trigger the beta release after validation and owner approval with:
 

@@ -14,6 +14,11 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  # Tags and manual dry-run tags are isolated so one release never cancels another.
+  group: release-${{ github.workflow }}-${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
 env:
   CARGO_TERM_COLOR: always
   MACOSX_DEPLOYMENT_TARGET: '13.0'
@@ -60,19 +65,19 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "publish=$publish" >> "$GITHUB_OUTPUT"
 
-  test:
-    name: Release Tests
+  quality:
+    name: Release quality (Linux x64)
     needs: validate
-    runs-on: macos-15
+    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout
         uses: actions/checkout@v5
 
-      - name: Show Xcode version
+      - name: Install Linux audio build dependencies
         run: |
-          sudo xcode-select --switch /Applications/Xcode_26.3.app/Contents/Developer
-          xcodebuild -version
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libasound2-dev pkg-config
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -82,8 +87,8 @@ jobs:
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
         with:
-          # Keep the build script and its downloaded Sherpa native libraries
-          # in sync by caching registries only, not target/ artifacts.
+          # Tagged commits receive one full quality gate. Keep native Sherpa
+          # build output out of the cache so its sibling libraries stay in sync.
           cache-targets: false
 
       - name: Check formatting
@@ -99,10 +104,10 @@ jobs:
         run: cargo test --workspace --locked
 
   package:
-    name: Package ${{ matrix.kind }} (${{ matrix.name }})
+    name: Package distributions (${{ matrix.name }})
     needs:
       - validate
-      - test
+      - quality
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -110,31 +115,7 @@ jobs:
         include:
           - name: macOS arm64
             os: macos-15
-            kind: capture
-          - name: macOS arm64
-            os: macos-15
-            kind: transcribe
-          - name: macOS arm64
-            os: macos-15
-            kind: server
-          - name: Windows x64
-            os: windows-latest
-            kind: capture
-          - name: Windows x64
-            os: windows-latest
-            kind: transcribe
-          - name: Windows x64
-            os: windows-latest
-            kind: server
-          - name: Linux x64
-            os: ubuntu-latest
-            kind: capture
-          - name: Linux x64
-            os: ubuntu-latest
-            kind: transcribe
-          - name: Linux x64
-            os: ubuntu-latest
-            kind: server
+            artifact: macos-arm64
 
     steps:
       - name: Checkout
@@ -146,56 +127,38 @@ jobs:
           sudo xcode-select --switch /Applications/Xcode_26.3.app/Contents/Developer
           xcodebuild -version
 
-      - name: Install Linux audio build dependencies
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends libasound2-dev pkg-config zip unzip
-
-      - name: Install Windows archive tools
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: choco install zip unzip -y --no-progress
-
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
         with:
-          # See the release test job: cached target artifacts can retain a
+          # See the release quality job: cached target artifacts can retain a
           # link search path to a missing Sherpa native-library directory.
           cache-targets: false
 
-      - name: Stage distribution
-        id: stage
-        shell: bash
-        run: |
-          set -euo pipefail
-          staged="$(scripts/stage-distribution.sh "${{ matrix.kind }}")"
-          echo "path=$staged" >> "$GITHUB_OUTPUT"
-          test -d "$staged"
+      - name: Build release binaries once
+        run: cargo build --release --locked -p capture-cli -p rimv
 
-      - name: Archive distribution
-        id: archive
+      - name: Stage and archive distributions
         shell: bash
         env:
           RELEASE_TAG: ${{ needs.validate.outputs.tag }}
         run: |
           set -euo pipefail
-          archive="$(scripts/archive-distribution.sh "${{ matrix.kind }}" "${{ steps.stage.outputs.path }}")"
-          echo "path=$archive" >> "$GITHUB_OUTPUT"
-          echo "name=$(basename "$archive")" >> "$GITHUB_OUTPUT"
-          test -s "$archive"
-          test -s "$archive.contents.txt"
+          for kind in capture transcribe server; do
+            staged="$(RIMV_STAGE_SKIP_BUILD=1 scripts/stage-distribution.sh "$kind")"
+            test -d "$staged"
+            archive="$(scripts/archive-distribution.sh "$kind" "$staged")"
+            test -s "$archive"
+            test -s "$archive.contents.txt"
+          done
 
-      - name: Upload package artifact
+      - name: Upload package artifacts
         uses: actions/upload-artifact@v6
         with:
-          name: ${{ steps.archive.outputs.name }}
-          path: |
-            ${{ steps.archive.outputs.path }}
-            ${{ steps.archive.outputs.path }}.contents.txt
+          name: rimv-${{ matrix.artifact }}-packages
+          path: target/release-artifacts
           if-no-files-found: error
 
   checksums:

@@ -7,6 +7,7 @@ profile=${PROFILE:-release}
 version=$(sed -n 's/^version = "\([^"]*\)"/\1/p' "$root/Cargo.toml" | head -n 1)
 stage_root=${STAGE_DIR:-"$root/target/distributions"}
 cargo_bin=${CARGO:-cargo}
+skip_build=${RIMV_STAGE_SKIP_BUILD:-0}
 
 case "$kind" in
   capture)
@@ -50,7 +51,9 @@ case "$(uname -m)" in
   *) arch=$(uname -m) ;;
 esac
 destination="$stage_root/rimv-$version-$kind-$platform-$arch"
-"$cargo_bin" build --profile "$profile" --locked -p "$package"
+if [ "$skip_build" != 1 ]; then
+  "$cargo_bin" build --profile "$profile" --locked -p "$package"
+fi
 rm -rf "$destination"
 mkdir -p "$destination"
 cp "$root/target/$profile/$built_binary$executable_suffix" "$destination/$staged_binary$executable_suffix"

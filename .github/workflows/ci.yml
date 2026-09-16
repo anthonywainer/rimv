@@ -2,45 +2,112 @@ name: CI
 
 on:
   push:
+    branches: [main]
+    paths-ignore:
+      - '*.md'
+      - '**/*.md'
+      - '*.png'
+      - '**/*.png'
+      - '*.jpg'
+      - '**/*.jpg'
+      - '*.svg'
+      - '**/*.svg'
+      - 'docs/**'
+      - 'resources/specs/**'
   pull_request:
+    branches: [main]
+    paths-ignore:
+      - '*.md'
+      - '**/*.md'
+      - '*.png'
+      - '**/*.png'
+      - '*.jpg'
+      - '**/*.jpg'
+      - '*.svg'
+      - '**/*.svg'
+      - 'docs/**'
+      - 'resources/specs/**'
 
 permissions:
   contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
   CARGO_TERM_COLOR: always
   MACOSX_DEPLOYMENT_TARGET: '13.0'
 
 jobs:
+  changes:
+    name: Detect relevant changes
+    runs-on: ubuntu-latest
+    outputs:
+      web: ${{ steps.platform.outputs.web }}
+      rust: ${{ steps.platform.outputs.rust }}
+      macos: ${{ steps.platform.outputs.macos }}
+      windows: ${{ steps.platform.outputs.windows }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Detect relevant changes
+        id: platform
+        shell: bash
+        run: |
+          if [[ "$GITHUB_EVENT_NAME" == 'pull_request' ]]; then
+            base="${{ github.event.pull_request.base.sha }}"
+            head="${{ github.event.pull_request.head.sha }}"
+          else
+            base="$GITHUB_EVENT_BEFORE"
+            head="$GITHUB_SHA"
+          fi
+
+          if [[ "$base" =~ ^0+$ ]]; then
+            base="$(git rev-parse "$head^")"
+          fi
+
+          changed() {
+            local output=$1
+            shift
+            if git diff --quiet "$base" "$head" -- "$@"; then
+              echo "$output=false" >> "$GITHUB_OUTPUT"
+            else
+              echo "$output=true" >> "$GITHUB_OUTPUT"
+            fi
+          }
+
+          changed web apps/web
+          changed macos Cargo.toml Cargo.lock crates/audio-capture/src/platform/macos.rs apps/menu-bar scripts/create-dmg.sh scripts/package-macos.sh
+          changed windows Cargo.toml Cargo.lock crates/audio-capture/src/platform/windows.rs
+
+          rust=false
+          while IFS= read -r path; do
+            case "$path" in
+              apps/web/*|*.md|*.png|*.jpg|*.svg|docs/*|resources/specs/*) ;;
+              *) rust=true; break ;;
+            esac
+          done < <(git diff --name-only "$base" "$head")
+          echo "rust=$rust" >> "$GITHUB_OUTPUT"
+
   rust:
-    name: Rust (${{ matrix.name }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name: macOS arm64
-            os: macos-15
-          - name: Windows x64
-            os: windows-latest
-          - name: Linux x64
-            os: ubuntu-latest
+    name: Rust (Linux x64)
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
+    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout
         uses: actions/checkout@v5
 
       - name: Install Linux audio build dependencies
-        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends libasound2-dev pkg-config
-
-      - name: Show Xcode version
-        if: runner.os == 'macOS'
-        run: |
-          sudo xcode-select --switch /Applications/Xcode_26.3.app/Contents/Developer
-          xcodebuild -version
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -69,6 +136,8 @@ jobs:
 
   web:
     name: Web
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
     runs-on: ubuntu-latest
 
     steps:
@@ -89,3 +158,56 @@ jobs:
       - name: Build web client
         working-directory: apps/web
         run: npm run build
+
+  macos:
+    name: Rust (macOS arm64)
+    needs: changes
+    if: github.event_name == 'push' && needs.changes.outputs.macos == 'true'
+    runs-on: macos-15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Select Xcode 26.3
+        run: |
+          sudo xcode-select --switch /Applications/Xcode_26.3.app/Contents/Developer
+          xcodebuild -version
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          cache-targets: false
+
+      - name: Check workspace
+        run: cargo check --workspace --locked
+
+      - name: Build workspace
+        run: cargo build --workspace --locked
+
+  windows:
+    name: Rust (Windows x64)
+    needs: changes
+    if: github.event_name == 'push' && needs.changes.outputs.windows == 'true'
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          cache-targets: false
+
+      - name: Check workspace
+        run: cargo check --workspace --locked
+
+      - name: Build workspace
+        run: cargo build --workspace --locked
