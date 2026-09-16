@@ -1,4 +1,4 @@
-name: Cross-platform validation
+name: RimV cross-platform validation
 
 on:
   workflow_dispatch:

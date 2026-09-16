@@ -136,7 +136,7 @@ checksum = "1505bd5d3d116872e7271a6d4e16d81d0c8570876c8de68093a09ac269d8aac0"
 
 [[package]]
 name = "audio-capture"
-version = "0.1.0-beta"
+version = "0.1.0-beta.1"
 dependencies = [
  "audio-core",
  "cpal",
@@ -147,7 +147,7 @@ dependencies = [
 
 [[package]]
 name = "audio-core"
-version = "0.1.0-beta"
+version = "0.1.0-beta.1"
 dependencies = [
  "thiserror 2.0.20",
 ]
@@ -324,7 +324,7 @@ dependencies = [
 
 [[package]]
 name = "capture-cli"
-version = "0.1.0-beta"
+version = "0.1.0-beta.1"
 dependencies = [
  "audio-capture",
  "audio-core",
@@ -681,7 +681,7 @@ checksum = "252afb9ae5eaa683babdc6a068b3f5726eb19e05070c731f9b2a23a7c3e8ed34"
 
 [[package]]
 name = "engine-cli"
-version = "0.1.0-beta"
+version = "0.1.0-beta.1"
 dependencies = [
  "engine-protocol",
  "engine-runtime",
@@ -690,7 +690,7 @@ dependencies = [
 
 [[package]]
 name = "engine-protocol"
-version = "0.1.0-beta"
+version = "0.1.0-beta.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -698,7 +698,7 @@ dependencies = [
 
 [[package]]
 name = "engine-runtime"
-version = "0.1.0-beta"
+version = "0.1.0-beta.1"
 dependencies = [
  "audio-capture",
  "audio-core",
@@ -1382,7 +1382,7 @@ dependencies = [
 
 [[package]]
 name = "model-manager"
-version = "0.1.0-beta"
+version = "0.1.0-beta.1"
 dependencies = [
  "reqwest",
  "serde",
@@ -1908,7 +1908,7 @@ dependencies = [
 
 [[package]]
 name = "rimv"
-version = "0.1.0-beta"
+version = "0.1.0-beta.1"
 dependencies = [
  "audio-capture",
  "audio-core",
@@ -1929,7 +1929,7 @@ dependencies = [
 
 [[package]]
 name = "rimv-menu-bar"
-version = "0.1.0-beta"
+version = "0.1.0-beta.1"
 dependencies = [
  "engine-runtime",
  "model-manager",
@@ -2231,7 +2231,7 @@ dependencies = [
 
 [[package]]
 name = "speech-transcription"
-version = "0.1.0-beta"
+version = "0.1.0-beta.1"
 dependencies = [
  "audio-core",
  "engine-protocol",
@@ -2409,7 +2409,7 @@ dependencies = [
 
 [[package]]
 name = "system-profile"
-version = "0.1.0-beta"
+version = "0.1.0-beta.1"
 dependencies = [
  "serde",
 ]
@@ -2719,7 +2719,7 @@ dependencies = [
 
 [[package]]
 name = "transcribe-cli"
-version = "0.1.0-beta"
+version = "0.1.0-beta.1"
 dependencies = [
  "clap",
  "engine-protocol",
@@ -2969,7 +2969,7 @@ dependencies = [
 
 [[package]]
 name = "whisper-models"
-version = "0.1.0-beta"
+version = "0.1.0-beta.1"
 dependencies = [
  "reqwest",
  "serde",
