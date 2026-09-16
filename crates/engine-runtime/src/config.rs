@@ -57,9 +57,20 @@ pub struct TranscriptionSettings {
 }
 impl Default for TranscriptionSettings {
     fn default() -> Self {
+        let model_root = standard_model_root();
+        let parakeet = model_root.join("sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8");
+        let silero_vad = model_root.join("silero_vad.onnx");
+        let vad = speech_transcription::VadConfig {
+            model_path: std::env::var_os("RIMV_SILERO_VAD_MODEL")
+                .map(PathBuf::from)
+                .or_else(|| silero_vad.is_file().then_some(silero_vad)),
+            ..Default::default()
+        };
         Self {
             backend: speech_transcription::AsrBackendKind::Parakeet,
-            model_path: std::env::var_os("RIMV_PARAKEET_MODEL_DIR").map(PathBuf::from),
+            model_path: std::env::var_os("RIMV_PARAKEET_MODEL_DIR")
+                .map(PathBuf::from)
+                .or_else(|| parakeet.is_dir().then_some(parakeet)),
             language: None,
             threads: 4,
             use_gpu: cfg!(target_os = "macos"),
@@ -67,10 +78,23 @@ impl Default for TranscriptionSettings {
             window_ms: 6_000,
             step_ms: 3_000,
             queue_capacity: 64,
-            vad: speech_transcription::VadConfig::default(),
+            vad,
         }
     }
 }
+
+fn standard_model_root() -> PathBuf {
+    std::env::var_os("RIMV_MODELS_DIR").map_or_else(
+        || {
+            std::env::var_os("HOME").map_or_else(
+                || PathBuf::from("resources/models"),
+                |home| PathBuf::from(home).join("Library/Application Support/rimv/models"),
+            )
+        },
+        PathBuf::from,
+    )
+}
+
 impl TranscriptionSettings {
     pub(crate) fn to_speech(&self) -> speech_transcription::SpeechConfig {
         speech_transcription::SpeechConfig {
@@ -110,5 +134,28 @@ impl EngineConfig {
                 })?;
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn defaults_resolve_existing_asr_and_vad_paths_or_explicit_overrides() {
+        let settings = TranscriptionSettings::default();
+        let root = standard_model_root();
+        assert_eq!(
+            settings.model_path.is_some(),
+            std::env::var_os("RIMV_PARAKEET_MODEL_DIR").is_some()
+                || root
+                    .join("sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8")
+                    .is_dir()
+        );
+        assert_eq!(
+            settings.vad.model_path.is_some(),
+            std::env::var_os("RIMV_SILERO_VAD_MODEL").is_some()
+                || root.join("silero_vad.onnx").is_file()
+        );
     }
 }

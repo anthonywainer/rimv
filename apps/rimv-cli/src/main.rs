@@ -496,17 +496,13 @@ fn stop_flag() -> Result<Arc<AtomicBool>> {
 }
 
 fn default_model_path() -> Option<PathBuf> {
-    std::env::var_os("RIMV_PARAKEET_MODEL_DIR").map_or_else(
-        || Some(model_root().join("sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8")),
-        |path| Some(PathBuf::from(path)),
-    )
+    engine_runtime::TranscriptionSettings::default().model_path
 }
 
 fn default_vad_model_path() -> Option<PathBuf> {
-    std::env::var_os("RIMV_SILERO_VAD_MODEL").map_or_else(
-        || Some(model_root().join("silero_vad.onnx")),
-        |path| Some(PathBuf::from(path)),
-    )
+    engine_runtime::TranscriptionSettings::default()
+        .vad
+        .model_path
 }
 
 fn model_root() -> PathBuf {
