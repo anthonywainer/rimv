@@ -39,6 +39,24 @@ The current transcription path uses Silero VAD plus Parakeet ASR through
 this is realtime capture with segmented offline recognition, not true streaming
 ASR.
 
+## Execution Demos
+
+### Microphone capture and transcription
+
+<video controls muted playsinline src="https://raw.githubusercontent.com/anthonywainer/rimv/main/resources/video/mic-transcription.mp4">
+  Your browser does not support embedded video.
+</video>
+
+[Watch the microphone transcription demo](resources/video/mic-transcription.mp4)
+
+### System-audio capture and transcription
+
+<video controls muted playsinline src="https://raw.githubusercontent.com/anthonywainer/rimv/main/resources/video/system-transcription.mp4">
+  Your browser does not support embedded video.
+</video>
+
+[Watch the system-audio transcription demo](resources/video/system-transcription.mp4)
+
 ## Quick Start
 
 Choose the release asset that matches what you need:
@@ -301,28 +319,6 @@ the easiest setup is:
 
 ```sh
 ./rimv models install
-./rimv models
-./rimv doctor
-```
-
-For a manual setup or terminal demo, use the exact model sources below:
-
-```sh
-MODEL_DIR="$HOME/Library/Application Support/rimv/models"
-PARAKEET_ARCHIVE="$MODEL_DIR/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8.tar.bz2"
-
-mkdir -p "$MODEL_DIR"
-
-curl --fail --location --retry 3 \
-  --output "$PARAKEET_ARCHIVE" \
-  https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8.tar.bz2
-tar -xjf "$PARAKEET_ARCHIVE" -C "$MODEL_DIR"
-rm -f "$PARAKEET_ARCHIVE"
-
-curl --fail --location --retry 3 \
-  --output "$MODEL_DIR/silero_vad.onnx" \
-  https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/silero_vad.onnx
-
 ./rimv models
 ./rimv doctor
 ```
