@@ -60,6 +60,72 @@ cp "$root/target/$profile/$built_binary$executable_suffix" "$destination/$staged
 cp "$root/LICENSE" "$destination/LICENSE"
 printf 'rimv %s\nDistribution: %s\n%s\n' "$version" "$kind" "$capability" > "$destination/DISTRIBUTION.txt"
 
+case "$kind" in
+  capture)
+    cat > "$destination/README.md" <<'EOF'
+# rimv Capture
+
+This distribution records microphone audio and supported system audio. It does
+not include speech-to-text, ASR runtimes, or model weights.
+
+```sh
+./rimv-capture --help
+./rimv-capture devices
+./rimv-capture mic --seconds 30 --output microphone.wav
+./rimv-capture system --seconds 30 --output system.wav
+./rimv-capture both --seconds 30 --output-dir recordings
+```
+
+On macOS, grant Microphone permission for microphone capture. System audio also
+requires Screen & System Audio Recording permission in System Settings.
+EOF
+    ;;
+  transcribe)
+    cat > "$destination/README.md" <<'EOF'
+# rimv Transcribe
+
+This distribution captures audio and converts finalized speech to text. ASR
+model weights are not bundled. Before listening, configure the Parakeet model
+directory and Silero VAD model file:
+
+```sh
+export RIMV_PARAKEET_MODEL_DIR=/path/to/parakeet-model-directory
+export RIMV_SILERO_VAD_MODEL=/path/to/silero_vad.onnx
+./rimv doctor
+./rimv models
+```
+
+```sh
+./rimv --help
+./rimv listen --mic
+./rimv listen --system
+./rimv listen --both
+```
+
+On macOS, grant Microphone permission for microphone capture. System audio also
+requires Screen & System Audio Recording permission in System Settings.
+EOF
+    ;;
+  server)
+    cat > "$destination/README.md" <<'EOF'
+# rimv Server (Experimental)
+
+This distribution starts rimv's local WebSocket bridge for the experimental web
+UI. It binds only to `127.0.0.1` by default and is not intended for remote or
+production use.
+
+```sh
+./rimv --help
+./rimv serve
+./rimv serve --port 7878
+```
+
+ASR model weights are not bundled. Configure model paths before using any
+transcription features through the local runtime.
+EOF
+    ;;
+esac
+
 if [ "$kind" != capture ]; then
   for library in "$root/target/$profile"/$library_glob; do
     [ -e "$library" ] || continue

@@ -39,6 +39,56 @@ The current transcription path uses Silero VAD plus Parakeet ASR through
 this is realtime capture with segmented offline recognition, not true streaming
 ASR.
 
+## Quick Start
+
+Choose the release asset that matches what you need:
+
+| Asset | Use it when | Command included |
+|---|---|---|
+| **rimv Capture** | You only want to record microphone or supported system audio. It has no transcription runtime or models. | `rimv-capture` |
+| **rimv Transcribe** | You want capture and speech-to-text. Download this for the commands below. ASR model files are installed separately. | `rimv` |
+| **rimv Server (Experimental)** | You want the local `rimv serve` API for the experimental web UI. It is not a remote or production server. | `rimv` |
+
+For the current macOS arm64 beta, download the matching `rimv-transcribe-<version>-macos-arm64.tar.gz` asset and `SHA256SUMS` from the GitHub Release. Verify the download before extracting it:
+
+```sh
+shasum -a 256 -c SHA256SUMS
+tar -xzf rimv-transcribe-<version>-macos-arm64.tar.gz
+cd rimv-<version>-transcribe-macos-arm64
+```
+
+Check that the bundled CLI runs:
+
+```sh
+./rimv --version
+./rimv --help
+./rimv doctor
+./rimv models
+```
+
+`rimv Transcribe` requires local ASR model files before it can produce text.
+Set `RIMV_PARAKEET_MODEL_DIR` to the Parakeet model directory and
+`RIMV_SILERO_VAD_MODEL` to `silero_vad.onnx`, then confirm their paths with
+`./rimv models`. See [Model Setup](#model-setup) for the full environment
+variable examples.
+
+Start listening with one source at a time, or both together:
+
+```sh
+./rimv listen --mic
+./rimv listen --system
+./rimv listen --both
+```
+
+On macOS, grant **Microphone** permission for microphone capture. For system
+audio, also grant **Screen & System Audio Recording** in **System Settings →
+Privacy & Security**. Quit and reopen rimv after changing a permission.
+
+This beta currently publishes macOS arm64 artifacts only. Model weights are not
+included, transcription is VAD-segmented rather than true streaming ASR, and
+the Server and web UI remain experimental. Windows and Linux binaries are not
+yet public beta downloads.
+
 ## Architecture
 
 ![rimv 0.1.0-beta architecture](resources/arch-v0.1.0b.png)
