@@ -1384,9 +1384,11 @@ dependencies = [
 name = "model-manager"
 version = "0.1.0-beta"
 dependencies = [
+ "bzip2 0.4.4",
  "reqwest",
  "serde",
  "sha2",
+ "tar",
  "tempfile",
  "thiserror 2.0.20",
 ]

@@ -77,10 +77,9 @@ Check that the bundled CLI runs:
 ```
 
 `rimv Transcribe` requires local ASR model files before it can produce text.
-Set `RIMV_PARAKEET_MODEL_DIR` to the Parakeet model directory and
-`RIMV_SILERO_VAD_MODEL` to `silero_vad.onnx`, then confirm their paths with
-`./rimv models`. See [Model Setup](#model-setup) for the full environment
-variable examples.
+Follow [Model Setup](#model-setup) once, then confirm the installation with
+`./rimv models` and `./rimv doctor`. The normal macOS release flow does not
+require environment variables.
 
 Start listening with one source at a time, or both together:
 
@@ -293,20 +292,63 @@ Language defaults to `auto`. The CLI accepts both `--language es` and
 
 ## Model Setup
 
-Development helpers install models under:
+The Transcribe archive does not include model weights. On macOS, install the
+required Parakeet and Silero files once in RimV's standard model directory.
+The Parakeet download is about **640 MB**; Silero VAD is small by comparison.
 
-```text
-resources/models/
+From inside the extracted `rimv-transcribe-<version>-macos-arm64` directory,
+the easiest setup is:
+
+```sh
+./rimv models install
+./rimv models
+./rimv doctor
 ```
 
-That directory is intentionally ignored by Git. In a normal user installation,
-rimv can use:
+For a manual setup or terminal demo, use the exact model sources below:
+
+```sh
+MODEL_DIR="$HOME/Library/Application Support/rimv/models"
+PARAKEET_ARCHIVE="$MODEL_DIR/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8.tar.bz2"
+
+mkdir -p "$MODEL_DIR"
+
+curl --fail --location --retry 3 \
+  --output "$PARAKEET_ARCHIVE" \
+  https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8.tar.bz2
+tar -xjf "$PARAKEET_ARCHIVE" -C "$MODEL_DIR"
+rm -f "$PARAKEET_ARCHIVE"
+
+curl --fail --location --retry 3 \
+  --output "$MODEL_DIR/silero_vad.onnx" \
+  https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/silero_vad.onnx
+
+./rimv models
+./rimv doctor
+```
+
+This creates the exact paths RimV resolves automatically:
 
 ```text
 ~/Library/Application Support/rimv/models/
+├── silero_vad.onnx
+└── sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8/
+    ├── encoder.int8.onnx
+    ├── decoder.int8.onnx
+    ├── joiner.int8.onnx
+    └── tokens.txt
 ```
 
-You can override model discovery with:
+When both commands report the models as available, start your first
+transcription:
+
+```sh
+./rimv listen --mic
+./rimv listen --system
+```
+
+The normal release flow needs no environment configuration. These variables
+remain optional overrides for custom model locations:
 
 ```sh
 export RIMV_MODELS_DIR=/path/to/models

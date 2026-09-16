@@ -6,9 +6,11 @@ license.workspace = true
 authors.workspace = true
 
 [dependencies]
+bzip2 = "0.4"
 reqwest.workspace = true
 serde.workspace = true
 sha2.workspace = true
+tar = "0.4"
 thiserror.workspace = true
 
 [dev-dependencies]

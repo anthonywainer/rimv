@@ -2,6 +2,7 @@
 //!
 //! This crate owns model metadata and file handling. Clients receive generic
 //! descriptors and never need to know ASR implementation details.
+use bzip2::read::BzDecoder;
 use sha2::{Digest, Sha256};
 use std::{
     fs,
@@ -10,6 +11,11 @@ use std::{
     sync::atomic::{AtomicBool, Ordering},
     time::Duration,
 };
+use tar::Archive;
+
+const PARAKEET_ID: &str = "parakeet-tdt-0.6b-v3-int8";
+const PARAKEET_ARCHIVE: &str = "sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8.tar.bz2";
+const PARAKEET_URL: &str = "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8.tar.bz2";
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ModelCapabilities {
@@ -196,6 +202,55 @@ impl ModelManager {
         }
         result
     }
+
+    /// Install the verified Parakeet archive into this manager's model root.
+    pub fn install_parakeet(
+        &self,
+        cancelled: &AtomicBool,
+        mut progress: impl FnMut(u64, Option<u64>),
+    ) -> Result<PathBuf, ModelError> {
+        let descriptor = self.descriptor(PARAKEET_ID)?;
+        if self.state(descriptor) == ModelState::Ready {
+            return Ok(self.directory(descriptor));
+        }
+        fs::create_dir_all(&self.root)?;
+        let archive_path = self.root.join(PARAKEET_ARCHIVE);
+        let part = archive_path.with_file_name(format!("{PARAKEET_ARCHIVE}.part"));
+        let result = (|| {
+            let mut response = reqwest::blocking::Client::builder()
+                .timeout(Duration::from_secs(30))
+                .build()?
+                .get(PARAKEET_URL)
+                .send()?
+                .error_for_status()?;
+            let mut output = fs::File::create(&part)?;
+            let mut written = 0_u64;
+            let mut buffer = [0_u8; 64 * 1024];
+            loop {
+                if cancelled.load(Ordering::Acquire) {
+                    return Err(ModelError::Cancelled);
+                }
+                let count = response.read(&mut buffer)?;
+                if count == 0 {
+                    break;
+                }
+                output.write_all(&buffer[..count])?;
+                written += count as u64;
+                progress(written, None);
+            }
+            fs::rename(&part, &archive_path)?;
+            Archive::new(BzDecoder::new(fs::File::open(&archive_path)?)).unpack(&self.root)?;
+            if self.state(descriptor) != ModelState::Ready {
+                return Err(ModelError::Io(io::Error::other(
+                    "Parakeet archive did not contain the required model files",
+                )));
+            }
+            Ok(self.directory(descriptor))
+        })();
+        let _ = fs::remove_file(&part);
+        let _ = fs::remove_file(&archive_path);
+        result
+    }
 }
 
 pub fn catalog() -> Vec<ModelDescriptor> {
@@ -206,7 +261,7 @@ pub fn catalog() -> Vec<ModelDescriptor> {
     };
     vec![
         ModelDescriptor {
-            id: "parakeet-tdt-0.6b-v3-int8".into(),
+            id: PARAKEET_ID.into(),
             backend: "parakeet".into(),
             display_name: "Parakeet TDT 0.6B v3 INT8".into(),
             version: "v3".into(),
@@ -224,7 +279,7 @@ pub fn catalog() -> Vec<ModelDescriptor> {
             languages: ["en", "es", "ru"].into_iter().map(str::to_string).collect(),
             quantization: Some("int8".into()),
             capabilities: no_streaming.clone(),
-            install_hint: Some("Run `make models` to install the verified Parakeet package.".into()),
+            install_hint: Some("Run `rimv models install` to install the verified Parakeet package.".into()),
         },
         ModelDescriptor {
             id: "silero-vad".into(),

@@ -107,10 +107,18 @@ struct DoctorArgs {
 
 #[derive(Args)]
 struct ModelsArgs {
+    #[command(subcommand)]
+    command: Option<ModelsCommand>,
     #[arg(long, value_enum, default_value_t = Backend::Parakeet)]
     backend: Backend,
     #[arg(long)]
     model: Option<PathBuf>,
+}
+
+#[derive(Subcommand)]
+enum ModelsCommand {
+    /// Download the default Parakeet ASR and Silero VAD models.
+    Install,
 }
 
 #[derive(Args)]
@@ -346,6 +354,12 @@ fn doctor(args: DoctorArgs) -> Result<()> {
 }
 
 fn models(args: ModelsArgs) -> Result<()> {
+    let root = model_root();
+    let manager = ModelManager::new(&root);
+    if matches!(args.command, Some(ModelsCommand::Install)) {
+        install_models(&manager)?;
+        return Ok(());
+    }
     println!("backend: {:?}", args.backend);
     let configured = args.model.or_else(default_model_path);
     println!(
@@ -367,8 +381,6 @@ fn models(args: ModelsArgs) -> Result<()> {
         "env RIMV_SILERO_VAD_MODEL: {}",
         env_path("RIMV_SILERO_VAD_MODEL")
     );
-    let root = model_root();
-    let manager = ModelManager::new(&root);
     println!("model storage: {}", root.display());
     for descriptor in manager.catalog() {
         println!(
@@ -383,6 +395,36 @@ fn models(args: ModelsArgs) -> Result<()> {
             }
         );
     }
+    Ok(())
+}
+
+fn install_models(manager: &ModelManager) -> Result<()> {
+    let cancelled = AtomicBool::new(false);
+    for (id, label) in [
+        ("parakeet-tdt-0.6b-v3-int8", "Parakeet ASR (about 640 MB)"),
+        ("silero-vad", "Silero VAD"),
+    ] {
+        let descriptor = manager.descriptor(id)?;
+        if manager.state(descriptor) == model_manager::ModelState::Ready {
+            println!("{label} is already installed.");
+            continue;
+        }
+        eprintln!("Installing {label}...");
+        let mut reported = 0_u64;
+        let mut progress = |written: u64, _total: Option<u64>| {
+            if written.saturating_sub(reported) >= 8 * 1024 * 1024 {
+                eprint!("\rDownloaded {:.0} MiB", written as f64 / 1024.0 / 1024.0);
+                reported = written;
+            }
+        };
+        let path = if id == "parakeet-tdt-0.6b-v3-int8" {
+            manager.install_parakeet(&cancelled, &mut progress)?
+        } else {
+            manager.install(id, &cancelled, &mut progress)?
+        };
+        eprintln!("\rInstalled {label}: {}", path.display());
+    }
+    println!("Models are ready. Run `rimv doctor` to verify the runtime configuration.");
     Ok(())
 }
 
