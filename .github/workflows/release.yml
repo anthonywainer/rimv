@@ -116,6 +116,9 @@ jobs:
           - name: macOS arm64
             os: macos-15
             artifact: macos-arm64
+          - name: Windows x64
+            os: windows-latest
+            artifact: windows-x64
 
     steps:
       - name: Checkout

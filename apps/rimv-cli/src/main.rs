@@ -367,14 +367,7 @@ fn models(args: ModelsArgs) -> Result<()> {
         "env RIMV_SILERO_VAD_MODEL: {}",
         env_path("RIMV_SILERO_VAD_MODEL")
     );
-    let root = std::env::var_os("RIMV_MODELS_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| {
-            std::env::var_os("HOME").map_or_else(
-                || PathBuf::from("resources/models"),
-                |home| ModelManager::default_root(&PathBuf::from(home)),
-            )
-        });
+    let root = model_root();
     let manager = ModelManager::new(&root);
     println!("model storage: {}", root.display());
     for descriptor in manager.catalog() {
@@ -490,6 +483,7 @@ fn apply_transcription_options(
     if let Some(threshold) = options.vad_threshold {
         settings.vad.threshold = threshold;
     }
+    settings.vad.model_path = default_vad_model_path();
 }
 
 fn stop_flag() -> Result<Arc<AtomicBool>> {
@@ -502,7 +496,29 @@ fn stop_flag() -> Result<Arc<AtomicBool>> {
 }
 
 fn default_model_path() -> Option<PathBuf> {
-    std::env::var_os("RIMV_PARAKEET_MODEL_DIR").map(PathBuf::from)
+    std::env::var_os("RIMV_PARAKEET_MODEL_DIR").map_or_else(
+        || Some(model_root().join("sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8")),
+        |path| Some(PathBuf::from(path)),
+    )
+}
+
+fn default_vad_model_path() -> Option<PathBuf> {
+    std::env::var_os("RIMV_SILERO_VAD_MODEL").map_or_else(
+        || Some(model_root().join("silero_vad.onnx")),
+        |path| Some(PathBuf::from(path)),
+    )
+}
+
+fn model_root() -> PathBuf {
+    std::env::var_os("RIMV_MODELS_DIR").map_or_else(
+        || {
+            std::env::var_os("HOME").map_or_else(
+                || PathBuf::from("resources/models"),
+                |home| ModelManager::default_root(&PathBuf::from(home)),
+            )
+        },
+        PathBuf::from,
+    )
 }
 
 fn language(value: String) -> Option<String> {

@@ -49,12 +49,22 @@ Choose the release asset that matches what you need:
 | **rimv Transcribe** | You want capture and speech-to-text. Download this for the commands below. ASR model files are installed separately. | `rimv` |
 | **rimv Server (Experimental)** | You want the local `rimv serve` API for the experimental web UI. It is not a remote or production server. | `rimv` |
 
-For the current macOS arm64 beta, download the matching `rimv-transcribe-<version>-macos-arm64.tar.gz` asset and `SHA256SUMS` from the GitHub Release. Verify the download before extracting it:
+For the current beta, download the matching Transcribe asset and `SHA256SUMS`
+from the GitHub Release. macOS arm64 uses `.tar.gz`; Windows x64 uses `.zip`.
+Verify the download before extracting it:
 
 ```sh
 shasum -a 256 -c SHA256SUMS
 tar -xzf rimv-transcribe-<version>-macos-arm64.tar.gz
 cd rimv-<version>-transcribe-macos-arm64
+```
+
+In PowerShell on Windows:
+
+```powershell
+Get-FileHash .\rimv-transcribe-<version>-windows-x64.zip -Algorithm SHA256
+Expand-Archive .\rimv-transcribe-<version>-windows-x64.zip
+Set-Location .\rimv-<version>-transcribe-windows-x64
 ```
 
 Check that the bundled CLI runs:
@@ -84,10 +94,11 @@ On macOS, grant **Microphone** permission for microphone capture. For system
 audio, also grant **Screen & System Audio Recording** in **System Settings →
 Privacy & Security**. Quit and reopen rimv after changing a permission.
 
-This beta currently publishes macOS arm64 artifacts only. Model weights are not
-included, transcription is VAD-segmented rather than true streaming ASR, and
-the Server and web UI remain experimental. Windows and Linux binaries are not
-yet public beta downloads.
+This beta publishes macOS arm64 artifacts and Windows x64 preview artifacts.
+Model weights are not included, transcription is VAD-segmented rather than
+true streaming ASR, and the Server and web UI remain experimental. Windows has
+not yet been runtime-tested on hardware; Linux binaries are not public beta
+downloads.
 
 ## Architecture
 
@@ -141,7 +152,7 @@ Model weights are not bundled in the beta staging output.
 | Platform | Build status | Runtime capture | Transcription | Release status |
 |---|---|---|---|---|
 | macOS arm64 | Verified locally | Microphone and ScreenCaptureKit system capture have been exercised on this host | Parakeet path has been exercised on this host | Primary beta target |
-| Windows x64 | Scheduled/manual validation configured | Microphone and WASAPI loopback adapter exist in code, but were not runtime-tested on Windows hardware | Not runtime-tested | Preview; no public beta binary |
+| Windows x64 | Release build configured | Microphone and WASAPI loopback adapter exist in code, but were not runtime-tested on Windows hardware | Not runtime-tested | Preview public beta artifact |
 | Linux x64 | Scheduled/manual validation configured | Microphone uses CPAL/ALSA; system capture is explicitly unsupported pending PipeWire | Not runtime-tested | Experimental/partial; no public beta binary |
 
 Compilation alone does not mean runtime support. Hardware and permission-based
@@ -329,11 +340,11 @@ redistribution has not been verified.
 
 `.github/workflows/release.yml` validates release tags, runs one locked Linux
 quality gate for the exact tagged commit, then builds and archives macOS arm64
-beta packages, inspects archive contents, generates `SHA256SUMS`, and publishes
-a GitHub Release only for tag pushes. Windows and Linux remain
-scheduled/manual validation targets and are not public beta artifacts. Manual
-`workflow_dispatch` runs are dry runs: they build and upload workflow artifacts
-but do not publish a GitHub Release.
+and Windows x64 beta packages, inspects archive contents, generates
+`SHA256SUMS`, and publishes a GitHub Release only for tag pushes. Windows is a
+preview release target; Linux remains a scheduled/manual validation target and
+does not publish beta artifacts. Manual `workflow_dispatch` runs are dry runs:
+they build and upload workflow artifacts but do not publish a GitHub Release.
 
 For `v0.1.0-beta`, the public release attaches:
 
@@ -341,12 +352,14 @@ For `v0.1.0-beta`, the public release attaches:
 rimv-capture-v0.1.0-beta-macos-arm64.tar.gz
 rimv-transcribe-v0.1.0-beta-macos-arm64.tar.gz
 rimv-server-v0.1.0-beta-macos-arm64.tar.gz
+rimv-capture-v0.1.0-beta-windows-x64.zip
+rimv-transcribe-v0.1.0-beta-windows-x64.zip
+rimv-server-v0.1.0-beta-windows-x64.zip
 SHA256SUMS
 ```
 
-The archive script derives the version from the release tag. Windows and Linux
-equivalent names are retained by the packaging format for future validated
-releases, but are not published in this beta.
+The archive script derives the version from the release tag. Windows artifacts
+are preview builds; Linux equivalents remain deferred until runtime validation.
 
 Trigger the beta release after validation and owner approval with:
 

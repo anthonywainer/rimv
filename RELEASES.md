@@ -36,7 +36,7 @@ configured separately.
 | Platform | Status |
 |---|---|
 | macOS arm64 | Primary beta target. Workspace checks, staged Capture/Transcribe/Server outputs, and previous local microphone/system/transcription runs were exercised on this host. |
-| Windows x64 | Preview. Code contains microphone and WASAPI loopback capture paths, but this beta has not been runtime-tested on Windows hardware; no public beta binary is published. |
+| Windows x64 | Preview release. Code contains microphone and WASAPI loopback capture paths, but this beta has not been runtime-tested on Windows hardware. Windows x64 archives are published as preview artifacts. |
 | Linux x64 | Experimental/partial. Microphone capture uses CPAL/ALSA. System audio capture is unsupported pending a PipeWire backend; no public beta binary is published. |
 
 Compilation does not imply runtime support. Capture permissions, audio devices,
