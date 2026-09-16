@@ -43,19 +43,17 @@ ASR.
 
 ### Microphone capture and transcription
 
-<video controls muted playsinline src="https://raw.githubusercontent.com/anthonywainer/rimv/main/resources/video/mic-transcription.mp4">
-  Your browser does not support embedded video.
-</video>
 
-[Watch the microphone transcription demo](resources/video/mic-transcription.mp4)
+https://github.com/user-attachments/assets/fa26a32c-f03b-4f4f-ace8-5b7e6a895813
+
 
 ### System-audio capture and transcription
 
-<video controls muted playsinline src="https://raw.githubusercontent.com/anthonywainer/rimv/main/resources/video/system-transcription.mp4">
-  Your browser does not support embedded video.
-</video>
 
-[Watch the system-audio transcription demo](resources/video/system-transcription.mp4)
+
+https://github.com/user-attachments/assets/a3ebabaf-0fba-4351-ae8f-2b51c37bb2b0
+
+
 
 ## Quick Start
 
