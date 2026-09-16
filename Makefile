@@ -58,7 +58,7 @@ CHANNELS_ARG = $(if $(strip $(CHANNELS)),--channels $(CHANNELS))
 CAPTURE_ARGS = --seconds $(SECONDS) $(DEVICE_ARG) $(SAMPLE_RATE_ARG) $(CHANNELS_ARG)
 
 .DEFAULT_GOAL := help
-.PHONY: help build debug check test fmt lint lint-linux-docker devices mic system both engine rimv models rimv-models rimv-listen rimv-listen-es rimv-e2e-test stage-capture stage-transcribe stage-server stage-full menu menu-build menu-test profile web web-build app-web clean clean-temp
+.PHONY: help build debug check test fmt lint lint-linux-docker devices mic system both engine rimv models rimv-models rimv-listen rimv-transcribe rimv-listen-es rimv-e2e-test stage-capture stage-transcribe stage-server stage-full menu menu-build menu-test profile web web-build app-web clean clean-temp
 
 APP_PROFILE ?= release
 APP_DIR := $(abspath target/$(APP_PROFILE)/rimv.app)
@@ -85,6 +85,7 @@ help:
 	  '  make models      Download the Parakeet ASR and Silero VAD models.' \
 	  '  make rimv-models Show the configured rimv model paths and availability.' \
 	  '  make rimv-listen Download models if needed, then listen to the microphone.' \
+	  '  make rimv-transcribe Capture and transcribe system audio.' \
 	  '  make rimv-listen-es Capture microphone + system audio and transcribe Spanish.' \
 	  '  make rimv-e2e-test Play, capture, transcribe, and score resources/audio.' \
 	  '  make stage-capture    Stage the lightweight capture distribution.' \
@@ -155,8 +156,6 @@ models:
 	@if [ ! -f "$(SILERO_VAD_MODEL)" ]; then \
 		echo 'Downloading Silero VAD model...'; \
 		curl --fail --location --retry 3 --output "$(SILERO_VAD_MODEL)" "$(SILERO_VAD_URL)"; \
-	else \
-		echo 'Silero VAD model already present.'; \
 	fi
 	@if [ ! -f "$(PARAKEET_MODEL_DIR)/encoder.int8.onnx" ] || \
 		[ ! -f "$(PARAKEET_MODEL_DIR)/decoder.int8.onnx" ] || \
@@ -166,21 +165,21 @@ models:
 		curl --fail --location --retry 3 --output "$(PARAKEET_ARCHIVE)" "$(PARAKEET_MODEL_URL)"; \
 		tar -xjf "$(PARAKEET_ARCHIVE)" -C "$(RIMV_MODELS_DIR)"; \
 		rm -f "$(PARAKEET_ARCHIVE)"; \
-	else \
-		echo 'Parakeet ASR model already present.'; \
 	fi
 	@test -f "$(SILERO_VAD_MODEL)"
 	@test -f "$(PARAKEET_MODEL_DIR)/encoder.int8.onnx"
 	@test -f "$(PARAKEET_MODEL_DIR)/decoder.int8.onnx"
 	@test -f "$(PARAKEET_MODEL_DIR)/joiner.int8.onnx"
 	@test -f "$(PARAKEET_MODEL_DIR)/tokens.txt"
-	@echo 'Models are ready under $(RIMV_MODELS_DIR).'
 
 rimv-models:
 	$(MODEL_ENV) $(CARGO) run --release --locked -p rimv -- models
 
 rimv-listen: models
-	$(MODEL_ENV) $(CARGO) run --release --locked -p rimv -- listen --mic --language "$(LANGUAGE)" --show-partials --show-metrics
+	@$(MODEL_ENV) $(CARGO) run --release --locked -p rimv -- listen --mic --language "$(LANGUAGE)" --show-partials --show-metrics
+
+rimv-transcribe: models
+	@$(MODEL_ENV) $(CARGO) run --release --locked -p rimv -- listen --system --language "$(LANGUAGE)" --show-partials --show-metrics
 
 rimv-listen-es: models
 	$(MODEL_ENV) $(CARGO) run --release --locked -p rimv -- listen --both --language es --show-partials --show-metrics
