@@ -38,13 +38,16 @@ rm -f "$archive"
 
 case "$archive" in
   *.zip)
-    (cd "$(dirname "$stage_dir")" && zip -rq "$archive" "$(basename "$stage_dir")" \
-      -x '*/.DS_Store' -x '*/__MACOSX/*' -x '*/target/*' -x '*/resources/models/*' \
-      -x '*.onnx' -x '*.bin' -x '*.tar.bz2')
-    # `unzip -l` includes a header with the archive's own filesystem path.
-    # That path normally contains `target`, which the content validation below
-    # correctly rejects for entries but must not mistake for an archive member.
-    unzip -Z1 "$archive" > "$archive.contents.txt"
+    # GitHub's Windows runner provides PowerShell but not the Unix zip/unzip
+    # utilities. Use the built-in ZIP APIs while keeping the staged directory
+    # as the archive root, matching the tarball layout on macOS and Linux.
+    stage_windows=$(cygpath -w "$stage_dir")
+    archive_windows=$(cygpath -w "$archive")
+    powershell.exe -NoProfile -NonInteractive -Command \
+      "\$ErrorActionPreference = 'Stop'; Compress-Archive -LiteralPath '$stage_windows' -DestinationPath '$archive_windows' -Force"
+    powershell.exe -NoProfile -NonInteractive -Command \
+      "Add-Type -AssemblyName System.IO.Compression.FileSystem; [System.IO.Compression.ZipFile]::OpenRead('$archive_windows').Entries | ForEach-Object { \$_.FullName }" \
+      > "$archive.contents.txt"
     ;;
   *.tar.gz)
     tar -czf "$archive" \
