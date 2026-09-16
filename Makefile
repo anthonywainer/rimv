@@ -6,6 +6,17 @@
 
 SHELL := /bin/sh
 
+# Prefer the SDK belonging to the selected Xcode installation. Some macOS
+# setups otherwise pair Xcode's compiler with an older Command Line Tools SDK.
+# An explicitly supplied SDKROOT always takes precedence.
+ifeq ($(shell uname -s),Darwin)
+RIMV_XCODE_DEVELOPER_DIR := $(shell xcode-select -p 2>/dev/null)
+RIMV_XCODE_SDKROOT := $(RIMV_XCODE_DEVELOPER_DIR)/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk
+ifneq ($(wildcard $(RIMV_XCODE_SDKROOT)),)
+export SDKROOT ?= $(RIMV_XCODE_SDKROOT)
+endif
+endif
+
 LOCAL_CARGO_HOME := $(abspath ../.rust-tools/cargo)
 LOCAL_RUSTUP_HOME := $(abspath ../.rust-tools/rustup)
 

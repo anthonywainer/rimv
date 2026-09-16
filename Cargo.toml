@@ -41,6 +41,10 @@ axum = { version = "0.8", features = ["ws"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "sync"] }
 futures-util = "0.3"
 
+[patch.crates-io]
+# GGML needs clang-cl rather than MSVC when whisper.cpp is built for Windows ARM64.
+whisper-rs-sys = { path = "vendor/whisper-rs-sys" }
+
 # Keep the distributable CLI small without changing the library API or its
 # downstream panic behavior.
 [profile.release]
