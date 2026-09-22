@@ -1,0 +1,489 @@
+{
+  "$schema": "https://design-tokens.github.io/community-group/format/",
+  "meta": {
+    "name": "RimV design tokens",
+    "status": "proposal",
+    "version": "4A-1.0",
+    "unit": "px or platform-equivalent points where applicable",
+    "canonicalDocument": ".aiassistance/design/RIMV_DESIGN_SYSTEM.md",
+    "notes": "Not auto-applied to source. Use semantic tokens and verify contrast."
+  },
+  "color": {
+    "light": {
+      "background": {
+        "$type": "color",
+        "$value": "#EEF2FA"
+      },
+      "surface": {
+        "$type": "color",
+        "$value": "#FFFFFF"
+      },
+      "surface-secondary": {
+        "$type": "color",
+        "$value": "#F6F7FB"
+      },
+      "surface-tertiary": {
+        "$type": "color",
+        "$value": "#ECE9FF"
+      },
+      "border": {
+        "$type": "color",
+        "$value": "#E3E6EF"
+      },
+      "border-strong": {
+        "$type": "color",
+        "$value": "#D7DDED"
+      },
+      "text-primary": {
+        "$type": "color",
+        "$value": "#171827"
+      },
+      "text-secondary": {
+        "$type": "color",
+        "$value": "#5E6475"
+      },
+      "text-muted": {
+        "$type": "color",
+        "$value": "#9AA3B5"
+      },
+      "icon-primary": {
+        "$type": "color",
+        "$value": "#171827"
+      },
+      "icon-secondary": {
+        "$type": "color",
+        "$value": "#7A8194"
+      },
+      "brand": {
+        "$type": "color",
+        "$value": "#8B6FF6"
+      },
+      "brand-hover": {
+        "$type": "color",
+        "$value": "#7C5EF0"
+      },
+      "brand-pressed": {
+        "$type": "color",
+        "$value": "#6D4DE6"
+      },
+      "action-solid": {
+        "$type": "color",
+        "$value": "#6D4DE6"
+      },
+      "action-solid-hover": {
+        "$type": "color",
+        "$value": "#6241D0"
+      },
+      "action-solid-pressed": {
+        "$type": "color",
+        "$value": "#5638BB"
+      },
+      "on-action": {
+        "$type": "color",
+        "$value": "#FFFFFF"
+      },
+      "ai": {
+        "$type": "color",
+        "$value": "#7C3AED"
+      },
+      "live": {
+        "$type": "color",
+        "$value": "#16A34A"
+      },
+      "warning": {
+        "$type": "color",
+        "$value": "#B45309"
+      },
+      "error": {
+        "$type": "color",
+        "$value": "#DC2626"
+      },
+      "focus": {
+        "$type": "color",
+        "$value": "#6D4DE6"
+      }
+    },
+    "dark": {
+      "background": {
+        "$type": "color",
+        "$value": "#0B0F19"
+      },
+      "surface": {
+        "$type": "color",
+        "$value": "#111827"
+      },
+      "surface-secondary": {
+        "$type": "color",
+        "$value": "#172033"
+      },
+      "surface-tertiary": {
+        "$type": "color",
+        "$value": "#1F2937"
+      },
+      "border": {
+        "$type": "color",
+        "$value": "#263244"
+      },
+      "border-strong": {
+        "$type": "color",
+        "$value": "#374151"
+      },
+      "text-primary": {
+        "$type": "color",
+        "$value": "#F9FAFB"
+      },
+      "text-secondary": {
+        "$type": "color",
+        "$value": "#CBD5E1"
+      },
+      "text-muted": {
+        "$type": "color",
+        "$value": "#94A3B8"
+      },
+      "icon-primary": {
+        "$type": "color",
+        "$value": "#F9FAFB"
+      },
+      "icon-secondary": {
+        "$type": "color",
+        "$value": "#CBD5E1"
+      },
+      "brand": {
+        "$type": "color",
+        "$value": "#A78BFA"
+      },
+      "brand-hover": {
+        "$type": "color",
+        "$value": "#C4B5FD"
+      },
+      "brand-pressed": {
+        "$type": "color",
+        "$value": "#8B5CF6"
+      },
+      "action-solid": {
+        "$type": "color",
+        "$value": "#2F3747"
+      },
+      "action-solid-hover": {
+        "$type": "color",
+        "$value": "#3A4558"
+      },
+      "action-solid-pressed": {
+        "$type": "color",
+        "$value": "#242C3A"
+      },
+      "on-action": {
+        "$type": "color",
+        "$value": "#F9FAFB"
+      },
+      "ai": {
+        "$type": "color",
+        "$value": "#A78BFA"
+      },
+      "live": {
+        "$type": "color",
+        "$value": "#22C55E"
+      },
+      "warning": {
+        "$type": "color",
+        "$value": "#FBBF24"
+      },
+      "error": {
+        "$type": "color",
+        "$value": "#F87171"
+      },
+      "focus": {
+        "$type": "color",
+        "$value": "#C4B5FD"
+      }
+    }
+  },
+  "semanticMessages": {
+    "light": {
+      "info": {
+        "surface": {
+          "$type": "color",
+          "$value": "#DBEAFE"
+        },
+        "text": {
+          "$type": "color",
+          "$value": "#1D4ED8"
+        }
+      },
+      "success": {
+        "surface": {
+          "$type": "color",
+          "$value": "#D1FAE5"
+        },
+        "text": {
+          "$type": "color",
+          "$value": "#065F46"
+        }
+      },
+      "warning": {
+        "surface": {
+          "$type": "color",
+          "$value": "#FEF3C7"
+        },
+        "text": {
+          "$type": "color",
+          "$value": "#92400E"
+        }
+      },
+      "error": {
+        "surface": {
+          "$type": "color",
+          "$value": "#FEE2E2"
+        },
+        "text": {
+          "$type": "color",
+          "$value": "#991B1B"
+        }
+      }
+    },
+    "dark": {
+      "info": {
+        "surface": {
+          "$type": "color",
+          "$value": "#172554"
+        },
+        "text": {
+          "$type": "color",
+          "$value": "#93C5FD"
+        }
+      },
+      "success": {
+        "surface": {
+          "$type": "color",
+          "$value": "#14532D"
+        },
+        "text": {
+          "$type": "color",
+          "$value": "#86EFAC"
+        }
+      },
+      "warning": {
+        "surface": {
+          "$type": "color",
+          "$value": "#78350F"
+        },
+        "text": {
+          "$type": "color",
+          "$value": "#FCD34D"
+        }
+      },
+      "error": {
+        "surface": {
+          "$type": "color",
+          "$value": "#7F1D1D"
+        },
+        "text": {
+          "$type": "color",
+          "$value": "#FCA5A5"
+        }
+      }
+    }
+  },
+  "space": {
+    "4": {
+      "$type": "dimension",
+      "$value": "4px"
+    },
+    "8": {
+      "$type": "dimension",
+      "$value": "8px"
+    },
+    "12": {
+      "$type": "dimension",
+      "$value": "12px"
+    },
+    "16": {
+      "$type": "dimension",
+      "$value": "16px"
+    },
+    "20": {
+      "$type": "dimension",
+      "$value": "20px"
+    },
+    "24": {
+      "$type": "dimension",
+      "$value": "24px"
+    },
+    "32": {
+      "$type": "dimension",
+      "$value": "32px"
+    },
+    "40": {
+      "$type": "dimension",
+      "$value": "40px"
+    },
+    "48": {
+      "$type": "dimension",
+      "$value": "48px"
+    }
+  },
+  "radius": {
+    "xs": {
+      "$type": "dimension",
+      "$value": "6px"
+    },
+    "sm": {
+      "$type": "dimension",
+      "$value": "8px"
+    },
+    "md": {
+      "$type": "dimension",
+      "$value": "12px"
+    },
+    "lg": {
+      "$type": "dimension",
+      "$value": "16px"
+    },
+    "xl": {
+      "$type": "dimension",
+      "$value": "20px"
+    },
+    "full": {
+      "$type": "dimension",
+      "$value": "999px"
+    }
+  },
+  "size": {
+    "button-desktop": {
+      "$type": "dimension",
+      "$value": "40px"
+    },
+    "button-touch": {
+      "$type": "dimension",
+      "$value": "48px"
+    },
+    "input-desktop": {
+      "$type": "dimension",
+      "$value": "40px"
+    },
+    "input-touch": {
+      "$type": "dimension",
+      "$value": "44px"
+    },
+    "chip": {
+      "$type": "dimension",
+      "$value": "26px"
+    },
+    "icon-small": {
+      "$type": "dimension",
+      "$value": "16px"
+    },
+    "icon-default": {
+      "$type": "dimension",
+      "$value": "18px"
+    },
+    "icon-large": {
+      "$type": "dimension",
+      "$value": "20px"
+    },
+    "icon-hero": {
+      "$type": "dimension",
+      "$value": "24px"
+    },
+    "sidebar-ideal": {
+      "$type": "dimension",
+      "$value": "260px"
+    },
+    "context-panel-ideal": {
+      "$type": "dimension",
+      "$value": "350px"
+    }
+  },
+  "motion": {
+    "tap": {
+      "$type": "duration",
+      "$value": "120ms"
+    },
+    "hover": {
+      "$type": "duration",
+      "$value": "140ms"
+    },
+    "transition": {
+      "$type": "duration",
+      "$value": "180ms"
+    },
+    "sheet": {
+      "$type": "duration",
+      "$value": "280ms"
+    },
+    "live-pulse": {
+      "$type": "duration",
+      "$value": "1800ms"
+    }
+  },
+  "typography": {
+    "display": {
+      "fontSize": "36px",
+      "lineHeight": "42px",
+      "fontWeight": 600
+    },
+    "h1": {
+      "fontSize": "30px",
+      "lineHeight": "36px",
+      "fontWeight": 600
+    },
+    "h2": {
+      "fontSize": "24px",
+      "lineHeight": "30px",
+      "fontWeight": 600
+    },
+    "h3": {
+      "fontSize": "18px",
+      "lineHeight": "24px",
+      "fontWeight": 600
+    },
+    "body-large": {
+      "fontSize": "16px",
+      "lineHeight": "24px",
+      "fontWeight": 400
+    },
+    "body": {
+      "fontSize": "14px",
+      "lineHeight": "22px",
+      "fontWeight": 400
+    },
+    "footnote": {
+      "fontSize": "12px",
+      "lineHeight": "16px",
+      "fontWeight": 500
+    },
+    "caption": {
+      "fontSize": "11px",
+      "lineHeight": "14px",
+      "fontWeight": 500
+    },
+    "button": {
+      "fontSize": "14px",
+      "lineHeight": "18px",
+      "fontWeight": 600
+    },
+    "small-label": {
+      "fontSize": "12px",
+      "lineHeight": "16px",
+      "fontWeight": 500
+    }
+  },
+  "elevation": {
+    "light-card": {
+      "$type": "shadow",
+      "$value": "0 1px 2px rgba(15,23,42,.06), 0 6px 18px rgba(15,23,42,.06)"
+    },
+    "light-modal": {
+      "$type": "shadow",
+      "$value": "0 8px 32px rgba(15,23,42,.14)"
+    },
+    "dark-card": {
+      "$type": "shadow",
+      "$value": "none"
+    },
+    "dark-overlay": {
+      "$type": "shadow",
+      "$value": "0 10px 30px rgba(0,0,0,.28)"
+    }
+  }
+}
