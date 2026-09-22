@@ -1,0 +1,59 @@
+[agents]
+enabled = true
+max_concurrent_threads_per_session = 2
+
+[agents.rust]
+description = "RimV Rust specialist"
+config_file = "../.agents/codex/rust.toml"
+
+[agents.frontend]
+description = "RimV frontend specialist"
+config_file = "../.agents/codex/frontend.toml"
+
+[agents.audio]
+description = "RimV audio specialist"
+config_file = "../.agents/codex/audio.toml"
+
+[agents."swift"]
+description = "Implement RimV macOS and iOS features using Swift, SwiftUI, AppKit or UIKit and safe Rust/native integration. Use for Apple-only work."
+config_file = "../.agents/codex/swift.toml"
+
+[agents."windows"]
+description = "Implement RimV Windows features, native desktop UI, audio integration, tray, notifications and packaging. Use for Windows-specific work."
+config_file = "../.agents/codex/windows.toml"
+
+[agents."linux"]
+description = "Implement RimV Linux desktop integration, native UI, audio stack compatibility, portals, Wayland/X11 and packaging."
+config_file = "../.agents/codex/linux.toml"
+
+[agents."ui-ux"]
+description = "Review or design RimV interfaces, user flows, recording/transcription UX, design-system consistency and native platform conventions."
+config_file = "../.agents/codex/ui-ux.toml"
+
+[agents."architect"]
+description = "Assess RimV crate boundaries, public protocols, native adapters, dependency direction and consequential cross-component design changes."
+config_file = "../.agents/codex/architect.toml"
+
+[agents."debugger"]
+description = "Reproduce and isolate RimV failures, identify evidence-based root causes and implement minimal targeted fixes when asked."
+config_file = "../.agents/codex/debugger.toml"
+
+[agents."test"]
+description = "Develop and improve focused unit, integration, protocol, audio-fixture and cross-platform regression tests for RimV."
+config_file = "../.agents/codex/test.toml"
+
+[agents."security"]
+description = "Review or implement security and privacy boundaries in RimV: microphone permission, local data, FFI, downloads, IPC and process execution."
+config_file = "../.agents/codex/security.toml"
+
+[agents."devops"]
+description = "Maintain RimV CI/CD, GitHub Actions, build scripts, release automation, signing and cross-platform packaging."
+config_file = "../.agents/codex/devops.toml"
+
+[agents."performance"]
+description = "Profile and optimize RimV audio latency, model loading, CPU use, memory, throughput and UI responsiveness using measured baselines."
+config_file = "../.agents/codex/performance.toml"
+
+[agents."reviewer"]
+description = "Review RimV diffs for correctness, regressions, concurrency, safety, API compatibility and missing tests without modifying files."
+config_file = "../.agents/codex/reviewer.toml"
