@@ -17,7 +17,7 @@ engine-protocol = { workspace = true, features = ["serde"] }
 thiserror.workspace = true
 rubato = "0.16"
 serde.workspace = true
-whisper-rs = { version = "0.16", optional = true }
+whisper-rs = { version = "0.16", optional = true, features = ["tracing_backend"] }
 # The maintained macOS static archive for 1.13.8 omits libonnxruntime.a.
 # Use the upstream shared package instead; its build script copies the required
 # dylibs alongside produced binaries and sets the appropriate runtime rpath.

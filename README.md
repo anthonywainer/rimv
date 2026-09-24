@@ -291,6 +291,13 @@ Equivalent direct command when your shell already has model paths configured:
 cargo run -p rimv -- listen --both --language es --show-partials --show-metrics
 ```
 
+Live partials keep their unchanged prefix on screen and replace only revised text.
+Completed segments remain in the terminal history. The display checks for new
+snapshots every 150 ms and shows all available words together; it does not animate
+or predict words between inference results. The current decoder produces complete
+hypotheses with a minimum partial cadence of about 500 ms; actual arrival times
+also depend on inference latency.
+
 Transcribe a local file:
 
 ```sh

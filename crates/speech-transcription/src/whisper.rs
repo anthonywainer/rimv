@@ -13,6 +13,10 @@ pub struct WhisperEngine {
 }
 impl WhisperEngine {
     pub fn load(config: SpeechConfig) -> Result<Self> {
+        // Native stderr writes would move the CLI's provisional cursor without
+        // its knowledge. Route these diagnostics through the application's
+        // tracing writer, which coordinates them with transcript rendering.
+        whisper_rs::install_logging_hooks();
         let path = config
             .model_path
             .as_ref()

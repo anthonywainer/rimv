@@ -4,10 +4,10 @@ use engine_runtime::{AsrBackendKind, EngineConfig, EngineRuntime};
 use model_manager::ModelManager;
 use speech_transcription::{SpeechConfig, load_configured_backend};
 use std::{
-    io::{self, IsTerminal},
+    io::{self, IsTerminal, Write},
     path::PathBuf,
     sync::{
-        Arc,
+        Arc, Mutex,
         atomic::{AtomicBool, Ordering},
     },
     thread,
@@ -16,8 +16,10 @@ use std::{
 
 mod benchmark;
 mod media;
+mod terminal_output;
 mod transcript_renderer;
 
+use terminal_output::{DiagnosticWriter, PendingPartials, REFRESH_INTERVAL, SharedTerminal};
 use transcript_renderer::TranscriptRenderer;
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
@@ -186,14 +188,23 @@ enum Profile {
 }
 
 fn main() -> std::process::ExitCode {
+    let cli = Cli::parse();
+    let terminal = match &cli.command {
+        Command::Listen(args) => Some(Arc::new(Mutex::new(TranscriptRenderer::new(
+            io::stdout(),
+            args.show_partials && io::stdout().is_terminal(),
+        )))),
+        _ => None,
+    };
+    let log_terminal = terminal.clone();
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "warn".into()),
         )
-        .with_writer(io::stderr)
+        .with_writer(move || DiagnosticWriter::new(log_terminal.clone(), io::stderr()))
         .init();
 
-    match run(Cli::parse()) {
+    match run(cli, terminal) {
         Ok(()) => std::process::ExitCode::SUCCESS,
         Err(error) => {
             eprintln!("rimv: {error}");
@@ -202,9 +213,9 @@ fn main() -> std::process::ExitCode {
     }
 }
 
-fn run(cli: Cli) -> Result<()> {
+fn run(cli: Cli, terminal: Option<SharedTerminal<io::Stdout>>) -> Result<()> {
     match cli.command {
-        Command::Listen(args) => listen(args),
+        Command::Listen(args) => listen(args, terminal.ok_or("listen terminal missing")?),
         Command::Transcribe(args) => transcribe(args),
         Command::Doctor(args) => doctor(args),
         Command::Models(args) => models(args),
@@ -214,7 +225,7 @@ fn run(cli: Cli) -> Result<()> {
     }
 }
 
-fn listen(args: ListenArgs) -> Result<()> {
+fn listen(args: ListenArgs, terminal: SharedTerminal<io::Stdout>) -> Result<()> {
     let stop = stop_flag()?;
     let mut config = EngineConfig {
         recordings_directory: args.recordings,
@@ -238,14 +249,16 @@ fn listen(args: ListenArgs) -> Result<()> {
 
     let engine = EngineRuntime::new(config)?;
     let events = engine.subscribe()?;
-    let printer_stop = stop.clone();
-    let show_partials = args.show_partials;
+    let printer_terminal = terminal.clone();
     let printer = thread::Builder::new()
         .name("rimv-listen-events".into())
-        .spawn(move || print_events(events, printer_stop, show_partials))?;
+        .spawn(move || print_events(|timeout| events.recv_timeout(timeout), printer_terminal))?;
 
-    engine.start_capture()?;
-    println!("listening; press Ctrl-C to stop");
+    if let Err(error) = engine.start_capture() {
+        let _ = engine.shutdown();
+        let _ = printer.join();
+        return Err(error.into());
+    }
     let started = Instant::now();
     while !stop.load(Ordering::Relaxed)
         && (args.seconds == 0 || started.elapsed() < Duration::from_secs(args.seconds))
@@ -254,48 +267,71 @@ fn listen(args: ListenArgs) -> Result<()> {
     }
     let stopped = engine.stop_capture();
     let snapshot = engine.snapshot();
-    engine.shutdown()?;
-    stop.store(true, Ordering::Relaxed);
-    printer
+    let shutdown = engine.shutdown();
+    let printed = printer
         .join()
-        .map_err(|_| "listen event printer panicked")?
-        .ok();
+        .map_err(|_| "listen event printer panicked")?;
+    shutdown?;
+    printed?;
     stopped?;
     println!("stopped: {}", status_line(&snapshot));
     if args.show_metrics {
-        print_metrics(&snapshot);
+        for line in metrics_lines(&snapshot) {
+            println!("{line}");
+        }
     }
     Ok(())
 }
 
-fn print_events(
-    events: engine_runtime::Subscription,
-    stop: Arc<AtomicBool>,
-    show_partials: bool,
-) -> std::result::Result<(), engine_runtime::SubscriptionError> {
-    let stdout = io::stdout();
-    let interactive_partials = show_partials && stdout.is_terminal();
-    let mut renderer = TranscriptRenderer::new(stdout, interactive_partials);
-    while !stop.load(Ordering::Relaxed) {
-        match events.recv_timeout(Duration::from_millis(100)) {
-            Ok(EngineEvent::TranscriptUpdate { update }) => {
-                let _ = renderer.update(update);
+fn print_events<W: Write>(
+    mut receive: impl FnMut(
+        Duration,
+    ) -> std::result::Result<EngineEvent, engine_runtime::SubscriptionError>,
+    terminal: SharedTerminal<W>,
+) -> io::Result<()> {
+    let mut pending = PendingPartials::default();
+    let mut next_refresh = Instant::now() + REFRESH_INTERVAL;
+    // The runtime closes the subscription only after publishing its final
+    // updates. Ctrl-C stops capture, but must not stop this drain prematurely.
+    let result = (|| {
+        terminal
+            .lock()
+            .map_err(|_| io::Error::other("terminal lock poisoned"))?
+            .message("listening; press Ctrl-C to stop")?;
+        loop {
+            match receive(next_refresh.saturating_duration_since(Instant::now())) {
+                Ok(EngineEvent::TranscriptUpdate { update }) => {
+                    pending.accept(&terminal, update)?;
+                }
+                Ok(EngineEvent::TranscriptionError { error })
+                | Ok(EngineEvent::Error { error }) => {
+                    let mut diagnostic =
+                        DiagnosticWriter::new(Some(terminal.clone()), io::stderr());
+                    writeln!(diagnostic, "error: {error}")?;
+                    diagnostic.flush()?;
+                }
+                Ok(_) => {}
+                Err(engine_runtime::SubscriptionError::Timeout) => {}
+                Err(engine_runtime::SubscriptionError::Closed) => break,
+                Err(engine_runtime::SubscriptionError::Lagged { missed }) => {
+                    terminal
+                        .lock()
+                        .map_err(|_| io::Error::other("terminal lock poisoned"))?
+                        .message(&format!("warning: missed {missed} engine events"))?;
+                }
             }
-            Ok(EngineEvent::TranscriptionError { error }) | Ok(EngineEvent::Error { error }) => {
-                let _ = renderer.suspend();
-                eprintln!("error: {error}");
-                let _ = renderer.resume();
-            }
-            Ok(_) => {}
-            Err(engine_runtime::SubscriptionError::Timeout) => {}
-            Err(error) => {
-                let _ = renderer.finish();
-                return Err(error);
+            if Instant::now() >= next_refresh {
+                pending.refresh(&terminal)?;
+                next_refresh = Instant::now() + REFRESH_INTERVAL;
             }
         }
-    }
-    let _ = renderer.finish();
-    Ok(())
+        Ok(())
+    })();
+    let finished = terminal
+        .lock()
+        .map_err(|_| io::Error::other("terminal lock poisoned"))?
+        .finish();
+    result.and(finished)
 }
 
 fn transcribe(args: TranscribeArgs) -> Result<()> {
@@ -582,25 +618,27 @@ fn status_line(snapshot: &EngineSnapshot) -> String {
     )
 }
 
-fn print_metrics(snapshot: &EngineSnapshot) {
+fn metrics_lines(snapshot: &EngineSnapshot) -> [String; 2] {
     let asr = &snapshot.transcription.asr;
-    println!(
-        "capture drops: mic={} system={}",
-        snapshot.dropped_microphone_blocks, snapshot.dropped_system_blocks
-    );
-    println!(
-        "asr: status={:?} available={} inferences={} queued={} coalesced={} dropped_work={} dropped_events={} avg_ms={} max_ms={} avg_rtf={:.3}",
-        snapshot.transcription.status,
-        snapshot.transcription.available,
-        asr.inferences,
-        asr.queued_work,
-        asr.coalesced_work,
-        asr.dropped_work,
-        asr.dropped_events,
-        asr.average_inference_ms,
-        asr.maximum_inference_ms,
-        asr.average_rtf_milli as f64 / 1000.0
-    );
+    [
+        format!(
+            "capture drops: mic={} system={}",
+            snapshot.dropped_microphone_blocks, snapshot.dropped_system_blocks
+        ),
+        format!(
+            "asr: status={:?} available={} inferences={} queued={} coalesced={} dropped_work={} dropped_events={} avg_ms={} max_ms={} avg_rtf={:.3}",
+            snapshot.transcription.status,
+            snapshot.transcription.available,
+            asr.inferences,
+            asr.queued_work,
+            asr.coalesced_work,
+            asr.dropped_work,
+            asr.dropped_events,
+            asr.average_inference_ms,
+            asr.maximum_inference_ms,
+            asr.average_rtf_milli as f64 / 1000.0
+        ),
+    ]
 }
 
 impl From<Backend> for AsrBackendKind {
@@ -615,6 +653,236 @@ impl From<Backend> for AsrBackendKind {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use audio_core::{AudioFormat, AudioFrame, AudioSourceKind};
+    use engine_protocol::AudioSource;
+    use speech_transcription::{SpeechEvent, SpeechSegment, SpeechToTextEngine, SpeechWorker};
+    use std::{
+        sync::mpsc,
+        time::{Duration, Instant},
+    };
+
+    #[derive(Debug, Clone)]
+    struct AsrCall {
+        start_ms: u64,
+        end_ms: u64,
+        text: String,
+    }
+
+    struct TracingEngine {
+        inner: Box<dyn SpeechToTextEngine>,
+        calls: Arc<Mutex<Vec<AsrCall>>>,
+    }
+
+    #[derive(Clone, Default)]
+    struct TerminalBytes(Arc<Mutex<Vec<u8>>>);
+
+    impl Write for TerminalBytes {
+        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    impl TerminalBytes {
+        fn screen(&self) -> String {
+            let mut parser = vt100::Parser::new(40, 80, 0);
+            parser.process(&self.0.lock().unwrap());
+            parser.screen().contents()
+        }
+    }
+
+    impl SpeechToTextEngine for TracingEngine {
+        fn info(&self) -> speech_transcription::AsrBackendInfo {
+            self.inner.info()
+        }
+
+        fn transcribe(
+            &mut self,
+            audio_16khz_mono: &[f32],
+            offset_ms: u64,
+        ) -> speech_transcription::Result<Vec<SpeechSegment>> {
+            let segments = self.inner.transcribe(audio_16khz_mono, offset_ms)?;
+            self.calls.lock().unwrap().push(AsrCall {
+                start_ms: offset_ms,
+                end_ms: offset_ms + audio_16khz_mono.len() as u64 * 1000 / 16_000,
+                text: segments
+                    .iter()
+                    .map(|segment| segment.text.as_str())
+                    .collect::<Vec<_>>()
+                    .join(" "),
+            });
+            Ok(segments)
+        }
+    }
+
+    /// Replays the tracked audio fixture at its original cadence through the
+    /// VAD/decoder worker. It is opt-in because it needs local ASR/VAD models.
+    #[test]
+    #[ignore = "requires local ASR/VAD models and runs at fixture speed"]
+    fn trace_recorded_fixture_through_live_worker() {
+        let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../resources/audio/audio1.mp3");
+        let decoded = media::decode_mono_16k(&fixture).unwrap();
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let config = SpeechConfig {
+            backend: AsrBackendKind::Parakeet,
+            model_path: Some(
+                PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                    .join("../..")
+                    .join("resources/models/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8"),
+            ),
+            ..Default::default()
+        };
+        let inner = load_configured_backend(config.clone()).unwrap();
+        let (sender, receiver) = mpsc::sync_channel(256);
+        let mut worker = SpeechWorker::start(
+            TracingEngine { inner, calls: calls.clone() },
+            config,
+            sender,
+        )
+        .unwrap();
+        assert!(matches!(receiver.recv().unwrap(), SpeechEvent::Ready(_)));
+
+        let format = AudioFormat::new(16_000, 1).unwrap();
+        let frames_per_block = 1_600;
+        let started = Instant::now();
+        for (index, block) in decoded.samples.chunks(frames_per_block).enumerate() {
+            worker
+                .send_captured(
+                    AudioSource::System,
+                    AudioFrame::new(
+                        AudioSourceKind::System,
+                        Duration::from_millis(index as u64 * 100),
+                        format,
+                        block.to_vec(),
+                    )
+                    .unwrap(),
+                )
+                .unwrap();
+            let due = Duration::from_millis((index as u64 + 1) * 100);
+            if let Some(wait) = due.checked_sub(started.elapsed()) {
+                std::thread::sleep(wait);
+            }
+        }
+        worker.flush_source(AudioSource::System).unwrap();
+        worker.shutdown();
+
+        let updates = receiver
+            .try_iter()
+            .filter_map(|event| match event {
+                SpeechEvent::Update(update) => Some(update),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        for call in calls.lock().unwrap().iter() {
+            eprintln!("raw {}-{}ms: {}", call.start_ms, call.end_ms, call.text);
+        }
+        for update in &updates {
+            eprintln!(
+                "event {}-{}ms final={} stable={:?} unstable={:?}",
+                update.start_ms, update.end_ms, update.is_final, update.stable_text, update.unstable_text
+            );
+        }
+        // Replay the same event stream through an 80-column terminal. This
+        // distinguishes a hypothesis revision from a terminal redraw defect.
+        let terminal_bytes = TerminalBytes::default();
+        let mut renderer = TranscriptRenderer::with_terminal_columns(
+            terminal_bytes.clone(),
+            true,
+            Some(80),
+        );
+        let mut prior_screen = String::new();
+        for update in &updates {
+            renderer.update(update.clone()).unwrap();
+            let current_screen = terminal_bytes.screen();
+            let partial_occurrences = current_screen.matches("partial [system]").count();
+            assert!(
+                partial_occurrences <= 1,
+                "multiple active partial regions after {}-{}ms: {current_screen:?}",
+                update.start_ms,
+                update.end_ms,
+            );
+            if !update.is_final && current_screen != prior_screen {
+                eprintln!(
+                    "screen {}-{}ms changed: {:?}",
+                    update.start_ms, update.end_ms, current_screen
+                );
+            }
+            prior_screen = current_screen;
+        }
+        assert!(calls.lock().unwrap().iter().any(|call| call.start_ms < 10_000));
+        let finals = updates.iter().filter(|update| update.is_final).collect::<Vec<_>>();
+        assert!(!finals.is_empty());
+        assert!(finals.windows(2).all(|pair| pair[0].start_ms <= pair[1].start_ms));
+    }
+
+    #[test]
+    fn event_printer_drains_finals_until_closed_and_ignores_legacy_duplicates() {
+        #[derive(Clone, Default)]
+        struct Output(Arc<Mutex<Vec<u8>>>);
+        impl Write for Output {
+            fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+                self.0.lock().unwrap().extend_from_slice(bytes);
+                Ok(bytes.len())
+            }
+            fn flush(&mut self) -> io::Result<()> {
+                Ok(())
+            }
+        }
+        let output = Output::default();
+        let terminal = Arc::new(Mutex::new(TranscriptRenderer::new(output.clone(), false)));
+        let first = engine_protocol::TranscriptUpdate {
+            source: engine_protocol::AudioSource::Microphone,
+            utterance_id: "u1".into(),
+            start_ms: 0,
+            end_ms: 1000,
+            stable_text: "first segment".into(),
+            unstable_text: String::new(),
+            is_final: true,
+            language: None,
+            confidence: None,
+        };
+        let mut second = first.clone();
+        second.utterance_id = "u2".into();
+        second.stable_text = "second segment".into();
+        second.start_ms = 4000;
+        second.end_ms = 5000;
+        let mut events = vec![
+            EngineEvent::TranscriptFinal {
+                segment: engine_protocol::TranscriptSegment {
+                    source: first.source,
+                    start_ms: first.start_ms,
+                    end_ms: first.end_ms,
+                    text: first.stable_text.clone(),
+                },
+            },
+            EngineEvent::TranscriptUpdate {
+                update: first.clone(),
+            },
+            EngineEvent::TranscriptUpdate { update: first },
+            EngineEvent::TranscriptUpdate { update: second },
+        ]
+        .into_iter();
+        print_events(
+            |wait| {
+                assert!(wait <= REFRESH_INTERVAL);
+                events
+                    .next()
+                    .ok_or(engine_runtime::SubscriptionError::Closed)
+            },
+            terminal,
+        )
+        .unwrap();
+        let bytes = output.0.lock().unwrap();
+        let text = std::str::from_utf8(&bytes).unwrap();
+        assert_eq!(text.matches("first segment").count(), 1);
+        assert_eq!(text.matches("second segment").count(), 1);
+        assert!(!text.contains('\x1b'));
+    }
 
     #[test]
     fn language_auto_means_backend_default() {

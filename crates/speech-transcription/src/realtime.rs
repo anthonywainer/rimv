@@ -12,6 +12,10 @@ use std::{
 const FINAL_CAPACITY: usize = 8;
 const MIN_PARTIAL_SAMPLES: usize = ASR_SAMPLE_RATE as usize / 2;
 const PARTIAL_STEP_SAMPLES: usize = ASR_SAMPLE_RATE as usize / 2;
+/// Partial hypotheses need only recent acoustic context. Keeping this bounded
+/// avoids repeatedly decoding an ever-growing VAD utterance; final work still
+/// receives the entire utterance below.
+const PARTIAL_WINDOW_SAMPLES: usize = ASR_SAMPLE_RATE as usize * 10;
 
 /// Agreement across consecutive word hypotheses. Committed words never change;
 /// a conflicting later hypothesis remains uncommitted until agreement returns.
@@ -19,46 +23,108 @@ const PARTIAL_STEP_SAMPLES: usize = ASR_SAMPLE_RATE as usize / 2;
 pub struct TranscriptStabilizer {
     stable: Vec<String>,
     previous: Vec<String>,
+    // The tail is deliberately retained if a later rolling-window hypothesis
+    // no longer contains the committed prefix.  Indexing that unrelated
+    // hypothesis by `stable.len()` used to replace a valid live tail with an
+    // arbitrary suffix (and could make most of the display vanish).
+    provisional: Vec<String>,
 }
 impl TranscriptStabilizer {
     pub fn update(&mut self, text: &str, final_result: bool) -> (String, String) {
         let words: Vec<String> = text.split_whitespace().map(str::to_owned).collect();
+        // A final decode covers the complete VAD utterance. It may revise an
+        // earlier cumulative hypothesis, so combining it with a partial prefix
+        // can manufacture repeated or obsolete clauses in persisted output.
+        if final_result {
+            self.stable = words.clone();
+            self.previous = words;
+            self.provisional.clear();
+            return (self.stable.join(" "), String::new());
+        }
         if words.starts_with(&self.stable) {
+            // Before any words have been confirmed, a bounded input window may
+            // advance past the first word. Merge its overlap with the visible
+            // provisional text instead of replacing the whole caption.
+            if self.stable.is_empty()
+                && !self.previous.is_empty()
+                && !words.starts_with(&self.previous)
+                && self.extend_provisional_from_overlap(&words)
+            {
+                self.previous = words;
+                return (self.stable.join(" "), self.provisional.join(" "));
+            }
             let agreement = words
                 .iter()
                 .zip(&self.previous)
                 .take_while(|(a, b)| a == b)
                 .count();
-            let committed = if final_result {
-                words.len()
-            } else {
-                agreement.max(self.stable.len())
-            };
+            let committed = agreement.max(self.stable.len());
             self.stable = words[..committed].to_vec();
             self.previous = words.clone();
-            (self.stable.join(" "), words[committed..].join(" "))
+            self.provisional = words[committed..].to_vec();
+            (self.stable.join(" "), self.provisional.join(" "))
         } else {
-            // Preserve the committed prefix; revise only the remaining suffix.
-            let suffix = words.get(self.stable.len()..).unwrap_or_default();
-            if final_result {
-                self.stable.extend_from_slice(suffix);
-            }
+            // A rolling ASR window may temporarily omit its beginning. It is
+            // not position-compatible with the committed prefix. Preserve
+            // that prefix, but extend/revise the provisional tail when the new
+            // window begins at a later point in the visible hypothesis. This
+            // keeps live words moving without ever treating a partial as final.
+            self.extend_provisional_from_overlap(&words);
             self.previous = words.clone();
-            (
-                self.stable.join(" "),
-                if final_result {
-                    String::new()
-                } else {
-                    suffix.join(" ")
-                },
-            )
+            (self.stable.join(" "), self.provisional.join(" "))
         }
     }
+
+    fn extend_provisional_from_overlap(&mut self, words: &[String]) -> bool {
+        let visible = self
+            .stable
+            .iter()
+            .chain(&self.provisional)
+            .cloned()
+            .collect::<Vec<_>>();
+        let Some((start, overlap)) = longest_visible_prefix_overlap(&visible, words) else {
+            return false;
+        };
+        if start + overlap < self.stable.len() {
+            return false;
+        }
+        self.provisional = visible[self.stable.len()..start + overlap].to_vec();
+        self.provisional.extend_from_slice(&words[overlap..]);
+        true
+    }
+}
+
+/// Finds a useful prefix of a later rolling-window hypothesis inside the text
+/// already displayed. A three-word minimum avoids joining on a coincidental
+/// short phrase; comparisons ignore casing and punctuation only for matching.
+fn longest_visible_prefix_overlap(visible: &[String], current: &[String]) -> Option<(usize, usize)> {
+    let mut best = None;
+    for start in 0..visible.len() {
+        let length = visible[start..]
+            .iter()
+            .zip(current)
+            .take_while(|(left, right)| comparable_word(left) == comparable_word(right))
+            .count();
+        if length >= 3 && best.is_none_or(|(_, best_length)| length > best_length) {
+            best = Some((start, length));
+        }
+    }
+    best
+}
+
+fn comparable_word(word: &str) -> String {
+    word.chars()
+        .filter(|character| character.is_alphanumeric())
+        .flat_map(char::to_lowercase)
+        .collect()
 }
 
 struct Work {
     source: AudioSource,
     audio: Utterance,
+    /// The VAD utterance identity is independent from a bounded partial
+    /// window's input timestamp.
+    utterance_start_ms: u64,
     final_result: bool,
 }
 #[derive(Default)]
@@ -161,11 +227,11 @@ impl Decoder {
                                 TranscriptStabilizer::default(),
                             )
                         });
-                        if state.0 != work.audio.start_ms {
+                        if state.0 != work.utterance_start_ms {
                             let next_id =
                                 NEXT_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                             *state = (
-                                work.audio.start_ms,
+                                work.utterance_start_ms,
                                 format!("utterance-{next_id}"),
                                 TranscriptStabilizer::default(),
                             );
@@ -227,6 +293,7 @@ impl Decoder {
         mutex.lock().unwrap().push(
             Work {
                 source,
+                utterance_start_ms: audio.start_ms,
                 audio,
                 final_result,
             },
@@ -246,14 +313,12 @@ impl Decoder {
             return;
         }
         q.last_partial.insert(source, (start_ms, samples.len()));
+        let audio = bounded_partial_audio(start_ms, samples);
         q.push(
             Work {
                 source,
-                audio: Utterance {
-                    start_ms,
-                    end_ms: start_ms + samples.len() as u64 * 1000 / ASR_SAMPLE_RATE as u64,
-                    samples: samples.to_vec(),
-                },
+                audio,
+                utterance_start_ms: start_ms,
                 final_result: false,
             },
             &mut self.metrics.lock().unwrap(),
@@ -264,6 +329,17 @@ impl Decoder {
         self.queue.0.lock().unwrap().closed = true;
         self.queue.1.notify_one();
         let _ = self.join.join();
+    }
+}
+
+fn bounded_partial_audio(utterance_start_ms: u64, samples: &[f32]) -> Utterance {
+    let window_start_samples = samples.len().saturating_sub(PARTIAL_WINDOW_SAMPLES);
+    let window_start_ms = utterance_start_ms
+        + window_start_samples as u64 * 1000 / ASR_SAMPLE_RATE as u64;
+    Utterance {
+        start_ms: window_start_ms,
+        end_ms: utterance_start_ms + samples.len() as u64 * 1000 / ASR_SAMPLE_RATE as u64,
+        samples: samples[window_start_samples..].to_vec(),
     }
 }
 
@@ -278,6 +354,7 @@ mod tests {
                 end_ms: 500,
                 samples: vec![0.; 8000],
             },
+            utterance_start_ms: 0,
             final_result,
         }
     }
@@ -301,12 +378,138 @@ mod tests {
             ("hello there friends".into(), "".into())
         );
     }
+
     #[test]
-    fn conflicting_hypothesis_cannot_rewrite_committed_words() {
+    fn partial_input_stops_growing_after_ten_seconds() {
+        for seconds in [5_u64, 10, 15, 20, 25, 30] {
+            let input = bounded_partial_audio(
+                3_000,
+                &vec![0.0; seconds as usize * ASR_SAMPLE_RATE as usize],
+            );
+            assert_eq!(
+                input.samples.len(),
+                seconds.min(10) as usize * ASR_SAMPLE_RATE as usize,
+                "{seconds}s active utterance",
+            );
+            assert_eq!(input.end_ms, 3_000 + seconds * 1_000);
+            assert_eq!(input.start_ms, 3_000 + seconds.saturating_sub(10) * 1_000);
+        }
+    }
+
+    #[test]
+    fn bounded_partial_windows_append_without_duplicate_overlap() {
         let mut s = TranscriptStabilizer::default();
-        s.update("hello world", false);
-        s.update("hello world", false);
-        assert_eq!(s.update("goodbye", true), ("hello world".into(), "".into()));
+        assert_eq!(
+            s.update("one two three four five six seven eight", false),
+            (String::new(), "one two three four five six seven eight".into())
+        );
+        assert_eq!(
+            s.update("four five six seven eight nine ten", false),
+            (
+                String::new(),
+                "one two three four five six seven eight nine ten".into()
+            )
+        );
+        assert_eq!(
+            s.update("seven eight nine ten eleven", false),
+            (
+                String::new(),
+                "one two three four five six seven eight nine ten eleven".into()
+            )
+        );
+    }
+
+    #[test]
+    fn final_decode_keeps_the_complete_utterance() {
+        use std::sync::mpsc;
+
+        struct CaptureLengths(Arc<Mutex<Vec<usize>>>);
+        impl SpeechToTextEngine for CaptureLengths {
+            fn info(&self) -> crate::AsrBackendInfo {
+                crate::MockAsrBackend::default().info()
+            }
+
+            fn transcribe(
+                &mut self,
+                audio: &[f32],
+                offset_ms: u64,
+            ) -> crate::Result<Vec<crate::SpeechSegment>> {
+                self.0.lock().unwrap().push(audio.len());
+                Ok(vec![crate::SpeechSegment {
+                    source: AudioSource::Microphone,
+                    start_ms: offset_ms,
+                    end_ms: offset_ms + audio.len() as u64 * 1_000 / ASR_SAMPLE_RATE as u64,
+                    text: "final words".into(),
+                }])
+            }
+        }
+
+        let lengths = Arc::new(Mutex::new(Vec::new()));
+        let (events, _received) = mpsc::sync_channel(4);
+        let decoder = Decoder::start(
+            Box::new(CaptureLengths(lengths.clone())),
+            events,
+            Arc::new(Mutex::new(SpeechMetrics::default())),
+            Arc::new(Mutex::new(VecDeque::new())),
+        );
+        decoder.submit(
+            AudioSource::Microphone,
+            Utterance {
+                start_ms: 0,
+                end_ms: 30_000,
+                samples: vec![0.0; 30 * ASR_SAMPLE_RATE as usize],
+            },
+            true,
+        );
+        decoder.finish();
+        assert_eq!(*lengths.lock().unwrap(), vec![30 * ASR_SAMPLE_RATE as usize]);
+    }
+    #[test]
+    fn final_hypothesis_replaces_mismatched_partial_without_duplicate_clause() {
+        let mut s = TranscriptStabilizer::default();
+        s.update("the warning includes heavy rain and landslides", false);
+        s.update("the warning includes heavy rain and landslides", false);
+        assert_eq!(
+            s.update("the warning includes heavy rain", true),
+            ("the warning includes heavy rain".into(), "".into())
+        );
+    }
+
+    #[test]
+    fn final_hypothesis_does_not_append_revised_suffix_to_partial() {
+        let mut s = TranscriptStabilizer::default();
+        s.update("opening middle repeated clause", false);
+        s.update("opening middle repeated clause", false);
+        assert_eq!(
+            s.update("opening middle corrected ending", true),
+            ("opening middle corrected ending".into(), "".into())
+        );
+    }
+    #[test]
+    fn later_rolling_partial_extends_the_provisional_tail_without_erasing_it() {
+        let mut s = TranscriptStabilizer::default();
+        s.update("hello welcome to the news", false);
+        assert_eq!(
+            s.update("hello welcome to the news tonight", false),
+            ("hello welcome to the news".into(), "tonight".into())
+        );
+        // This is a new rolling-window start. Its overlapping text lets the
+        // provisional display advance without changing committed words.
+        assert_eq!(
+            s.update("welcome to the news tonight with more", false),
+            ("hello welcome to the news".into(), "tonight with more".into())
+        );
+    }
+
+    #[test]
+    fn unrelated_partial_cannot_erase_the_provisional_tail() {
+        let mut s = TranscriptStabilizer::default();
+        s.update("hello welcome to the news", false);
+        s.update("hello welcome to the news tonight", false);
+        assert_eq!(
+            s.update("unrelated words from a bad hypothesis", false),
+            ("hello welcome to the news".into(), "tonight".into())
+        );
     }
     #[test]
     fn overload_coalesces_partials_and_bounds_finals() {

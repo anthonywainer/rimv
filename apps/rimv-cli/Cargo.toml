@@ -19,5 +19,11 @@ serde_json.workspace = true
 speech-transcription = { workspace = true, features = ["whisper", "parakeet"] }
 symphonia = { version = "0.6.1", default-features = false, features = ["flac", "mp3", "pcm", "wav"] }
 system-profile.workspace = true
+terminal_size = "0.4"
 tracing.workspace = true
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+unicode-segmentation = "1.12"
+unicode-width = "0.2"
+
+[dev-dependencies]
+vt100 = "0.15"

@@ -229,12 +229,18 @@ pub(crate) fn write_metadata(
 
 /// Only final segments reach disk; partial UI updates are intentionally volatile.
 pub(crate) fn write_transcript(directory: &Path, segments: &[SpeechSegment]) -> Result<()> {
+    // A VAD interval may produce no words. Keep its event ephemeral so it can
+    // clear live state, but never persist it as an empty final transcript.
+    let segments = segments
+        .iter()
+        .filter(|segment| !segment.text.trim().is_empty())
+        .collect::<Vec<_>>();
     if segments.is_empty() {
         return Ok(());
     }
     let json = directory.join("transcript.json");
     let text = directory.join("transcript.txt");
-    let data = serde_json::to_vec_pretty(segments).map_err(storage_error)?;
+    let data = serde_json::to_vec_pretty(&segments).map_err(storage_error)?;
     fs::write(&json, data).map_err(storage_error)?;
     let lines = segments
         .iter()
@@ -320,5 +326,32 @@ mod tests {
             fs::read_to_string(directory.path().join("transcript.txt")).unwrap(),
             "[100–900 ms] Microphone: go go now\n"
         );
+    }
+
+    #[test]
+    fn transcript_export_omits_empty_final_segments() {
+        let directory = tempfile::tempdir().unwrap();
+        let segments = vec![
+            SpeechSegment {
+                source: AudioSource::System,
+                start_ms: 0,
+                end_ms: 500,
+                text: "  ".into(),
+            },
+            SpeechSegment {
+                source: AudioSource::System,
+                start_ms: 500,
+                end_ms: 1_000,
+                text: "captured speech".into(),
+            },
+        ];
+        write_transcript(directory.path(), &segments).unwrap();
+        let persisted: Vec<SpeechSegment> =
+            serde_json::from_slice(&fs::read(directory.path().join("transcript.json")).unwrap())
+                .unwrap();
+        assert_eq!(persisted, vec![segments[1].clone()]);
+        assert!(!fs::read_to_string(directory.path().join("transcript.txt"))
+            .unwrap()
+            .contains("[0–500 ms]"));
     }
 }

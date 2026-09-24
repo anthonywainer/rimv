@@ -208,6 +208,11 @@ impl Controller {
         self.session = Some(CaptureSession::new(directory));
         if self.state.transcription.enabled {
             self.start_transcription();
+            // Do not activate a source until its ASR worker has either loaded
+            // or reported a load error. Otherwise native frames arrive while
+            // the bounded worker input queue has no consumer, silently losing
+            // the beginning of a recording before VAD can see it.
+            self.wait_for_transcription_initialization();
         }
         for source in SOURCES {
             if self.source(source).enabled
@@ -260,6 +265,28 @@ impl Controller {
                     error.to_string(),
                 ));
                 self.state.transcription.status = crate::TranscriptionStatus::Error;
+            }
+        }
+    }
+
+    fn wait_for_transcription_initialization(&mut self) {
+        loop {
+            let event = self.session.as_ref().and_then(|session| {
+                session
+                    .transcription
+                    .as_ref()
+                    .and_then(|(_, receiver)| receiver.recv().ok())
+            });
+            let Some(event) = event else {
+                return;
+            };
+            let initialized = matches!(event, SpeechEvent::Ready(_) | SpeechEvent::Error(_));
+            if let Some(mut session) = self.session.take() {
+                self.handle_speech_event(&mut session, event);
+                self.session = Some(session);
+            }
+            if initialized {
+                return;
             }
         }
     }
