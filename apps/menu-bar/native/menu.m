@@ -3,19 +3,82 @@
 
 typedef void (*CommandCallback)(uint32_t, uint8_t);
 
-@interface RimvMenu : NSObject <NSApplicationDelegate>
+static BOOL RimvIsDark(NSAppearance *appearance) {
+    return [[appearance bestMatchFromAppearancesWithNames:@[
+        NSAppearanceNameAqua, NSAppearanceNameDarkAqua
+    ]] isEqualToString:NSAppearanceNameDarkAqua];
+}
+
+@interface RimvPopoverView : NSView
+@property(nonatomic, copy) dispatch_block_t appearanceChanged;
+@end
+
+@implementation RimvPopoverView
+- (BOOL)isFlipped { return YES; }
+- (void)viewDidChangeEffectiveAppearance {
+    [super viewDidChangeEffectiveAppearance];
+    [self setNeedsDisplay:YES];
+    if (self.appearanceChanged) self.appearanceChanged();
+}
+- (void)drawRect:(NSRect)dirtyRect {
+    (void)dirtyRect;
+    BOOL dark = RimvIsDark(self.effectiveAppearance);
+    NSColor *background = dark
+        ? [NSColor colorWithRed:9.0/255.0 green:16.0/255.0 blue:29.0/255.0 alpha:1]
+        : [NSColor colorWithRed:247.0/255.0 green:247.0/255.0 blue:248.0/255.0 alpha:1];
+    [background setFill];
+    NSRectFill(self.bounds);
+    NSColor *panel = dark
+        ? [NSColor colorWithRed:16.0/255.0 green:26.0/255.0 blue:43.0/255.0 alpha:1]
+        : NSColor.whiteColor;
+    [panel setFill];
+    [[NSBezierPath bezierPathWithRoundedRect:self.bounds xRadius:18 yRadius:18] fill];
+}
+@end
+
+@interface RimvMenu : NSObject <NSApplicationDelegate, NSPopoverDelegate>
 @property(nonatomic) CommandCallback command;
 @property(nonatomic, strong) NSStatusItem *statusItem;
-@property(nonatomic, strong) NSMenuItem *statusLine;
-@property(nonatomic, strong) NSMenuItem *capture;
-@property(nonatomic, strong) NSMenuItem *microphone;
-@property(nonatomic, strong) NSMenuItem *system;
-@property(nonatomic, strong) NSMenuItem *transcription;
-@property(nonatomic, strong) NSMenuItem *drops;
+@property(nonatomic, strong) NSTextField *statusLine;
+@property(nonatomic, strong) NSButton *capture;
+@property(nonatomic, strong) NSButton *source;
+@property(nonatomic, strong) NSButton *microphone;
+@property(nonatomic, strong) NSButton *system;
+@property(nonatomic, strong) NSButton *transcription;
+@property(nonatomic, strong) NSTextField *drops;
 @property(nonatomic, copy) NSString *modelSummary;
 @property(nonatomic, strong) NSPanel *modelsPanel;
 @property(nonatomic, strong) NSTextField *modelsText;
-@property(nonatomic, strong) NSMenuItem *errorItem;
+@property(nonatomic, strong) NSButton *errorItem;
+@property(nonatomic, strong) NSPopover *popover;
+@property(nonatomic, strong) RimvPopoverView *popoverView;
+@property(nonatomic, strong) NSTextField *brandDetail;
+@property(nonatomic, strong) NSTextField *brandState;
+@property(nonatomic, strong) NSTextField *sourceDetail;
+@property(nonatomic, strong) id keyMonitor;
+@property(nonatomic, strong) id globalClickMonitor;
+@property(nonatomic, strong) id localClickMonitor;
+@property(nonatomic, strong) NSTextField *brandTitle;
+@property(nonatomic, strong) NSButton *systemCard;
+@property(nonatomic, strong) NSButton *microphoneCard;
+@property(nonatomic, strong) NSButton *bothCard;
+@property(nonatomic, strong) NSButton *language;
+@property(nonatomic, strong) NSButton *model;
+@property(nonatomic, strong) NSTextField *languageValue;
+@property(nonatomic, strong) NSTextField *modelValue;
+@property(nonatomic, strong) NSImageView *languageIcon;
+@property(nonatomic, strong) NSImageView *modelIcon;
+@property(nonatomic, strong) NSImageView *languageChevron;
+@property(nonatomic, strong) NSImageView *modelChevron;
+@property(nonatomic, copy) NSString *selectedLanguage;
+@property(nonatomic, copy) NSArray<NSString *> *supportedLanguages;
+@property(nonatomic) BOOL supportsLanguageDetection;
+@property(nonatomic) BOOL languageMenuOpen;
+@property(nonatomic, strong) NSView *captureArea;
+@property(nonatomic, strong) NSImageView *captureIcon;
+@property(nonatomic, strong) NSTextField *captureLabel;
+@property(nonatomic, strong) NSStackView *captureGroup;
+@property(nonatomic, strong) NSButton *recordings;
 @property(nonatomic, strong) NSDictionary *snapshot;
 @property(nonatomic, copy) NSString *root;
 @property(nonatomic, copy) NSString *displayedError;
@@ -65,86 +128,425 @@ static NSString *elapsed(uint64_t milliseconds) {
     item.target = self;
     return item;
 }
+- (void)setSymbol:(NSString *)name onItem:(id)item description:(NSString *)description {
+    [item setImage:[NSImage imageWithSystemSymbolName:name accessibilityDescription:description]];
+}
+- (NSColor *)color:(CGFloat)r green:(CGFloat)g blue:(CGFloat)b darkRed:(CGFloat)dr green:(CGFloat)dg blue:(CGFloat)db {
+    BOOL dark = RimvIsDark(self.popoverView.effectiveAppearance ?: NSApp.effectiveAppearance);
+    return [NSColor colorWithRed:(dark ? dr : r) / 255.0 green:(dark ? dg : g) / 255.0 blue:(dark ? db : b) / 255.0 alpha:1];
+}
+- (NSTextField *)label:(NSString *)text frame:(NSRect)frame size:(CGFloat)size weight:(NSFontWeight)weight {
+    NSTextField *label = [NSTextField labelWithString:text];
+    label.frame = frame;
+    label.font = [NSFont systemFontOfSize:size weight:weight];
+    label.lineBreakMode = NSLineBreakByTruncatingTail;
+    [self.popoverView addSubview:label];
+    return label;
+}
+- (NSButton *)row:(NSString *)title symbol:(NSString *)symbol action:(SEL)action frame:(NSRect)frame {
+    NSButton *button = [NSButton buttonWithTitle:title target:self action:action];
+    button.frame = frame;
+    button.bordered = NO;
+    button.alignment = NSTextAlignmentLeft;
+    button.imagePosition = NSImageLeading;
+    NSImage *image = [NSImage imageWithSystemSymbolName:symbol accessibilityDescription:title];
+    button.image = [image imageWithSymbolConfiguration:[NSImageSymbolConfiguration configurationWithPointSize:16 weight:NSFontWeightRegular]];
+    button.image.size = NSMakeSize(16, 16);
+    button.imageScaling = NSImageScaleProportionallyDown;
+    button.imageHugsTitle = YES;
+    button.font = [NSFont systemFontOfSize:14 weight:NSFontWeightRegular];
+    button.contentTintColor = [self color:23 green:24 blue:39 darkRed:248 green:249 blue:252];
+    button.wantsLayer = YES;
+    button.layer.cornerRadius = 10;
+    [self.popoverView addSubview:button];
+    return button;
+}
+- (void)separatorAt:(CGFloat)y {
+    NSBox *separator = [[NSBox alloc] initWithFrame:NSMakeRect(16, y, 348, 1)];
+    separator.boxType = NSBoxSeparator;
+    [self.popoverView addSubview:separator];
+}
+- (NSButton *)selectorRow:(NSString *)labelText symbol:(NSString *)symbol action:(SEL)action frame:(NSRect)frame value:(NSTextField **)valueOut icon:(NSImageView **)iconOut chevron:(NSImageView **)chevronOut {
+    NSButton *button = [self row:@"" symbol:@"" action:action frame:frame];
+    button.accessibilityLabel = labelText;
+    NSImageView *icon = [[NSImageView alloc] initWithFrame:NSZeroRect];
+    icon.image = [[NSImage imageWithSystemSymbolName:symbol accessibilityDescription:labelText]
+        imageWithSymbolConfiguration:[NSImageSymbolConfiguration configurationWithPointSize:16 weight:NSFontWeightRegular]];
+    icon.image.template = YES;
+    icon.translatesAutoresizingMaskIntoConstraints = NO;
+    NSTextField *label = [NSTextField labelWithString:labelText];
+    label.font = [NSFont systemFontOfSize:14 weight:NSFontWeightRegular];
+    label.translatesAutoresizingMaskIntoConstraints = NO;
+    NSTextField *value = [NSTextField labelWithString:@""];
+    value.font = [NSFont systemFontOfSize:14 weight:NSFontWeightRegular];
+    value.alignment = NSTextAlignmentRight;
+    value.lineBreakMode = NSLineBreakByTruncatingHead;
+    value.translatesAutoresizingMaskIntoConstraints = NO;
+    NSImageView *chevron = [[NSImageView alloc] initWithFrame:NSZeroRect];
+    chevron.image = [[NSImage imageWithSystemSymbolName:@"chevron.right" accessibilityDescription:@"Choose"]
+        imageWithSymbolConfiguration:[NSImageSymbolConfiguration configurationWithPointSize:12 weight:NSFontWeightSemibold]];
+    chevron.image.template = YES;
+    chevron.translatesAutoresizingMaskIntoConstraints = NO;
+    [button addSubview:icon];
+    [button addSubview:label];
+    [button addSubview:value];
+    [button addSubview:chevron];
+    [NSLayoutConstraint activateConstraints:@[
+        [icon.leadingAnchor constraintEqualToAnchor:button.leadingAnchor constant:12],
+        [icon.centerYAnchor constraintEqualToAnchor:button.centerYAnchor],
+        [icon.widthAnchor constraintEqualToConstant:16], [icon.heightAnchor constraintEqualToConstant:16],
+        [label.leadingAnchor constraintEqualToAnchor:icon.trailingAnchor constant:10],
+        [label.centerYAnchor constraintEqualToAnchor:button.centerYAnchor],
+        [chevron.trailingAnchor constraintEqualToAnchor:button.trailingAnchor constant:-12],
+        [chevron.centerYAnchor constraintEqualToAnchor:button.centerYAnchor],
+        [chevron.widthAnchor constraintEqualToConstant:12], [chevron.heightAnchor constraintEqualToConstant:12],
+        [value.trailingAnchor constraintEqualToAnchor:chevron.leadingAnchor constant:-8],
+        [value.leadingAnchor constraintGreaterThanOrEqualToAnchor:label.trailingAnchor constant:12],
+        [value.centerYAnchor constraintEqualToAnchor:button.centerYAnchor],
+    ]];
+    if (valueOut) *valueOut = value;
+    if (iconOut) *iconOut = icon;
+    if (chevronOut) *chevronOut = chevron;
+    return button;
+}
+- (NSButton *)sourceCard:(NSString *)title symbol:(NSString *)symbol action:(SEL)action frame:(NSRect)frame {
+    NSButton *card = [self row:@"" symbol:@"" action:action frame:frame];
+    card.accessibilityLabel = title;
+    NSImageView *icon = [[NSImageView alloc] initWithFrame:NSMakeRect(0, 0, 20, 20)];
+    icon.image = [[NSImage imageWithSystemSymbolName:symbol accessibilityDescription:title]
+        imageWithSymbolConfiguration:[NSImageSymbolConfiguration configurationWithPointSize:20 weight:NSFontWeightRegular]];
+    icon.image.template = YES;
+    icon.imageScaling = NSImageScaleProportionallyDown;
+    NSTextField *label = [NSTextField labelWithString:title];
+    label.font = [NSFont systemFontOfSize:14 weight:NSFontWeightMedium];
+    label.alignment = NSTextAlignmentCenter;
+    NSStackView *content = [NSStackView stackViewWithViews:@[icon, label]];
+    content.orientation = NSUserInterfaceLayoutOrientationVertical;
+    content.alignment = NSLayoutAttributeCenterX;
+    content.spacing = 7;
+    content.translatesAutoresizingMaskIntoConstraints = NO;
+    [card addSubview:content];
+    [NSLayoutConstraint activateConstraints:@[
+        [content.centerXAnchor constraintEqualToAnchor:card.centerXAnchor],
+        [content.topAnchor constraintEqualToAnchor:card.topAnchor constant:10],
+        [icon.widthAnchor constraintEqualToConstant:20],
+        [icon.heightAnchor constraintEqualToConstant:20],
+    ]];
+    card.layer.cornerRadius = 11;
+    return card;
+}
 - (void)applicationDidFinishLaunching:(NSNotification *)notification {
     (void)notification;
     self.statusItem = [NSStatusBar.systemStatusBar statusItemWithLength:NSVariableStatusItemLength];
-    self.statusItem.button.image = [NSImage imageWithSystemSymbolName:@"waveform" accessibilityDescription:@"rimv"];
+    self.statusItem.button.image = [NSImage imageWithSystemSymbolName:@"waveform" accessibilityDescription:@"RimV status"];
     self.statusItem.button.image.template = YES;
     self.statusItem.button.imagePosition = NSImageLeft;
     self.statusItem.button.font = [NSFont monospacedDigitSystemFontOfSize:12 weight:NSFontWeightRegular];
-    self.statusItem.button.title = @" rimv";
-    NSMenu *items = [[NSMenu alloc] initWithTitle:@"rimv"];
-    items.autoenablesItems = NO;
-    NSMenuItem *heading = [self item:@"rimv" action:NULL key:@""];
-    heading.enabled = NO;
-    [items addItem:heading];
-    self.statusLine = [self item:@"Idle" action:NULL key:@""];
-    self.statusLine.enabled = NO;
-    [items addItem:self.statusLine];
-    [items addItem:NSMenuItem.separatorItem];
-    self.capture = [self item:@"Start capture" action:@selector(toggleCapture:) key:@"r"];
-    [items addItem:self.capture];
-    self.microphone = [self item:@"Microphone" action:@selector(toggleMicrophone:) key:@"m"];
-    [items addItem:self.microphone];
-    self.system = [self item:@"System audio" action:@selector(toggleSystem:) key:@""];
-    [items addItem:self.system];
-    self.transcription = [self item:@"Transcription" action:@selector(toggleTranscription:) key:@""];
-    [items addItem:self.transcription];
-    [items addItem:[self item:@"Models…" action:@selector(showModels:) key:@""]];
-    [items addItem:NSMenuItem.separatorItem];
-    self.drops = [self item:@"Dropped blocks: 0" action:NULL key:@""];
-    self.drops.enabled = NO;
-    [items addItem:self.drops];
-    self.errorItem = [self item:@"Show capture error…" action:@selector(errorDetails:) key:@""];
+    self.statusItem.button.title = @" RimV";
+    self.statusItem.button.target = self;
+    self.statusItem.button.action = @selector(togglePopover:);
+    self.popoverView = [[RimvPopoverView alloc] initWithFrame:NSMakeRect(0, 0, 380, 560)];
+    self.popoverView.wantsLayer = YES;
+    NSViewController *controller = [[NSViewController alloc] init];
+    controller.view = self.popoverView;
+    self.popover = [[NSPopover alloc] init];
+    self.popover.behavior = NSPopoverBehaviorTransient;
+    self.popover.delegate = self;
+    self.popover.contentSize = self.popoverView.bounds.size;
+    self.popover.contentViewController = controller;
+    __weak RimvMenu *weakSelf = self;
+    self.popoverView.appearanceChanged = ^{
+        dispatch_async(dispatch_get_main_queue(), ^{
+            RimvMenu *strongSelf = weakSelf;
+            if (strongSelf) [strongSelf applySnapshot:strongSelf.snapshot];
+        });
+    };
+    self.keyMonitor = [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskKeyDown handler:^NSEvent *(NSEvent *event) {
+        RimvMenu *strongSelf = weakSelf;
+        if (!strongSelf.popover.shown) return event;
+        if (event.keyCode == 53) {
+            if (strongSelf.languageMenuOpen) return event;
+            [strongSelf.popover performClose:nil];
+            return nil;
+        }
+        if (!(event.modifierFlags & NSEventModifierFlagCommand)) return event;
+        NSString *key = event.charactersIgnoringModifiers.lowercaseString;
+        if ([key isEqualToString:@"r"]) [strongSelf toggleCapture:nil];
+        else if ([key isEqualToString:@"m"]) [strongSelf toggleMicrophone:nil];
+        else if ([key isEqualToString:@"o"]) [strongSelf openRecordings:nil];
+        else if ([key isEqualToString:@"q"]) [strongSelf quit:nil];
+        else return event;
+        return nil;
+    }];
+    self.globalClickMonitor = [NSEvent addGlobalMonitorForEventsMatchingMask:(NSEventMaskLeftMouseDown | NSEventMaskRightMouseDown)
+                                                                       handler:^(__unused NSEvent *event) {
+        dispatch_async(dispatch_get_main_queue(), ^{ [weakSelf.popover performClose:nil]; });
+    }];
+    self.localClickMonitor = [NSEvent addLocalMonitorForEventsMatchingMask:(NSEventMaskLeftMouseDown | NSEventMaskRightMouseDown)
+                                                                      handler:^NSEvent *(NSEvent *event) {
+        RimvMenu *strongSelf = weakSelf;
+        NSWindow *popoverWindow = strongSelf.popover.contentViewController.view.window;
+        if (strongSelf.popover.shown && !strongSelf.languageMenuOpen && event.window != popoverWindow) [strongSelf.popover performClose:nil];
+        return event;
+    }];
+
+    NSView *mark = [[NSView alloc] initWithFrame:NSMakeRect(16, 34, 40, 40)];
+    mark.wantsLayer = YES;
+    mark.layer.cornerRadius = 11;
+    mark.layer.backgroundColor = [self color:23 green:153 blue:143 darkRed:23 green:153 blue:143].CGColor;
+    [self.popoverView addSubview:mark];
+    NSImageView *markImage = [[NSImageView alloc] initWithFrame:NSMakeRect(8, 8, 24, 24)];
+    markImage.image = [NSImage imageWithSystemSymbolName:@"waveform" accessibilityDescription:@"RimV"];
+    markImage.contentTintColor = NSColor.whiteColor;
+    [mark addSubview:markImage];
+    self.brandTitle = [self label:@"RimV" frame:NSMakeRect(66, 31, 160, 26) size:23 weight:NSFontWeightBold];
+    self.brandDetail = [self label:@"Real-time transcription" frame:NSMakeRect(66, 57, 190, 18) size:14 weight:NSFontWeightRegular];
+    self.brandState = [self label:@"●  Ready" frame:NSMakeRect(284, 42, 80, 18) size:12 weight:NSFontWeightMedium];
+    self.statusLine = [self label:@"Ready" frame:NSZeroRect size:11 weight:NSFontWeightRegular];
+    self.statusLine.hidden = YES;
+    [self separatorAt:104];
+    self.captureArea = [[NSView alloc] initWithFrame:NSMakeRect(16, 118, 348, 184)];
+    self.captureArea.wantsLayer = YES;
+    self.captureArea.layer.cornerRadius = 13;
+    [self.popoverView addSubview:self.captureArea];
+    self.source = [self sourceCard:@"System" symbol:@"desktopcomputer" action:@selector(selectSystem:) frame:NSMakeRect(28, 160, 103, 74)];
+    self.systemCard = self.source;
+    self.microphoneCard = [self sourceCard:@"Microphone" symbol:@"mic" action:@selector(selectMicrophone:) frame:NSMakeRect(139, 160, 103, 74)];
+    self.bothCard = [self sourceCard:@"Both" symbol:@"waveform" action:@selector(selectBoth:) frame:NSMakeRect(250, 160, 103, 74)];
+    self.sourceDetail = [self label:@"CAPTURE SOURCE" frame:NSMakeRect(28, 134, 180, 16) size:12 weight:NSFontWeightBold];
+    self.microphone = [NSButton buttonWithTitle:@"Microphone" target:self action:@selector(toggleMicrophone:)];
+    self.system = [NSButton buttonWithTitle:@"System Audio" target:self action:@selector(toggleSystem:)];
+    self.capture = [self row:@"" symbol:@"" action:@selector(toggleCapture:) frame:NSMakeRect(28, 249, 324, 49)];
+    self.capture.image = nil;
+    self.capture.alignment = NSTextAlignmentCenter;
+    self.captureIcon = [[NSImageView alloc] initWithFrame:NSMakeRect(0, 0, 18, 18)];
+    self.captureIcon.contentTintColor = NSColor.whiteColor;
+    self.captureLabel = [NSTextField labelWithString:@"Start Listening"];
+    self.captureLabel.font = [NSFont systemFontOfSize:15 weight:NSFontWeightBold];
+    self.captureIcon.image = [NSImage imageWithSystemSymbolName:@"play.fill" accessibilityDescription:@"Start Listening"];
+    self.captureLabel.textColor = NSColor.whiteColor;
+    self.captureGroup = [NSStackView stackViewWithViews:@[self.captureIcon, self.captureLabel]];
+    self.captureGroup.orientation = NSUserInterfaceLayoutOrientationHorizontal;
+    self.captureGroup.spacing = 8;
+    self.captureGroup.alignment = NSLayoutAttributeCenterY;
+    [self.capture addSubview:self.captureGroup];
+    NSTextField *languageValue;
+    NSImageView *languageIcon;
+    NSImageView *languageChevron;
+    self.language = [self selectorRow:@"Language" symbol:@"globe" action:@selector(showLanguages:) frame:NSMakeRect(30, 319, 344, 36) value:&languageValue icon:&languageIcon chevron:&languageChevron];
+    self.languageValue = languageValue;
+    self.languageIcon = languageIcon;
+    self.languageChevron = languageChevron;
+    NSTextField *modelValue;
+    NSImageView *modelIcon;
+    NSImageView *modelChevron;
+    self.model = [self selectorRow:@"Model" symbol:@"cpu" action:@selector(showModels:) frame:NSMakeRect(30, 363, 344, 36) value:&modelValue icon:&modelIcon chevron:&modelChevron];
+    self.modelValue = modelValue;
+    self.modelIcon = modelIcon;
+    self.modelChevron = modelChevron;
+    [self separatorAt:412];
+    self.errorItem = [self row:@"Show Capture Error…" symbol:@"exclamationmark.triangle" action:@selector(errorDetails:) frame:NSMakeRect(30, 428, 344, 28)];
     self.errorItem.hidden = YES;
-    [items addItem:self.errorItem];
-    [items addItem:[self item:@"Open recordings folder" action:@selector(openRecordings:) key:@"o"]];
-    [items addItem:[self item:@"Recording permissions…" action:@selector(openPermissions:) key:@""]];
-    [items addItem:NSMenuItem.separatorItem];
-    [items addItem:[self item:@"Quit rimv" action:@selector(quit:) key:@"q"]];
-    self.statusItem.menu = items;
+    self.drops = [self label:@"" frame:NSZeroRect size:12 weight:NSFontWeightRegular];
+    self.recordings = [self row:@"Open Recordings" symbol:@"folder" action:@selector(openRecordings:) frame:NSMakeRect(30, 428, 344, 28)];
+    self.recordings.image.template = YES;
+    NSButton *preferences = [self row:@"Preferences" symbol:@"gearshape" action:NULL frame:NSMakeRect(30, 464, 344, 28)];
+    preferences.enabled = NO;
+    [self separatorAt:500];
+    NSButton *quit = [self row:@"Quit RimV                                             ⌘Q" symbol:@"power" action:@selector(quit:) frame:NSMakeRect(30, 510, 344, 28)];
+    quit.font = [NSFont systemFontOfSize:14 weight:NSFontWeightRegular];
     [self applySnapshot:self.snapshot];
 }
 - (void)applySnapshot:(NSDictionary *)snapshot {
     self.snapshot = snapshot;
     if (!self.statusItem) return;
+    NSColor *primary = [self color:17 green:20 blue:24 darkRed:244 green:247 blue:250];
+    NSColor *secondary = [self color:107 green:114 blue:128 darkRed:158 green:168 blue:182];
+    self.captureArea.layer.backgroundColor = [self color:243 green:244 blue:246 darkRed:21 green:34 blue:56].CGColor;
+    for (NSView *view in self.popoverView.subviews) {
+        if ([view isKindOfClass:NSTextField.class]) ((NSTextField *)view).textColor = primary;
+        if ([view isKindOfClass:NSButton.class]) ((NSButton *)view).contentTintColor = primary;
+    }
+    self.brandTitle.textColor = primary;
+    self.brandDetail.textColor = secondary;
+    self.sourceDetail.textColor = primary;
+    for (NSImageView *icon in @[self.languageIcon, self.modelIcon]) icon.contentTintColor = primary;
+    for (NSImageView *chevron in @[self.languageChevron, self.modelChevron]) chevron.contentTintColor = secondary;
+    self.languageValue.textColor = secondary;
+    self.modelValue.textColor = secondary;
     NSString *status = snapshot[@"status"];
     BOOL recording = [status isEqualToString:@"recording"];
-    BOOL transitioning = [status isEqualToString:@"starting"] || [status isEqualToString:@"stopping"];
+    BOOL starting = [status isEqualToString:@"starting"];
+    BOOL stopping = [status isEqualToString:@"stopping"];
+    BOOL transitioning = starting || stopping;
     NSString *duration = elapsed([snapshot[@"elapsed_ms"] unsignedLongLongValue]);
-    NSString *title = recording ? [NSString stringWithFormat:@" ● %@", duration] : @" rimv";
+    NSDictionary *transcription = snapshot[@"transcription"];
+    NSString *statusText = @"Ready";
+    if (recording) statusText = [NSString stringWithFormat:@"Listening · %@", duration];
+    else if (stopping) statusText = @"Saving transcript…";
+    else if (starting && [transcription[@"status"] isEqualToString:@"loading"]) statusText = @"Preparing transcription…";
+    else if (starting) statusText = @"Starting…";
+    else if ([status isEqualToString:@"error"]) statusText = @"Capture needs attention";
+    NSString *title = recording ? [NSString stringWithFormat:@" ● %@", duration] : @" RimV";
     if (![self.statusItem.button.title isEqualToString:title]) self.statusItem.button.title = title;
-    self.statusItem.button.toolTip = [NSString stringWithFormat:@"rimv · %@ · %@", status.capitalizedString, duration];
-    self.statusLine.title = [NSString stringWithFormat:@"%@ · %@", status.capitalizedString, duration];
-    self.capture.title = recording ? @"Stop capture" : @"Start capture";
+    self.statusItem.button.toolTip = [NSString stringWithFormat:@"RimV · %@", statusText];
+    self.statusLine.stringValue = statusText;
+    self.statusLine.textColor = [self color:125 green:129 blue:147 darkRed:165 green:176 blue:196];
+    self.brandDetail.stringValue = recording
+        ? [NSString stringWithFormat:@"%@ · %@", [self selectedSourceSummary:snapshot[@"microphone"] system:snapshot[@"system_audio"]], duration]
+        : ([status isEqualToString:@"error"] ? @"Capture needs attention" : @"Real-time transcription");
+    self.brandDetail.textColor = [self color:125 green:129 blue:147 darkRed:165 green:176 blue:196];
+    self.brandState.stringValue = recording ? @"●  LIVE" : ([status isEqualToString:@"error"] ? @"●  Error" : (transitioning ? @"●  Loading" : @"●  Ready"));
+    self.brandState.textColor = recording
+        ? [self color:22 green:163 blue:74 darkRed:34 green:197 blue:94]
+        : ([status isEqualToString:@"error"]
+            ? [self color:212 green:71 blue:71 darkRed:248 green:133 blue:133]
+            : [self color:22 green:163 blue:74 darkRed:34 green:197 blue:94]);
+    NSString *captureTitle = recording ? @"Stop Listening" : ([status isEqualToString:@"error"] ? @"Retry Listening" : @"Start Listening");
+    self.capture.title = @"";
+    self.captureLabel.stringValue = captureTitle;
+    self.captureLabel.textColor = NSColor.whiteColor;
+    self.captureIcon.image = [[NSImage imageWithSystemSymbolName:(recording ? @"stop.fill" : ([status isEqualToString:@"error"] ? @"arrow.clockwise" : @"play.fill"))
+                                           accessibilityDescription:captureTitle]
+        imageWithSymbolConfiguration:[NSImageSymbolConfiguration configurationWithPointSize:16 weight:NSFontWeightSemibold]];
+    self.captureIcon.image.template = YES;
+    self.captureIcon.image.size = NSMakeSize(16, 16);
+    self.captureIcon.contentTintColor = NSColor.whiteColor;
+    NSSize groupSize = self.captureGroup.fittingSize;
+    self.captureGroup.frame = NSMakeRect((NSWidth(self.capture.bounds) - groupSize.width) / 2,
+                                         (NSHeight(self.capture.bounds) - groupSize.height) / 2,
+                                         groupSize.width, groupSize.height);
+    self.capture.contentTintColor = recording
+        ? [self color:195 green:77 blue:83 darkRed:247 green:133 blue:133]
+        : NSColor.whiteColor;
+    self.recordings.image.template = YES;
+    self.recordings.contentTintColor = primary;
+    self.capture.layer.backgroundColor = (recording
+        ? NSColor.clearColor
+        : ([status isEqualToString:@"error"]
+            ? [self color:234 green:246 blue:234 darkRed:24 green:53 blue:34]
+            : [self color:23 green:153 blue:143 darkRed:23 green:153 blue:143])).CGColor;
+    self.capture.font = [NSFont systemFontOfSize:14 weight:NSFontWeightSemibold];
     self.capture.enabled = !transitioning && !self.quitting;
     NSDictionary *capabilities = snapshot[@"capabilities"];
     self.microphone.enabled = !transitioning && !self.quitting && [capabilities[@"microphone_capture"] boolValue];
     self.system.enabled = !transitioning && !self.quitting && [capabilities[@"system_audio_capture"] boolValue];
+    self.systemCard.enabled = self.system.enabled;
+    self.microphoneCard.enabled = self.microphone.enabled;
+    self.bothCard.enabled = self.system.enabled && self.microphone.enabled;
     NSDictionary *mic = snapshot[@"microphone"];
     NSDictionary *system = snapshot[@"system_audio"];
     self.microphone.state = [mic[@"enabled"] boolValue] ? NSControlStateValueOn : NSControlStateValueOff;
     self.system.state = [system[@"enabled"] boolValue] ? NSControlStateValueOn : NSControlStateValueOff;
-    NSDictionary *transcription = snapshot[@"transcription"];
     self.transcription.enabled = !transitioning && [transcription[@"available"] boolValue];
     self.transcription.state = [transcription[@"enabled"] boolValue] ? NSControlStateValueOn : NSControlStateValueOff;
     self.transcription.title = self.transcription.enabled ? @"Transcription" : @"Transcription — model required";
     self.microphone.title = [self sourceTitle:@"Microphone" source:mic recording:recording];
-    self.system.title = [self sourceTitle:@"System audio" source:system recording:recording];
-    self.drops.title = [NSString stringWithFormat:@"Dropped blocks: mic %@ · system %@",
+    self.system.title = [self sourceTitle:@"System Audio" source:system recording:recording];
+    BOOL microphoneEnabled = [mic[@"enabled"] boolValue];
+    BOOL systemEnabled = [system[@"enabled"] boolValue];
+    NSArray<NSButton *> *cards = @[self.systemCard, self.microphoneCard, self.bothCard];
+    NSArray<NSNumber *> *selected = @[@(systemEnabled && !microphoneEnabled), @(microphoneEnabled && !systemEnabled), @(microphoneEnabled && systemEnabled)];
+    for (NSUInteger index = 0; index < cards.count; index++) {
+        NSButton *card = cards[index];
+        BOOL active = selected[index].boolValue;
+        card.layer.backgroundColor = [self color:(active ? 250 : 255) green:(active ? 252 : 255) blue:(active ? 252 : 255)
+                                        darkRed:(active ? 19 : 24) green:(active ? 34 : 38) blue:(active ? 41 : 59)].CGColor;
+        card.layer.borderWidth = active ? 2 : 1.2;
+        card.layer.borderColor = (active ? [self color:23 green:153 blue:143 darkRed:63 green:200 blue:188]
+                                        : [self color:213 green:214 blue:218 darkRed:45 green:61 blue:85]).CGColor;
+        NSColor *contentColor = active ? [self color:23 green:153 blue:143 darkRed:63 green:200 blue:188]
+                                       : [self color:100 green:100 blue:106 darkRed:179 green:182 blue:190];
+        card.contentTintColor = contentColor;
+        for (NSStackView *content in card.subviews) {
+            for (NSView *contentView in content.subviews) {
+                if ([contentView isKindOfClass:NSImageView.class]) ((NSImageView *)contentView).contentTintColor = contentColor;
+                if ([contentView isKindOfClass:NSTextField.class]) ((NSTextField *)contentView).textColor = contentColor;
+            }
+        }
+    }
+    self.transcription.hidden = YES;
+    self.language.hidden = NO;
+    self.language.enabled = self.supportedLanguages.count > 0 && !recording && !transitioning && !self.quitting;
+    self.model.enabled = !transitioning && !self.quitting;
+    self.drops.stringValue = [NSString stringWithFormat:@"Dropped blocks: mic %@ · system %@",
                        snapshot[@"dropped_microphone_blocks"], snapshot[@"dropped_system_blocks"]];
+    self.drops.hidden = [snapshot[@"dropped_microphone_blocks"] unsignedLongLongValue] == 0
+        && [snapshot[@"dropped_system_blocks"] unsignedLongLongValue] == 0;
     id error = snapshot[@"last_error"];
     if ([error isKindOfClass:NSDictionary.class]) {
         [self showError:error[@"message"]];
-    } else if ([status isEqualToString:@"starting"]) {
+    } else if (![status isEqualToString:@"error"]) {
         self.displayedError = nil;
         self.errorItem.hidden = YES;
+        self.errorItem.title = @"Show Capture Error…";
     }
+}
+- (void)dealloc {
+    if (self.keyMonitor) [NSEvent removeMonitor:self.keyMonitor];
+    if (self.localClickMonitor) [NSEvent removeMonitor:self.localClickMonitor];
+    if (self.globalClickMonitor) [NSEvent removeMonitor:self.globalClickMonitor];
+}
+- (NSString *)selectedSourceSummary:(NSDictionary *)mic system:(NSDictionary *)system {
+    BOOL microphone = [mic[@"enabled"] boolValue];
+    BOOL systemAudio = [system[@"enabled"] boolValue];
+    if (microphone && systemAudio) return @"Mic + System";
+    if (microphone) return @"Microphone";
+    if (systemAudio) return @"System Audio";
+    return @"None";
 }
 - (NSString *)sourceTitle:(NSString *)name source:(NSDictionary *)source recording:(BOOL)recording {
     if (![source[@"enabled"] boolValue]) return [name stringByAppendingString:@" — off"];
     if (recording && ![source[@"active"] boolValue]) return [name stringByAppendingString:@" — unavailable (click to disable)"];
     return [name stringByAppendingString:recording ? @" — recording" : @" — on"];
+}
+- (void)togglePopover:(id)sender {
+    (void)sender;
+    if (self.popover.shown) {
+        [self.popover performClose:nil];
+    } else {
+        [self.popover showRelativeToRect:self.statusItem.button.bounds
+                                  ofView:self.statusItem.button
+                           preferredEdge:NSRectEdgeMinY];
+    }
+}
+- (void)applicationDidResignActive:(NSNotification *)notification {
+    (void)notification;
+    [self.popover performClose:nil];
+}
+- (BOOL)popoverShouldDetach:(NSPopover *)popover {
+    (void)popover;
+    return NO;
+}
+- (void)showSources:(id)sender {
+    NSMenu *sources = [[NSMenu alloc] initWithTitle:@"Audio Sources"];
+    NSMenuItem *microphone = [[NSMenuItem alloc] initWithTitle:@"Microphone" action:@selector(toggleMicrophone:) keyEquivalent:@"m"];
+    microphone.target = self;
+    microphone.state = self.microphone.state;
+    microphone.image = [NSImage imageWithSystemSymbolName:@"mic" accessibilityDescription:@"Microphone source"];
+    [sources addItem:microphone];
+    NSMenuItem *system = [[NSMenuItem alloc] initWithTitle:@"System Audio" action:@selector(toggleSystem:) keyEquivalent:@""];
+    system.target = self;
+    system.state = self.system.state;
+    system.image = [NSImage imageWithSystemSymbolName:@"speaker.wave.2" accessibilityDescription:@"System audio source"];
+    [sources addItem:system];
+    [sources popUpMenuPositioningItem:nil atLocation:NSMakePoint(NSMinX(self.source.frame), NSMaxY(self.source.frame)) inView:self.popoverView];
+    (void)sender;
+}
+- (void)selectSystem:(id)sender {
+    (void)sender;
+    self.command(3, 0);
+    self.command(4, 1);
+}
+- (void)selectMicrophone:(id)sender {
+    (void)sender;
+    self.command(3, 1);
+    self.command(4, 0);
+}
+- (void)selectBoth:(id)sender {
+    (void)sender;
+    self.command(3, 1);
+    self.command(4, 1);
 }
 - (void)toggleCapture:(id)sender {
     (void)sender;
@@ -162,9 +564,79 @@ static NSString *elapsed(uint64_t milliseconds) {
     self.command(4, ![self.snapshot[@"system_audio"][@"enabled"] boolValue]);
 }
 - (void)toggleTranscription:(id)sender { (void)sender; self.command(9, ![self.snapshot[@"transcription"][@"enabled"] boolValue]); }
+- (NSString *)languageTitle:(NSString *)code {
+    if ([code isEqualToString:@"en"]) return @"English";
+    if ([code isEqualToString:@"es"]) return @"Spanish";
+    if ([code isEqualToString:@"fr"]) return @"French";
+    if ([code isEqualToString:@"de"]) return @"German";
+    if ([code isEqualToString:@"pt"]) return @"Portuguese";
+    if ([code isEqualToString:@"it"]) return @"Italian";
+    if ([code isEqualToString:@"ja"]) return @"Japanese";
+    if ([code isEqualToString:@"zh"]) return @"Mandarin Chinese";
+    if ([code isEqualToString:@"hi"]) return @"Hindi";
+    if ([code isEqualToString:@"ar"]) return @"Arabic";
+    if ([code isEqualToString:@"ru"]) return @"Russian";
+    return @"Auto Detect";
+}
+- (void)updateLanguageTitle {
+    self.languageValue.stringValue = [self languageTitle:self.selectedLanguage];
+}
+- (void)showLanguages:(id)sender {
+    (void)sender;
+    if (!self.language.enabled) return;
+    NSMenu *languages = [[NSMenu alloc] initWithTitle:@"Transcription Language"];
+    NSMutableArray<NSDictionary *> *options = [NSMutableArray array];
+    if (self.supportsLanguageDetection) [options addObject:@{@"title": @"Auto Detect", @"code": @"auto", @"command": @10}];
+    for (NSString *code in self.supportedLanguages) {
+        uint32_t command = [self languageCommand:code];
+        if (command != 0) [options addObject:@{@"title": [self languageTitle:code], @"code": code, @"command": @(command)}];
+    }
+    NSUInteger directCount = MIN(options.count, 10);
+    for (NSUInteger index = 0; index < directCount; index++) {
+        NSDictionary *option = options[index];
+        NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:option[@"title"] action:@selector(selectLanguage:) keyEquivalent:@""];
+        item.target = self;
+        item.representedObject = option;
+        item.state = [option[@"code"] isEqualToString:self.selectedLanguage] ? NSControlStateValueOn : NSControlStateValueOff;
+        [languages addItem:item];
+    }
+    if (options.count > directCount) {
+        NSMenuItem *more = [[NSMenuItem alloc] initWithTitle:@"More Languages…" action:NULL keyEquivalent:@""];
+        NSMenu *moreMenu = [[NSMenu alloc] initWithTitle:@"More Languages"];
+        for (NSUInteger index = directCount; index < options.count; index++) {
+            NSDictionary *option = options[index];
+            NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:option[@"title"] action:@selector(selectLanguage:) keyEquivalent:@""];
+            item.target = self;
+            item.representedObject = option;
+            item.state = [option[@"code"] isEqualToString:self.selectedLanguage] ? NSControlStateValueOn : NSControlStateValueOff;
+            [moreMenu addItem:item];
+        }
+        more.submenu = moreMenu;
+        [languages addItem:more];
+    }
+    self.languageMenuOpen = YES;
+    [languages popUpMenuPositioningItem:nil
+                             atLocation:NSMakePoint(NSMinX(self.language.frame), NSMaxY(self.language.frame))
+                                 inView:self.popoverView];
+    self.languageMenuOpen = NO;
+}
+- (uint32_t)languageCommand:(NSString *)code {
+    NSDictionary<NSString *, NSNumber *> *commands = @{
+        @"en": @11, @"es": @12, @"fr": @13, @"de": @14, @"pt": @15,
+        @"it": @16, @"ja": @17, @"zh": @18, @"hi": @19, @"ar": @20, @"ru": @21,
+    };
+    return [commands[code] unsignedIntValue];
+}
+- (void)selectLanguage:(NSMenuItem *)sender {
+    NSDictionary *option = sender.representedObject;
+    self.selectedLanguage = option[@"code"];
+    [self updateLanguageTitle];
+    self.command([option[@"command"] unsignedIntValue], 0);
+}
 - (void)showError:(NSString *)message {
     self.displayedError = message;
     self.errorItem.hidden = NO;
+    self.errorItem.title = message;
     self.errorItem.toolTip = message;
 }
 - (void)errorDetails:(id)sender {
@@ -179,6 +651,11 @@ static NSString *elapsed(uint64_t milliseconds) {
 - (void)openRecordings:(id)sender {
     (void)sender;
     [NSWorkspace.sharedWorkspace openURL:[NSURL fileURLWithPath:self.root isDirectory:YES]];
+}
+- (void)showAbout:(id)sender {
+    (void)sender;
+    [NSApp orderFrontStandardAboutPanel:nil];
+    [NSApp activateIgnoringOtherApps:YES];
 }
 - (void)showModels:(id)sender {
     (void)sender;
@@ -212,7 +689,7 @@ static NSString *elapsed(uint64_t milliseconds) {
     (void)sender;
     if (self.quitting) return;
     self.quitting = YES;
-    self.statusLine.title = @"Finalizing recordings…";
+    self.statusLine.stringValue = @"Finalizing recordings…";
     self.capture.enabled = NO;
     self.microphone.enabled = NO;
     self.system.enabled = NO;
@@ -283,6 +760,30 @@ void rimv_menu_set_model_summary(const char *summary) {
     });
 }
 
+void rimv_menu_set_language(const char *language) {
+    NSString *selected = [NSString stringWithUTF8String:language];
+    dispatch_async(dispatch_get_main_queue(), ^{
+        menu.selectedLanguage = selected ?: @"auto";
+        [menu updateLanguageTitle];
+    });
+}
+
+void rimv_menu_set_selector_state(const char *state) {
+    NSData *data = [[NSString stringWithUTF8String:state] dataUsingEncoding:NSUTF8StringEncoding];
+    NSDictionary *selectors = [NSJSONSerialization JSONObjectWithData:data options:0 error:NULL];
+    if (![selectors isKindOfClass:NSDictionary.class]) return;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        menu.modelValue.stringValue = selectors[@"model"] ?: @"Model required";
+        menu.supportedLanguages = selectors[@"languages"] ?: @[];
+        menu.supportsLanguageDetection = [selectors[@"auto_detect"] boolValue];
+        if (![menu.selectedLanguage isEqualToString:@"auto"] && ![menu.supportedLanguages containsObject:menu.selectedLanguage]) {
+            menu.selectedLanguage = @"auto";
+        }
+        [menu updateLanguageTitle];
+        [menu applySnapshot:menu.snapshot];
+    });
+}
+
 void rimv_menu_exit(void) {
     dispatch_async(dispatch_get_main_queue(), ^{
         if (menu.systemTermination) {
@@ -313,40 +814,63 @@ bool rimv_menu_self_test(void) {
         menu.command = testCommand;
         NSMutableDictionary *state = [menu.snapshot mutableCopy];
         BOOL passed = menu.statusItem != nil && menu.capture.enabled;
-        passed &= [menu.capture.title isEqualToString:@"Start capture"];
+        passed &= [menu.captureLabel.stringValue isEqualToString:@"Start Listening"];
+        passed &= [menu.statusLine.stringValue isEqualToString:@"Ready"];
+        menu.supportedLanguages = @[@"en", @"es", @"ru"];
+        menu.supportsLanguageDetection = YES;
+        menu.modelValue.stringValue = @"Whisper Tiny";
+        [menu applySnapshot:state];
+        passed &= menu.language.enabled && [menu.modelValue.stringValue isEqualToString:@"Whisper Tiny"];
+        NSMenuItem *spanish = [[NSMenuItem alloc] initWithTitle:@"Spanish" action:NULL keyEquivalent:@""];
+        spanish.representedObject = @{@"code": @"es", @"command": @12};
+        [menu selectLanguage:spanish];
+        passed &= testedCommand == 12 && [menu.languageValue.stringValue isEqualToString:@"Spanish"];
         passed &= menu.microphone.state == NSControlStateValueOn;
         [menu toggleCapture:nil];
         passed &= testedCommand == 1;
         state[@"status"] = @"starting";
+        state[@"transcription"] = @{@"available": @YES, @"enabled": @YES, @"status": @"loading"};
         [menu applySnapshot:state];
         passed &= !menu.capture.enabled && !menu.microphone.enabled;
+        passed &= [menu.statusLine.stringValue isEqualToString:@"Preparing transcription…"];
         state[@"status"] = @"recording";
         state[@"elapsed_ms"] = @754000;
         state[@"microphone"] = @{@"enabled": @YES, @"active": @YES};
         [menu applySnapshot:state];
-        passed &= [menu.statusLine.title isEqualToString:@"Recording · 00:12:34"];
-        passed &= [menu.capture.title isEqualToString:@"Stop capture"];
+        passed &= [menu.statusLine.stringValue isEqualToString:@"Listening · 00:12:34"];
+        passed &= [menu.captureLabel.stringValue isEqualToString:@"Stop Listening"];
+        passed &= !menu.language.enabled;
         [menu toggleCapture:nil];
         passed &= testedCommand == 2;
+        state[@"status"] = @"stopping";
+        [menu applySnapshot:state];
+        passed &= [menu.statusLine.stringValue isEqualToString:@"Saving transcript…"] && !menu.capture.enabled;
+        state[@"status"] = @"recording";
+        [menu applySnapshot:state];
         [menu toggleMicrophone:nil];
         passed &= testedCommand == 3 && testedEnabled == 0;
         state[@"microphone"] = @{@"enabled": @NO, @"active": @NO};
         [menu applySnapshot:state];
         passed &= menu.microphone.state == NSControlStateValueOff;
-        passed &= [menu.statusLine.title hasPrefix:@"Recording"];
+        passed &= [menu.statusLine.stringValue hasPrefix:@"Listening"];
         [menu toggleMicrophone:nil];
         passed &= testedCommand == 3 && testedEnabled == 1;
         [menu toggleSystem:nil];
         passed &= testedCommand == 4 && testedEnabled == 1;
         state[@"system_audio"] = @{@"enabled": @YES, @"active": @NO};
-        state[@"last_error"] = @{@"message": @"Permission denied"};
         [menu applySnapshot:state];
         passed &= [menu.system.title containsString:@"unavailable"];
-        passed &= !menu.errorItem.hidden && [menu.displayedError isEqualToString:@"Permission denied"];
-        state[@"status"] = @"idle";
+        state[@"last_error"] = @{@"message": @"Permission denied"};
+        state[@"status"] = @"error";
         [menu applySnapshot:state];
-        passed &= [menu.capture.title isEqualToString:@"Start capture"];
-        passed &= [menu.statusLine.title isEqualToString:@"Idle · 00:12:34"];
+        passed &= !menu.errorItem.hidden && [menu.displayedError isEqualToString:@"Permission denied"];
+        passed &= [menu.statusLine.stringValue isEqualToString:@"Capture needs attention"];
+        passed &= [menu.captureLabel.stringValue isEqualToString:@"Retry Listening"];
+        state[@"status"] = @"idle";
+        state[@"last_error"] = [NSNull null];
+        [menu applySnapshot:state];
+        passed &= [menu.captureLabel.stringValue isEqualToString:@"Start Listening"];
+        passed &= [menu.statusLine.stringValue isEqualToString:@"Ready"];
         [menu quit:nil];
         passed &= testedCommand == 5 && !menu.capture.enabled;
         menu.command = original;

@@ -1,7 +1,7 @@
 use engine_runtime::{
     AsrBackendKind, EngineCommand, EngineConfig, EngineEvent, EngineRuntime, SubscriptionError,
 };
-use model_manager::{ModelManager, ModelState};
+use model_manager::{ModelDescriptor, ModelManager, ModelState};
 use std::{
     ffi::{CString, c_char},
     path::PathBuf,
@@ -26,14 +26,18 @@ unsafe extern "C" {
     fn rimv_menu_exit();
     fn rimv_menu_self_test() -> bool;
     fn rimv_menu_set_model_summary(summary: *const c_char);
+    fn rimv_menu_set_language(language: *const c_char);
+    fn rimv_menu_set_selector_state(state: *const c_char);
 }
 
 enum Action {
     Command(EngineCommand),
+    SetLanguage(Option<String>),
     Quit,
 }
 static COMMANDS: OnceLock<SyncSender<Action>> = OnceLock::new();
 static MODELS: OnceLock<ModelManager> = OnceLock::new();
+static SETTINGS_ROOT: OnceLock<PathBuf> = OnceLock::new();
 static QUIT_REQUESTED: AtomicBool = AtomicBool::new(false);
 
 extern "C" fn command(code: u32, enabled: u8) {
@@ -72,6 +76,7 @@ extern "C" fn command(code: u32, enabled: u8) {
                 });
                 match result {
                     Ok(path) => {
+                        update_selector_state(Some(&chosen));
                         let command = EngineCommand::SetTranscriptionModel {
                             path: path.to_string_lossy().into_owned(),
                         };
@@ -79,6 +84,13 @@ extern "C" fn command(code: u32, enabled: u8) {
                             sender.try_send(Action::Command(command)).is_ok()
                         });
                         if selected {
+                            let saved = SETTINGS_ROOT.get().and_then(|root| saved_language(root));
+                            let language = selected_language_for_model(saved, Some(&chosen));
+                            let _ = COMMANDS.get().map(|sender| {
+                                sender.try_send(Action::SetLanguage(
+                                    (language != "auto").then_some(language),
+                                ))
+                            });
                             let _ = COMMANDS.get().map(|sender| {
                                 sender.try_send(Action::Command(
                                     EngineCommand::SetTranscriptionEnabled { enabled: true },
@@ -121,6 +133,18 @@ extern "C" fn command(code: u32, enabled: u8) {
         9 => Action::Command(EngineCommand::SetTranscriptionEnabled {
             enabled: enabled != 0,
         }),
+        10 => Action::SetLanguage(None),
+        11 => Action::SetLanguage(Some("en".into())),
+        12 => Action::SetLanguage(Some("es".into())),
+        13 => Action::SetLanguage(Some("fr".into())),
+        14 => Action::SetLanguage(Some("de".into())),
+        15 => Action::SetLanguage(Some("pt".into())),
+        16 => Action::SetLanguage(Some("it".into())),
+        17 => Action::SetLanguage(Some("ja".into())),
+        18 => Action::SetLanguage(Some("zh".into())),
+        19 => Action::SetLanguage(Some("hi".into())),
+        20 => Action::SetLanguage(Some("ar".into())),
+        21 => Action::SetLanguage(Some("ru".into())),
         5 => Action::Quit,
         _ => return,
     };
@@ -130,6 +154,48 @@ extern "C" fn command(code: u32, enabled: u8) {
     {
         show_error("Controls are busy. Wait for the current operation, then try again.");
     }
+}
+
+fn language_settings_path(support: &std::path::Path) -> PathBuf {
+    support.join("menu-language")
+}
+
+fn saved_language(support: &std::path::Path) -> Option<String> {
+    let value = std::fs::read_to_string(language_settings_path(support)).ok()?;
+    let value = value.trim();
+    match value {
+        "auto" | "en" | "es" | "fr" | "de" | "pt" | "it" | "ja" | "zh" | "hi" | "ar"
+        | "ru" => Some(value.into()),
+        _ => None,
+    }
+}
+
+fn selected_language_for_model(saved: Option<String>, model: Option<&ModelDescriptor>) -> String {
+    let Some(saved) = saved else {
+        return "auto".into();
+    };
+    if saved == "auto" {
+        return "auto".into();
+    }
+    model
+        .is_some_and(|model| model.languages.iter().any(|language| language == &saved))
+        .then_some(saved)
+        .unwrap_or_else(|| "auto".into())
+}
+
+fn update_selector_state(model: Option<&ModelDescriptor>) {
+    let state = serde_json::json!({
+        "model": model.map(|model| model.display_name.as_str()).unwrap_or("Model required"),
+        "languages": model.map(|model| &model.languages).cloned().unwrap_or_default(),
+        "auto_detect": model.is_some_and(|model| model.capabilities.supports_language_detection),
+    });
+    if let Ok(text) = CString::new(state.to_string()) {
+        unsafe { rimv_menu_set_selector_state(text.as_ptr()) };
+    }
+}
+
+fn persist_language(support: &std::path::Path, language: Option<&str>) -> std::io::Result<()> {
+    std::fs::write(language_settings_path(support), language.unwrap_or("auto"))
 }
 
 fn show_error(error: &str) {
@@ -214,10 +280,13 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         .map(PathBuf::from)
         .unwrap_or_else(|| ModelManager::default_root(&home));
     let models = ModelManager::new(model_root);
-    let selected = models
+    let selected_model = models
         .catalog()
         .iter()
         .find(|model| model.backend == "whisper" && models.state(model) == ModelState::Ready)
+        .cloned();
+    let selected = selected_model
+        .as_ref()
         .and_then(|model| model.files.first().map(|file| models.path(model, file)));
     let mut config = EngineConfig {
         recordings_directory: directory.clone(),
@@ -226,6 +295,9 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     // This UI still manages the legacy Whisper catalog. Generic Parakeet
     // model selection is intentionally deferred to the model-manager phase.
     config.transcription.backend = AsrBackendKind::Whisper;
+    let selected_language = selected_language_for_model(saved_language(&support), selected_model.as_ref());
+    config.transcription.language =
+        (selected_language != "auto").then_some(selected_language.clone());
     if let Some(selected) = selected.filter(|path| path.is_file()) {
         config.transcription.model_path = Some(selected);
     }
@@ -240,10 +312,16 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     MODELS
         .set(models.clone())
         .map_err(|_| "model manager already initialized")?;
+    SETTINGS_ROOT
+        .set(support.clone())
+        .map_err(|_| "menu settings already initialized")?;
     let root = CString::new(directory.to_string_lossy().as_bytes())?;
     let initial = CString::new(serde_json::to_string(&engine.snapshot())?)?;
     // AppKit is created and run on the process main thread.
     unsafe { rimv_menu_create(root.as_ptr(), initial.as_ptr(), command) };
+    let selected_language = CString::new(selected_language)?;
+    unsafe { rimv_menu_set_language(selected_language.as_ptr()) };
+    update_selector_state(selected_model.as_ref());
     let primary = models.descriptor("parakeet-tdt-0.6b-v3-int8")?;
     let summary = CString::new(format!(
         "Primary ASR: {}\nStatus: {:?}\n{}\n\nLegacy Whisper downloads remain optional.",
@@ -278,6 +356,19 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
                     Action::Command(command) => {
                         if let Err(error) = controller_engine.send(command) {
                             show_error(&error.to_string());
+                        }
+                    }
+                    Action::SetLanguage(language) => {
+                        if let Err(error) = controller_engine
+                            .send(EngineCommand::SetTranscriptionLanguage {
+                                language: language.clone(),
+                            })
+                        {
+                            show_error(&error.to_string());
+                            continue;
+                        }
+                        if let Err(error) = persist_language(&support, language.as_deref()) {
+                            show_error(&format!("could not save transcription language: {error}"));
                         }
                     }
                     Action::Quit => {

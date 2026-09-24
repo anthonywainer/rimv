@@ -169,6 +169,15 @@ impl Controller {
                 self.state.transcription.available = true;
                 self.state.capabilities.transcription = true;
             }
+            EngineCommand::SetTranscriptionLanguage { language } => {
+                if self.session.is_some() {
+                    return Err(EngineError::new(
+                        EngineErrorCode::AlreadyRecording,
+                        "change the transcription language after capture stops",
+                    ));
+                }
+                self.config.transcription.language = language;
+            }
             EngineCommand::GetState => {}
         }
         self.publish();

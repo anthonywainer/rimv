@@ -17,6 +17,11 @@ pub enum EngineCommand {
     SetTranscriptionModel {
         path: String,
     },
+    /// Applies to the next transcription session. `None` leaves language
+    /// selection to the configured ASR backend.
+    SetTranscriptionLanguage {
+        language: Option<String>,
+    },
     GetState,
 }
 
@@ -30,6 +35,20 @@ mod tests {
         assert_eq!(
             json,
             serde_json::json!({"type":"set_microphone_enabled","enabled":false})
+        );
+        assert_eq!(
+            serde_json::from_value::<EngineCommand>(json).unwrap(),
+            command
+        );
+    }
+
+    #[test]
+    fn transcription_language_allows_backend_auto_detection() {
+        let command = EngineCommand::SetTranscriptionLanguage { language: None };
+        let json = serde_json::to_value(&command).unwrap();
+        assert_eq!(
+            json,
+            serde_json::json!({"type":"set_transcription_language","language":null})
         );
         assert_eq!(
             serde_json::from_value::<EngineCommand>(json).unwrap(),
