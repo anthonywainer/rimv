@@ -169,6 +169,24 @@ impl Controller {
                 self.state.transcription.available = true;
                 self.state.capabilities.transcription = true;
             }
+            EngineCommand::SetTranscriptionBackend { backend } => {
+                if self.session.is_some() {
+                    return Err(EngineError::new(
+                        EngineErrorCode::AlreadyRecording,
+                        "change the transcription model after capture stops",
+                    ));
+                }
+                self.config.transcription.backend = match backend.as_str() {
+                    "parakeet" => crate::AsrBackendKind::Parakeet,
+                    "whisper" => crate::AsrBackendKind::Whisper,
+                    _ => {
+                        return Err(EngineError::new(
+                            EngineErrorCode::InvalidConfiguration,
+                            "unknown transcription backend",
+                        ));
+                    }
+                };
+            }
             EngineCommand::SetTranscriptionLanguage { language } => {
                 if self.session.is_some() {
                     return Err(EngineError::new(

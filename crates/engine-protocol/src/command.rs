@@ -17,6 +17,12 @@ pub enum EngineCommand {
     SetTranscriptionModel {
         path: String,
     },
+    /// Selects the loaded ASR implementation for a future transcription
+    /// session. The model path remains a separate setting so native clients
+    /// can select catalog entries without exposing backend internals.
+    SetTranscriptionBackend {
+        backend: String,
+    },
     /// Applies to the next transcription session. `None` leaves language
     /// selection to the configured ASR backend.
     SetTranscriptionLanguage {

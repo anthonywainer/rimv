@@ -97,6 +97,10 @@ impl ModelManager {
         &self.catalog
     }
 
+    pub fn root(&self) -> &Path {
+        &self.root
+    }
+
     pub fn descriptor(&self, id: &str) -> Result<&ModelDescriptor, ModelError> {
         self.catalog
             .iter()
@@ -110,6 +114,17 @@ impl ModelManager {
 
     pub fn path(&self, descriptor: &ModelDescriptor, file: &ModelFile) -> PathBuf {
         self.directory(descriptor).join(&file.filename)
+    }
+
+    /// Removes a fully managed model directory. Callers are responsible for
+    /// ensuring that the model is not in use by an active transcription.
+    pub fn remove(&self, id: &str) -> Result<(), ModelError> {
+        let descriptor = self.descriptor(id)?;
+        let directory = self.directory(descriptor);
+        if directory.exists() {
+            fs::remove_dir_all(directory)?;
+        }
+        Ok(())
     }
 
     pub fn state(&self, descriptor: &ModelDescriptor) -> ModelState {
@@ -276,9 +291,19 @@ pub fn catalog() -> Vec<ModelDescriptor> {
                     required: true,
                 })
                 .collect(),
-            languages: ["en", "es", "ru"].into_iter().map(str::to_string).collect(),
+            languages: [
+                "bg", "hr", "cs", "da", "nl", "en", "et", "fi", "fr", "de", "el", "hu",
+                "it", "lv", "lt", "mt", "pl", "pt", "ro", "sk", "sl", "es", "sv", "ru",
+                "uk",
+            ]
+            .into_iter()
+            .map(str::to_string)
+            .collect(),
             quantization: Some("int8".into()),
-            capabilities: no_streaming.clone(),
+            capabilities: ModelCapabilities {
+                supports_language_detection: true,
+                ..no_streaming.clone()
+            },
             install_hint: Some("Run `rimv models install` to install the verified Parakeet package.".into()),
         },
         ModelDescriptor {
@@ -302,6 +327,9 @@ pub fn catalog() -> Vec<ModelDescriptor> {
         legacy_whisper("tiny", "Tiny", "ggml-tiny.bin", 77_691_713, "be07e048e1e599ad46341c8d2a135645097a538221678b7acdd1b1919c6e1b21", "Fastest legacy Whisper option."),
         legacy_whisper("base", "Base", "ggml-base.bin", 147_951_465, "60ed5bc3dd14eea856493d334349b405782ddcaf0028d4b5df4088345fba2efe", "Balanced legacy Whisper option."),
         legacy_whisper("small", "Small", "ggml-small.bin", 487_601_967, "1be3a9b2063867b937e64e2ec7483364a79917e157fa98c5d94b5c1fffea987b", "Higher-accuracy legacy Whisper option."),
+        legacy_whisper("medium", "Medium", "ggml-medium.bin", 0, "6c14d5adee5f86394037b4e4e8b59f1673b6cee10e3cf0b11bbdbee79c156208", "Larger multilingual Whisper model."),
+        legacy_whisper("large", "Large v3", "ggml-large-v3.bin", 0, "64d182b440b98d5203c4f9bd541544d84c605196c4f7b845dfa11fb23594d1e2", "Highest-accuracy Whisper model in the local catalog."),
+        legacy_whisper("turbo", "Turbo", "ggml-large-v3-turbo.bin", 1_624_555_275, "1fc70f774d38eb169993ac391eea357ef47c88757ef72ee5943879b7e8e2bc69", "Speed-oriented Whisper large-v3 variant."),
     ]
 }
 
@@ -324,7 +352,7 @@ fn legacy_whisper(
             source_url: Some(format!(
                 "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/{filename}"
             )),
-            expected_size_bytes: Some(expected_size_bytes),
+            expected_size_bytes: (expected_size_bytes != 0).then_some(expected_size_bytes),
             sha256: Some(sha256.into()),
             required: true,
         }],
@@ -357,10 +385,35 @@ mod tests {
     }
 
     #[test]
+    fn parakeet_v3_catalog_matches_its_multilingual_model_card() {
+        let manager = ModelManager::new("/tmp/models");
+        let parakeet = manager.descriptor(PARAKEET_ID).unwrap();
+        assert!(parakeet.capabilities.supports_language_detection);
+        assert_eq!(parakeet.languages.len(), 25);
+        assert!(parakeet.languages.contains(&"uk".to_string()));
+    }
+
+    #[test]
     fn legacy_whisper_is_described_without_leaking_into_generic_types() {
         let manager = ModelManager::new("/tmp/models");
         let descriptor = manager.descriptor("whisper-tiny").unwrap();
         assert_eq!(descriptor.backend, "whisper");
         assert_eq!(descriptor.files[0].filename, "ggml-tiny.bin");
+    }
+
+    #[test]
+    fn requested_whisper_variants_have_verified_artifacts() {
+        let manager = ModelManager::new("/tmp/models");
+        for id in [
+            "whisper-small",
+            "whisper-medium",
+            "whisper-large",
+            "whisper-turbo",
+        ] {
+            let descriptor = manager.descriptor(id).unwrap();
+            assert_eq!(descriptor.backend, "whisper");
+            assert!(descriptor.files[0].source_url.is_some());
+            assert!(descriptor.files[0].sha256.is_some());
+        }
     }
 }

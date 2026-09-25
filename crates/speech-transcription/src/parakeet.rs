@@ -97,7 +97,7 @@ impl SpeechToTextEngine for ParakeetEngine {
                 supports_incremental_audio: false,
                 supports_partial_results: false,
                 supports_word_timestamps: false,
-                supports_language_detection: false,
+                supports_language_detection: true,
                 supports_true_streaming: false,
             },
         }

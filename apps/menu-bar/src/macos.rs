@@ -6,7 +6,7 @@ use std::{
     ffi::{CString, c_char},
     path::PathBuf,
     sync::{
-        OnceLock,
+        Mutex, OnceLock,
         atomic::{AtomicBool, Ordering},
         mpsc::{self, SyncSender},
     },
@@ -28,25 +28,49 @@ unsafe extern "C" {
     fn rimv_menu_set_model_summary(summary: *const c_char);
     fn rimv_menu_set_language(language: *const c_char);
     fn rimv_menu_set_selector_state(state: *const c_char);
+    fn rimv_model_manager_configure(
+        catalog_json: *const c_char,
+        storage_path: *const c_char,
+        command: extern "C" fn(u32, u8),
+    );
+    fn rimv_model_manager_update(catalog_json: *const c_char);
 }
 
 enum Action {
     Command(EngineCommand),
     SetLanguage(Option<String>),
+    SelectModel(String),
+    RemoveModel(String),
     Quit,
 }
 static COMMANDS: OnceLock<SyncSender<Action>> = OnceLock::new();
 static MODELS: OnceLock<ModelManager> = OnceLock::new();
 static SETTINGS_ROOT: OnceLock<PathBuf> = OnceLock::new();
 static QUIT_REQUESTED: AtomicBool = AtomicBool::new(false);
+static SELECTED_MODEL: OnceLock<Mutex<String>> = OnceLock::new();
+static DOWNLOADING: OnceLock<Mutex<std::collections::HashSet<String>>> = OnceLock::new();
+static DOWNLOAD_PROGRESS: OnceLock<Mutex<std::collections::HashMap<String, (u64, Option<u64>)>>> =
+    OnceLock::new();
 
 extern "C" fn command(code: u32, enabled: u8) {
     if let Some(model_id) = match code {
-        6 => Some("whisper-tiny"),
-        7 => Some("whisper-base"),
-        8 => Some("whisper-small"),
+        40 => Some("parakeet-tdt-0.6b-v3-int8"),
+        41 => Some("whisper-tiny"),
+        42 => Some("whisper-base"),
+        43 => Some("whisper-small"),
+        44 => Some("whisper-medium"),
+        45 => Some("whisper-large"),
+        46 => Some("whisper-turbo"),
         _ => None,
     } {
+        let downloads = DOWNLOADING.get_or_init(|| Mutex::new(Default::default()));
+        if !downloads
+            .lock()
+            .expect("download lock poisoned")
+            .insert(model_id.into())
+        {
+            return;
+        }
         let _ = thread::Builder::new()
             .name("model-download".into())
             .spawn(move || {
@@ -62,41 +86,32 @@ extern "C" fn command(code: u32, enabled: u8) {
                     }
                 };
                 let cancelled = std::sync::atomic::AtomicBool::new(false);
-                let result = manager.install(model_id, &cancelled, |done, total| {
-                    let text = format!(
-                        "Downloading {}\n{:.0}%\n{:.0} MB / {:.0} MB",
-                        chosen.display_name,
-                        total.map_or(0.0, |size| done as f64 * 100.0 / size as f64),
-                        done as f64 / 1_000_000.0,
-                        total.unwrap_or(0) as f64 / 1_000_000.0
-                    );
-                    if let Ok(text) = CString::new(text) {
-                        unsafe { rimv_menu_set_model_summary(text.as_ptr()) };
-                    }
-                });
+                publish_model_catalog();
+                let result = if chosen.backend == "parakeet" {
+                    manager.install_parakeet(&cancelled, |done, total| {
+                        publish_download_progress(&chosen, done, total);
+                    })
+                } else {
+                    manager.install(model_id, &cancelled, |done, total| {
+                        let text = format!(
+                            "Downloading {}\n{:.0}%\n{:.0} MB / {:.0} MB",
+                            chosen.display_name,
+                            total.map_or(0.0, |size| done as f64 * 100.0 / size as f64),
+                            done as f64 / 1_000_000.0,
+                            total.unwrap_or(0) as f64 / 1_000_000.0
+                        );
+                        if let Ok(text) = CString::new(text) {
+                            unsafe { rimv_menu_set_model_summary(text.as_ptr()) };
+                        }
+                        publish_download_progress(&chosen, done, total);
+                    })
+                };
                 match result {
                     Ok(path) => {
-                        update_selector_state(Some(&chosen));
-                        let command = EngineCommand::SetTranscriptionModel {
-                            path: path.to_string_lossy().into_owned(),
-                        };
-                        let selected = COMMANDS.get().is_some_and(|sender| {
-                            sender.try_send(Action::Command(command)).is_ok()
-                        });
-                        if selected {
-                            let saved = SETTINGS_ROOT.get().and_then(|root| saved_language(root));
-                            let language = selected_language_for_model(saved, Some(&chosen));
-                            let _ = COMMANDS.get().map(|sender| {
-                                sender.try_send(Action::SetLanguage(
-                                    (language != "auto").then_some(language),
-                                ))
-                            });
-                            let _ = COMMANDS.get().map(|sender| {
-                                sender.try_send(Action::Command(
-                                    EngineCommand::SetTranscriptionEnabled { enabled: true },
-                                ))
-                            });
-                        }
+                        let _ = path;
+                        let _ = COMMANDS
+                            .get()
+                            .map(|sender| sender.try_send(Action::SelectModel(model_id.into())));
                         if let Ok(text) = CString::new(format!(
                             "{} is installed and selected.\nTranscription is enabled.",
                             chosen.display_name,
@@ -109,7 +124,29 @@ extern "C" fn command(code: u32, enabled: u8) {
                         chosen.display_name
                     )),
                 }
+                DOWNLOADING
+                    .get()
+                    .expect("download state initialized")
+                    .lock()
+                    .expect("download lock poisoned")
+                    .remove(model_id);
+                if let Some(progress) = DOWNLOAD_PROGRESS.get() {
+                    progress.lock().expect("download progress lock poisoned").remove(model_id);
+                }
+                publish_model_catalog();
             });
+        return;
+    }
+    if let Some(model_id) = model_for_code(code, 60) {
+        let _ = COMMANDS
+            .get()
+            .map(|sender| sender.try_send(Action::SelectModel(model_id.into())));
+        return;
+    }
+    if let Some(model_id) = model_for_code(code, 80) {
+        let _ = COMMANDS
+            .get()
+            .map(|sender| sender.try_send(Action::RemoveModel(model_id.into())));
         return;
     }
     if code == 5 {
@@ -145,6 +182,24 @@ extern "C" fn command(code: u32, enabled: u8) {
         19 => Action::SetLanguage(Some("hi".into())),
         20 => Action::SetLanguage(Some("ar".into())),
         21 => Action::SetLanguage(Some("ru".into())),
+        22 => Action::SetLanguage(Some("bg".into())),
+        23 => Action::SetLanguage(Some("hr".into())),
+        24 => Action::SetLanguage(Some("cs".into())),
+        25 => Action::SetLanguage(Some("da".into())),
+        26 => Action::SetLanguage(Some("nl".into())),
+        27 => Action::SetLanguage(Some("et".into())),
+        28 => Action::SetLanguage(Some("fi".into())),
+        29 => Action::SetLanguage(Some("el".into())),
+        30 => Action::SetLanguage(Some("hu".into())),
+        31 => Action::SetLanguage(Some("lv".into())),
+        32 => Action::SetLanguage(Some("lt".into())),
+        33 => Action::SetLanguage(Some("mt".into())),
+        34 => Action::SetLanguage(Some("pl".into())),
+        35 => Action::SetLanguage(Some("ro".into())),
+        36 => Action::SetLanguage(Some("sk".into())),
+        37 => Action::SetLanguage(Some("sl".into())),
+        38 => Action::SetLanguage(Some("sv".into())),
+        39 => Action::SetLanguage(Some("uk".into())),
         5 => Action::Quit,
         _ => return,
     };
@@ -156,6 +211,66 @@ extern "C" fn command(code: u32, enabled: u8) {
     }
 }
 
+fn model_for_code(code: u32, base: u32) -> Option<&'static str> {
+    match code.checked_sub(base)? {
+        0 => Some("parakeet-tdt-0.6b-v3-int8"),
+        1 => Some("whisper-tiny"),
+        2 => Some("whisper-base"),
+        3 => Some("whisper-small"),
+        4 => Some("whisper-medium"),
+        5 => Some("whisper-large"),
+        6 => Some("whisper-turbo"),
+        _ => None,
+    }
+}
+
+fn model_settings_path(support: &std::path::Path) -> PathBuf {
+    support.join("menu-model")
+}
+fn saved_model(support: &std::path::Path) -> Option<String> {
+    std::fs::read_to_string(model_settings_path(support))
+        .ok()
+        .map(|id| id.trim().to_owned())
+        .filter(|id| !id.is_empty())
+}
+fn persist_model(support: &std::path::Path, id: &str) -> std::io::Result<()> {
+    std::fs::write(model_settings_path(support), id)
+}
+
+fn publish_download_progress(model: &ModelDescriptor, done: u64, total: Option<u64>) {
+    DOWNLOAD_PROGRESS
+        .get_or_init(|| Mutex::new(Default::default()))
+        .lock()
+        .expect("download progress lock poisoned")
+        .insert(model.id.clone(), (done, total));
+    publish_model_catalog();
+}
+fn publish_model_catalog() {
+    let (Some(models), Some(selected)) = (MODELS.get(), SELECTED_MODEL.get()) else {
+        return;
+    };
+    let selected = selected
+        .lock()
+        .expect("selected model lock poisoned")
+        .clone();
+    let downloading = DOWNLOADING
+        .get()
+        .map(|state| state.lock().expect("download lock poisoned").clone())
+        .unwrap_or_default();
+    let progress = DOWNLOAD_PROGRESS
+        .get()
+        .map(|state| state.lock().expect("download progress lock poisoned").clone())
+        .unwrap_or_default();
+    let items: Vec<_> = models.catalog().iter().filter(|model| model.backend == "parakeet" || model.backend == "whisper").map(|model| {
+        let size = model.files.first().and_then(|file| file.expected_size_bytes).map(|bytes| format!("{:.1} GB", bytes as f64 / 1_000_000_000.0)).unwrap_or_else(|| match model.id.as_str() { "whisper-medium" => "1.5 GB".into(), "whisper-large" => "3.1 GB".into(), _ => "Managed package".into() });
+        let progress_text = progress.get(&model.id).map(|(done, total)| match total { Some(total) => format!("{:.0}% · {:.1} MB / {:.1} MB", *done as f64 * 100.0 / *total as f64, *done as f64 / 1_000_000.0, *total as f64 / 1_000_000.0), None => format!("{:.1} MB downloaded", *done as f64 / 1_000_000.0) });
+        serde_json::json!({"id":model.id,"name":model.display_name,"description":model.install_hint.as_deref().unwrap_or("Local transcription model."),"size":size,"progress":progress_text,"state":if models.state(model)==ModelState::Ready {"installed"} else if downloading.contains(&model.id) {"downloading"} else {"available"},"selected":model.id==selected})
+    }).collect();
+    if let Ok(json) = CString::new(serde_json::to_string(&items).unwrap_or_default()) {
+        unsafe { rimv_model_manager_update(json.as_ptr()) };
+    }
+}
+
 fn language_settings_path(support: &std::path::Path) -> PathBuf {
     support.join("menu-language")
 }
@@ -164,8 +279,9 @@ fn saved_language(support: &std::path::Path) -> Option<String> {
     let value = std::fs::read_to_string(language_settings_path(support)).ok()?;
     let value = value.trim();
     match value {
-        "auto" | "en" | "es" | "fr" | "de" | "pt" | "it" | "ja" | "zh" | "hi" | "ar"
-        | "ru" => Some(value.into()),
+        "auto" | "ar" | "bg" | "cs" | "da" | "de" | "el" | "en" | "es" | "et" | "fi" | "fr"
+        | "hi" | "hr" | "hu" | "it" | "ja" | "lt" | "lv" | "mt" | "nl" | "pl" | "pt" | "ro"
+        | "ru" | "sk" | "sl" | "sv" | "uk" | "zh" => Some(value.into()),
         _ => None,
     }
 }
@@ -280,25 +396,51 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         .map(PathBuf::from)
         .unwrap_or_else(|| ModelManager::default_root(&home));
     let models = ModelManager::new(model_root);
-    let selected_model = models
-        .catalog()
-        .iter()
-        .find(|model| model.backend == "whisper" && models.state(model) == ModelState::Ready)
-        .cloned();
-    let selected = selected_model
-        .as_ref()
-        .and_then(|model| model.files.first().map(|file| models.path(model, file)));
+    let catalog = models.catalog();
+    let selected_model = saved_model(&support)
+        .and_then(|id| {
+            catalog
+                .iter()
+                .find(|model| model.id == id && models.state(model) == ModelState::Ready)
+                .cloned()
+        })
+        .or_else(|| {
+            catalog
+                .iter()
+                .find(|model| {
+                    model.backend == "parakeet" && models.state(model) == ModelState::Ready
+                })
+                .or_else(|| {
+                    catalog.iter().find(|model| {
+                        model.backend == "whisper" && models.state(model) == ModelState::Ready
+                    })
+                })
+                .cloned()
+        });
+    let selected = selected_model.as_ref().map(|model| {
+        if model.backend == "parakeet" {
+            models.directory(model)
+        } else {
+            models.path(model, &model.files[0])
+        }
+    });
     let mut config = EngineConfig {
         recordings_directory: directory.clone(),
         ..Default::default()
     };
-    // This UI still manages the legacy Whisper catalog. Generic Parakeet
-    // model selection is intentionally deferred to the model-manager phase.
-    config.transcription.backend = AsrBackendKind::Whisper;
-    let selected_language = selected_language_for_model(saved_language(&support), selected_model.as_ref());
+    config.transcription.backend = if selected_model
+        .as_ref()
+        .is_some_and(|model| model.backend == "whisper")
+    {
+        AsrBackendKind::Whisper
+    } else {
+        AsrBackendKind::Parakeet
+    };
+    let selected_language =
+        selected_language_for_model(saved_language(&support), selected_model.as_ref());
     config.transcription.language =
         (selected_language != "auto").then_some(selected_language.clone());
-    if let Some(selected) = selected.filter(|path| path.is_file()) {
+    if let Some(selected) = selected.filter(|path| path.exists()) {
         config.transcription.model_path = Some(selected);
     }
     let engine = EngineRuntime::new(config)?;
@@ -315,10 +457,22 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     SETTINGS_ROOT
         .set(support.clone())
         .map_err(|_| "menu settings already initialized")?;
+    SELECTED_MODEL
+        .set(Mutex::new(
+            selected_model
+                .as_ref()
+                .map(|model| model.id.clone())
+                .unwrap_or_default(),
+        ))
+        .map_err(|_| "selected model already initialized")?;
     let root = CString::new(directory.to_string_lossy().as_bytes())?;
     let initial = CString::new(serde_json::to_string(&engine.snapshot())?)?;
     // AppKit is created and run on the process main thread.
     unsafe { rimv_menu_create(root.as_ptr(), initial.as_ptr(), command) };
+    let model_catalog = CString::new("[]")?;
+    let model_root = CString::new(models.root().to_string_lossy().as_bytes())?;
+    unsafe { rimv_model_manager_configure(model_catalog.as_ptr(), model_root.as_ptr(), command) };
+    publish_model_catalog();
     let selected_language = CString::new(selected_language)?;
     unsafe { rimv_menu_set_language(selected_language.as_ptr()) };
     update_selector_state(selected_model.as_ref());
@@ -359,8 +513,8 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
                         }
                     }
                     Action::SetLanguage(language) => {
-                        if let Err(error) = controller_engine
-                            .send(EngineCommand::SetTranscriptionLanguage {
+                        if let Err(error) =
+                            controller_engine.send(EngineCommand::SetTranscriptionLanguage {
                                 language: language.clone(),
                             })
                         {
@@ -369,6 +523,73 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
                         }
                         if let Err(error) = persist_language(&support, language.as_deref()) {
                             show_error(&format!("could not save transcription language: {error}"));
+                        }
+                    }
+                    Action::SelectModel(id) => {
+                        let Some(manager) = MODELS.get() else {
+                            show_error("model manager is not initialized");
+                            continue;
+                        };
+                        let Ok(model) = manager.descriptor(&id) else {
+                            show_error("unknown model");
+                            continue;
+                        };
+                        if manager.state(model) != ModelState::Ready {
+                            show_error("download the model before selecting it");
+                            continue;
+                        }
+                        let path = if model.backend == "parakeet" {
+                            manager.directory(model)
+                        } else {
+                            manager.path(model, &model.files[0])
+                        };
+                        let backend = model.backend.clone();
+                        if let Err(error) = controller_engine
+                            .send(EngineCommand::SetTranscriptionBackend { backend })
+                            .and_then(|_| {
+                                controller_engine.send(EngineCommand::SetTranscriptionModel {
+                                    path: path.to_string_lossy().into_owned(),
+                                })
+                            })
+                        {
+                            show_error(&error.to_string());
+                            continue;
+                        }
+                        let saved = saved_language(&support);
+                        let language = selected_language_for_model(saved, Some(model));
+                        if let Err(error) =
+                            controller_engine.send(EngineCommand::SetTranscriptionLanguage {
+                                language: (language != "auto").then_some(language),
+                            })
+                        {
+                            show_error(&error.to_string());
+                            continue;
+                        }
+                        if let Some(selected) = SELECTED_MODEL.get() {
+                            *selected.lock().expect("selected model lock poisoned") = id.clone();
+                        }
+                        if let Err(error) = persist_model(&support, &id) {
+                            show_error(&format!("could not save selected model: {error}"));
+                        }
+                        update_selector_state(Some(model));
+                        publish_model_catalog();
+                    }
+                    Action::RemoveModel(id) => {
+                        let Some(manager) = MODELS.get() else {
+                            show_error("model manager is not initialized");
+                            continue;
+                        };
+                        let selected = SELECTED_MODEL.get().is_some_and(|current| {
+                            *current.lock().expect("selected model lock poisoned") == id
+                        });
+                        if selected {
+                            show_error("select another model before removing the current model");
+                            continue;
+                        }
+                        if let Err(error) = manager.remove(&id) {
+                            show_error(&format!("could not remove model: {error}"));
+                        } else {
+                            publish_model_catalog();
                         }
                     }
                     Action::Quit => {
