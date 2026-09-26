@@ -228,6 +228,8 @@ jobs:
           SIGNING_CERTIFICATE_PATH: ${{ steps.windows-signing.outputs.certificate_path }}
         run: |
           $ErrorActionPreference = 'Stop'
+          & (Join-Path $env:GITHUB_WORKSPACE 'scripts/windows/prepare-windows-runtime.ps1')
+          if ($LASTEXITCODE -ne 0) { throw 'Failed to prepare Windows runtime DLLs.' }
           Push-Location apps/windows
           try {
             if ($env:SIGNING_ENABLED -eq 'true') {

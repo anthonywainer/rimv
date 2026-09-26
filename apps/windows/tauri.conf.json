@@ -4,8 +4,7 @@
   "version": "0.1.0-beta",
   "identifier": "dev.rimv.windows",
   "build": {
-    "frontendDist": "ui",
-    "beforeBuildCommand": "powershell -NoProfile -ExecutionPolicy Bypass -File ../../scripts/windows/prepare-windows-runtime.ps1"
+    "frontendDist": "ui"
   },
   "app": {
     "withGlobalTauri": true,

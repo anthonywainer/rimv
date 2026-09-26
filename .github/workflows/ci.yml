@@ -215,6 +215,10 @@ jobs:
       - name: Build workspace
         run: cargo build --workspace --locked
 
+      - name: Prepare Windows runtime DLLs
+        shell: pwsh
+        run: ./scripts/windows/prepare-windows-runtime.ps1
+
       - name: Build Windows desktop installer
         working-directory: apps/windows
         run: cargo tauri build
