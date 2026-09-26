@@ -31,7 +31,6 @@
       "runtime/": ""
     },
     "windows": {
-      "bundleVCRuntime": true,
       "webviewInstallMode": {
         "type": "downloadBootstrapper",
         "silent": true

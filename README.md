@@ -395,16 +395,14 @@ redistribution has not been verified.
 
 ## Release Pipeline
 
-`.github/workflows/release.yml` validates release tags, runs one locked Linux
-quality gate for the exact tagged commit, then builds macOS arm64 and Windows
-x64 CLI packages plus the Windows Tauri installer. It inspects package
-contents, generates `SHA256SUMS`, and publishes a GitHub Release only for tag
-pushes. Windows remains a preview release target pending hardware/runtime
-validation; Linux remains a scheduled/manual validation target and does not
-publish beta artifacts. Manual `workflow_dispatch` runs are dry runs: they
-build and upload workflow artifacts but do not publish a GitHub Release.
+The release workflow is temporarily in Windows installer-only mode: its other
+jobs are commented out, and `windows-desktop` runs without waiting for tag
+validation, Linux quality checks, or CLI packaging. It uploads the NSIS setup
+executable as a workflow artifact; checksum generation and GitHub Release
+publishing are paused. Restore the commented jobs and their dependencies to
+resume the full release pipeline.
 
-For `v0.1.0-beta`, the public release attaches:
+When the full release jobs are restored, the intended `v0.1.0-beta` assets are:
 
 ```text
 rimv-capture-v0.1.0-beta-macos-arm64.tar.gz

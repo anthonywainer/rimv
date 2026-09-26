@@ -52,7 +52,7 @@ configured separately.
 | Platform | Status |
 |---|---|
 | macOS arm64 | Primary beta target. Workspace checks, staged Capture/Transcribe/Server outputs, and previous local microphone/system/transcription runs were exercised on this host. |
-| Windows x64 | Preview release. The release workflow produces CLI archives and a per-user Tauri installer, but the application has not been runtime-tested on Windows hardware. Installers are signed only when protected release signing credentials are configured. |
+| Windows x64 | Preview release. The active workflow currently builds and uploads only the per-user Tauri installer; full release validation, CLI archives, checksums, and GitHub Release publishing are paused. The application has not been runtime-tested on Windows hardware. |
 | Linux x64 | Experimental/partial. Microphone capture uses CPAL/ALSA. System audio capture is unsupported pending a PipeWire backend; no public beta binary is published. |
 
 Compilation does not imply runtime support. Capture permissions, audio devices,
