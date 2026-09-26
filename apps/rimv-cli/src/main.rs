@@ -594,10 +594,12 @@ fn default_vad_model_path() -> Option<PathBuf> {
 fn model_root() -> PathBuf {
     std::env::var_os("RIMV_MODELS_DIR").map_or_else(
         || {
-            std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")).map_or_else(
-                || PathBuf::from("resources/models"),
-                |home| ModelManager::default_root(&PathBuf::from(home)),
-            )
+            std::env::var_os("HOME")
+                .or_else(|| std::env::var_os("USERPROFILE"))
+                .map_or_else(
+                    || PathBuf::from("resources/models"),
+                    |home| ModelManager::default_root(&PathBuf::from(home)),
+                )
         },
         PathBuf::from,
     )
@@ -751,8 +753,8 @@ mod tests {
     #[test]
     #[ignore = "requires local ASR/VAD models and runs at fixture speed"]
     fn trace_recorded_fixture_through_live_worker() {
-        let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../../resources/audio/audio1.mp3");
+        let fixture =
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../resources/audio/audio1.mp3");
         let decoded = media::decode_mono_16k(&fixture).unwrap();
         let calls = Arc::new(Mutex::new(Vec::new()));
         let config = SpeechConfig {
@@ -767,7 +769,10 @@ mod tests {
         let inner = load_configured_backend(config.clone()).unwrap();
         let (sender, receiver) = mpsc::sync_channel(256);
         let mut worker = SpeechWorker::start(
-            TracingEngine { inner, calls: calls.clone() },
+            TracingEngine {
+                inner,
+                calls: calls.clone(),
+            },
             config,
             sender,
         )
@@ -811,17 +816,18 @@ mod tests {
         for update in &updates {
             eprintln!(
                 "event {}-{}ms final={} stable={:?} unstable={:?}",
-                update.start_ms, update.end_ms, update.is_final, update.stable_text, update.unstable_text
+                update.start_ms,
+                update.end_ms,
+                update.is_final,
+                update.stable_text,
+                update.unstable_text
             );
         }
         // Replay the same event stream through an 80-column terminal. This
         // distinguishes a hypothesis revision from a terminal redraw defect.
         let terminal_bytes = TerminalBytes::default();
-        let mut renderer = TranscriptRenderer::with_terminal_columns(
-            terminal_bytes.clone(),
-            true,
-            Some(80),
-        );
+        let mut renderer =
+            TranscriptRenderer::with_terminal_columns(terminal_bytes.clone(), true, Some(80));
         let mut prior_screen = String::new();
         for update in &updates {
             renderer.update(update.clone()).unwrap();
@@ -841,10 +847,23 @@ mod tests {
             }
             prior_screen = current_screen;
         }
-        assert!(calls.lock().unwrap().iter().any(|call| call.start_ms < 10_000));
-        let finals = updates.iter().filter(|update| update.is_final).collect::<Vec<_>>();
+        assert!(
+            calls
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|call| call.start_ms < 10_000)
+        );
+        let finals = updates
+            .iter()
+            .filter(|update| update.is_final)
+            .collect::<Vec<_>>();
         assert!(!finals.is_empty());
-        assert!(finals.windows(2).all(|pair| pair[0].start_ms <= pair[1].start_ms));
+        assert!(
+            finals
+                .windows(2)
+                .all(|pair| pair[0].start_ms <= pair[1].start_ms)
+        );
     }
 
     #[test]

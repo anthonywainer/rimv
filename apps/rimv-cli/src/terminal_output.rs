@@ -1,7 +1,9 @@
 use crate::transcript_renderer::TranscriptRenderer;
 use engine_protocol::TranscriptUpdate;
 use std::{
-    io::{self, Write}, sync::{Arc, Mutex}, time::Duration,
+    io::{self, Write},
+    sync::{Arc, Mutex},
+    time::Duration,
 };
 
 pub(crate) type SharedTerminal<W> = Arc<Mutex<TranscriptRenderer<W>>>;

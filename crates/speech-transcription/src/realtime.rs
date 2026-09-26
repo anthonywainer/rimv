@@ -97,7 +97,10 @@ impl TranscriptStabilizer {
 /// Finds a useful prefix of a later rolling-window hypothesis inside the text
 /// already displayed. A three-word minimum avoids joining on a coincidental
 /// short phrase; comparisons ignore casing and punctuation only for matching.
-fn longest_visible_prefix_overlap(visible: &[String], current: &[String]) -> Option<(usize, usize)> {
+fn longest_visible_prefix_overlap(
+    visible: &[String],
+    current: &[String],
+) -> Option<(usize, usize)> {
     let mut best = None;
     for start in 0..visible.len() {
         let length = visible[start..]
@@ -334,8 +337,8 @@ impl Decoder {
 
 fn bounded_partial_audio(utterance_start_ms: u64, samples: &[f32]) -> Utterance {
     let window_start_samples = samples.len().saturating_sub(PARTIAL_WINDOW_SAMPLES);
-    let window_start_ms = utterance_start_ms
-        + window_start_samples as u64 * 1000 / ASR_SAMPLE_RATE as u64;
+    let window_start_ms =
+        utterance_start_ms + window_start_samples as u64 * 1000 / ASR_SAMPLE_RATE as u64;
     Utterance {
         start_ms: window_start_ms,
         end_ms: utterance_start_ms + samples.len() as u64 * 1000 / ASR_SAMPLE_RATE as u64,
@@ -401,7 +404,10 @@ mod tests {
         let mut s = TranscriptStabilizer::default();
         assert_eq!(
             s.update("one two three four five six seven eight", false),
-            (String::new(), "one two three four five six seven eight".into())
+            (
+                String::new(),
+                "one two three four five six seven eight".into()
+            )
         );
         assert_eq!(
             s.update("four five six seven eight nine ten", false),
@@ -462,7 +468,10 @@ mod tests {
             true,
         );
         decoder.finish();
-        assert_eq!(*lengths.lock().unwrap(), vec![30 * ASR_SAMPLE_RATE as usize]);
+        assert_eq!(
+            *lengths.lock().unwrap(),
+            vec![30 * ASR_SAMPLE_RATE as usize]
+        );
     }
     #[test]
     fn final_hypothesis_replaces_mismatched_partial_without_duplicate_clause() {
@@ -497,7 +506,10 @@ mod tests {
         // provisional display advance without changing committed words.
         assert_eq!(
             s.update("welcome to the news tonight with more", false),
-            ("hello welcome to the news".into(), "tonight with more".into())
+            (
+                "hello welcome to the news".into(),
+                "tonight with more".into()
+            )
         );
     }
 

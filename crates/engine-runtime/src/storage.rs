@@ -308,7 +308,10 @@ mod tests {
 
         let mut reader = hound::WavReader::open(dir.path().join("microphone.wav")).unwrap();
         assert_eq!(reader.duration(), 3);
-        let samples = reader.samples::<f32>().map(|sample| sample.unwrap()).collect::<Vec<_>>();
+        let samples = reader
+            .samples::<f32>()
+            .map(|sample| sample.unwrap())
+            .collect::<Vec<_>>();
         assert_eq!(samples, vec![0.2, 0.4, 0.6]);
     }
     #[test]
@@ -375,8 +378,10 @@ mod tests {
             serde_json::from_slice(&fs::read(directory.path().join("transcript.json")).unwrap())
                 .unwrap();
         assert_eq!(persisted, vec![segments[1].clone()]);
-        assert!(!fs::read_to_string(directory.path().join("transcript.txt"))
-            .unwrap()
-            .contains("[0–500 ms]"));
+        assert!(
+            !fs::read_to_string(directory.path().join("transcript.txt"))
+                .unwrap()
+                .contains("[0–500 ms]")
+        );
     }
 }
