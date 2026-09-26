@@ -83,7 +83,7 @@ jobs:
 
           changed web apps/web
           changed macos Cargo.toml Cargo.lock crates/audio-capture/src/platform/macos.rs apps/menu-bar scripts/create-dmg.sh scripts/package-macos.sh
-          changed windows Cargo.toml Cargo.lock crates/audio-capture/src/platform/windows.rs
+          changed windows Cargo.toml Cargo.lock crates/audio-capture/src/platform/windows.rs crates/engine-runtime crates/model-manager crates/speech-transcription apps/windows scripts/windows .github/workflows/ci.yml
 
           rust=false
           while IFS= read -r path; do
@@ -191,7 +191,7 @@ jobs:
   windows:
     name: Rust (Windows x64)
     needs: changes
-    if: github.event_name == 'push' && needs.changes.outputs.windows == 'true'
+    if: needs.changes.outputs.windows == 'true'
     runs-on: windows-latest
 
     steps:
@@ -206,8 +206,15 @@ jobs:
         with:
           cache-targets: false
 
+      - name: Install Tauri CLI
+        run: cargo install tauri-cli --version 2.11.4 --locked
+
       - name: Check workspace
         run: cargo check --workspace --locked
 
       - name: Build workspace
         run: cargo build --workspace --locked
+
+      - name: Build Windows desktop installer
+        working-directory: apps/windows
+        run: cargo tauri build

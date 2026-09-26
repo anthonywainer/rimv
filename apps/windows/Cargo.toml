@@ -1,0 +1,24 @@
+[package]
+name = "rimv-windows"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+build = "build.rs"
+
+[[bin]]
+name = "rimv-windows"
+path = "src/main.rs"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+app-paths.workspace = true
+engine-protocol = { workspace = true, features = ["serde"] }
+engine-runtime.workspace = true
+model-manager.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+tauri = { version = "2", features = ["tray-icon"] }
+
+[target.'cfg(target_os = "windows")'.build-dependencies]
+tauri-build = { version = "2" }

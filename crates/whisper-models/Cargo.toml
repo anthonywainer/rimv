@@ -6,6 +6,7 @@ license.workspace = true
 authors.workspace = true
 
 [dependencies]
+app-paths.workspace = true
 system-profile.workspace = true
 serde.workspace = true
 sha2.workspace = true

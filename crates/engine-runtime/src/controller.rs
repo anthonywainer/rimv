@@ -169,6 +169,20 @@ impl Controller {
                 self.state.transcription.available = true;
                 self.state.capabilities.transcription = true;
             }
+            EngineCommand::ClearTranscriptionModel => {
+                if self.session.is_some() {
+                    return Err(EngineError::new(
+                        EngineErrorCode::AlreadyRecording,
+                        "clear the transcription model after capture stops",
+                    ));
+                }
+                self.config.transcription.model_path = None;
+                self.config.transcription_enabled = false;
+                self.state.transcription.enabled = false;
+                self.state.transcription.available = false;
+                self.state.transcription.status = crate::TranscriptionStatus::Disabled;
+                self.state.capabilities.transcription = false;
+            }
             EngineCommand::SetTranscriptionBackend { backend } => {
                 if self.session.is_some() {
                     return Err(EngineError::new(

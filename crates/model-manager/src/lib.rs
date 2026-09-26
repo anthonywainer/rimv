@@ -6,12 +6,14 @@ use bzip2::read::BzDecoder;
 use sha2::{Digest, Sha256};
 use std::{
     fs,
-    io::{self, Read, Write},
+    io::{self, Write},
     path::{Path, PathBuf},
     sync::atomic::{AtomicBool, Ordering},
     time::Duration,
 };
 use tar::Archive;
+
+pub use app_paths::data_root as app_data_root;
 
 const PARAKEET_ID: &str = "parakeet-tdt-0.6b-v3-int8";
 const PARAKEET_ARCHIVE: &str = "sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8.tar.bz2";
@@ -69,6 +71,8 @@ pub enum ModelError {
     SizeMismatch,
     #[error("checksum mismatch")]
     ChecksumMismatch,
+    #[error("model download stalled for 30 seconds")]
+    DownloadStalled,
     #[error("I/O: {0}")]
     Io(#[from] io::Error),
     #[error("HTTP: {0}")]
@@ -90,7 +94,7 @@ impl ModelManager {
     }
 
     pub fn default_root(home: &Path) -> PathBuf {
-        home.join("Library/Application Support/rimv/models")
+        app_data_root(home).join("models")
     }
 
     pub fn catalog(&self) -> &[ModelDescriptor] {
@@ -176,36 +180,16 @@ impl ModelManager {
         fs::create_dir_all(parent)?;
         let part = destination.with_file_name(format!("{}.part", file.filename));
         let result = (|| {
-            let mut response = reqwest::blocking::Client::builder()
-                .timeout(Duration::from_secs(30))
-                .build()?
-                .get(url)
-                .send()?
-                .error_for_status()?;
-            let mut output = fs::File::create(&part)?;
-            let mut hash = Sha256::new();
-            let mut written = 0_u64;
-            let mut buffer = [0_u8; 64 * 1024];
-            loop {
-                if cancelled.load(Ordering::Acquire) {
-                    return Err(ModelError::Cancelled);
-                }
-                let count = response.read(&mut buffer)?;
-                if count == 0 {
-                    break;
-                }
-                output.write_all(&buffer[..count])?;
-                hash.update(&buffer[..count]);
-                written += count as u64;
-                progress(written, file.expected_size_bytes);
-            }
+            let (written, digest) = download_to_file(url, &part, cancelled, |done, _| {
+                progress(done, file.expected_size_bytes);
+            })?;
             if file.expected_size_bytes.is_some_and(|size| size != written) {
                 return Err(ModelError::SizeMismatch);
             }
             if file
                 .sha256
                 .as_ref()
-                .is_some_and(|expected| *expected != format!("{:x}", hash.finalize()))
+                .is_some_and(|expected| *expected != digest)
             {
                 return Err(ModelError::ChecksumMismatch);
             }
@@ -218,10 +202,20 @@ impl ModelManager {
         result
     }
 
-    /// Install the verified Parakeet archive into this manager's model root.
+    /// Install the Parakeet archive and validate its required model files.
     pub fn install_parakeet(
         &self,
         cancelled: &AtomicBool,
+        progress: impl FnMut(u64, Option<u64>),
+    ) -> Result<PathBuf, ModelError> {
+        self.install_parakeet_with_phase(cancelled, |_| {}, progress)
+    }
+
+    /// Install Parakeet and report the transition from download to extraction.
+    pub fn install_parakeet_with_phase(
+        &self,
+        cancelled: &AtomicBool,
+        mut phase: impl FnMut(&'static str),
         mut progress: impl FnMut(u64, Option<u64>),
     ) -> Result<PathBuf, ModelError> {
         let descriptor = self.descriptor(PARAKEET_ID)?;
@@ -231,29 +225,16 @@ impl ModelManager {
         fs::create_dir_all(&self.root)?;
         let archive_path = self.root.join(PARAKEET_ARCHIVE);
         let part = archive_path.with_file_name(format!("{PARAKEET_ARCHIVE}.part"));
+        phase("downloading");
         let result = (|| {
-            let mut response = reqwest::blocking::Client::builder()
-                .timeout(Duration::from_secs(30))
-                .build()?
-                .get(PARAKEET_URL)
-                .send()?
-                .error_for_status()?;
-            let mut output = fs::File::create(&part)?;
-            let mut written = 0_u64;
-            let mut buffer = [0_u8; 64 * 1024];
-            loop {
-                if cancelled.load(Ordering::Acquire) {
-                    return Err(ModelError::Cancelled);
-                }
-                let count = response.read(&mut buffer)?;
-                if count == 0 {
-                    break;
-                }
-                output.write_all(&buffer[..count])?;
-                written += count as u64;
-                progress(written, None);
+            download_to_file(PARAKEET_URL, &part, cancelled, |done, total| {
+                progress(done, total);
+            })?;
+            if cancelled.load(Ordering::Acquire) {
+                return Err(ModelError::Cancelled);
             }
             fs::rename(&part, &archive_path)?;
+            phase("extracting");
             Archive::new(BzDecoder::new(fs::File::open(&archive_path)?)).unpack(&self.root)?;
             if self.state(descriptor) != ModelState::Ready {
                 return Err(ModelError::Io(io::Error::other(
@@ -266,6 +247,49 @@ impl ModelManager {
         let _ = fs::remove_file(&archive_path);
         result
     }
+}
+
+/// Stream a model download to a temporary path, timing out stalled body reads
+/// while allowing the total transfer to take as long as it needs.
+fn download_to_file(
+    url: &str,
+    destination: &Path,
+    cancelled: &AtomicBool,
+    mut progress: impl FnMut(u64, Option<u64>),
+) -> Result<(u64, String), ModelError> {
+    const IDLE_TIMEOUT: Duration = Duration::from_secs(30);
+    let client = reqwest::Client::builder()
+        .connect_timeout(IDLE_TIMEOUT)
+        .build()?;
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?;
+    runtime.block_on(async {
+        let mut response = client.get(url).send().await?.error_for_status()?;
+        let total = response.content_length();
+        let mut output = fs::File::create(destination)?;
+        let mut hash = Sha256::new();
+        let mut written = 0_u64;
+        loop {
+            if cancelled.load(Ordering::Acquire) {
+                return Err(ModelError::Cancelled);
+            }
+            let next = tokio::time::timeout(IDLE_TIMEOUT, response.chunk())
+                .await
+                .map_err(|_| ModelError::DownloadStalled)??;
+            let Some(chunk) = next else {
+                break;
+            };
+            output.write_all(&chunk)?;
+            hash.update(&chunk);
+            written = written.saturating_add(chunk.len() as u64);
+            progress(written, total);
+        }
+        if cancelled.load(Ordering::Acquire) {
+            return Err(ModelError::Cancelled);
+        }
+        Ok((written, format!("{:x}", hash.finalize())))
+    })
 }
 
 pub fn catalog() -> Vec<ModelDescriptor> {

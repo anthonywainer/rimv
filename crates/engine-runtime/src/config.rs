@@ -86,9 +86,9 @@ impl Default for TranscriptionSettings {
 fn standard_model_root() -> PathBuf {
     std::env::var_os("RIMV_MODELS_DIR").map_or_else(
         || {
-            std::env::var_os("HOME").map_or_else(
+            std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")).map_or_else(
                 || PathBuf::from("resources/models"),
-                |home| PathBuf::from(home).join("Library/Application Support/rimv/models"),
+                |home| app_paths::data_root(&PathBuf::from(home)).join("models"),
             )
         },
         PathBuf::from,

@@ -63,10 +63,12 @@ Choose the release asset that matches what you need:
 |---|---|---|
 | **rimv Capture** | You only want to record microphone or supported system audio. It has no transcription runtime or models. | `rimv-capture` |
 | **rimv Transcribe** | You want capture and speech-to-text. Download this for the commands below. ASR model files are installed separately. | `rimv` |
+| **RimV Desktop for Windows** | You want the Windows desktop app with capture controls, recordings, and local transcription. | `RimV-<version>-windows-x64-setup.exe` |
 | **rimv Server (Experimental)** | You want the local `rimv serve` API for the experimental web UI. It is not a remote or production server. | `rimv` |
 
-For the current beta, download the matching Transcribe asset and `SHA256SUMS`
-from the GitHub Release. macOS arm64 uses `.tar.gz`; Windows x64 uses `.zip`.
+For the current beta, download the matching asset and `SHA256SUMS` from the
+GitHub Release. macOS arm64 CLI packages use `.tar.gz`; Windows x64 CLI packages
+use `.zip`, and the Windows desktop app uses a `-setup.exe` installer.
 Verify the download before extracting it:
 
 ```sh
@@ -82,6 +84,17 @@ Get-FileHash .\rimv-transcribe-<version>-windows-x64.zip -Algorithm SHA256
 Expand-Archive .\rimv-transcribe-<version>-windows-x64.zip
 Set-Location .\rimv-<version>-transcribe-windows-x64
 ```
+
+The Windows desktop installer is per-user and installs WebView2 with Microsoft's
+bootstrapper when the runtime is missing, so first installation may need an
+internet connection. Desktop models and recordings are stored under
+`%LOCALAPPDATA%\RimV`; uninstalling the app leaves this user data in place.
+Run a newer per-user installer to update the app; use **Settings → Apps →
+Installed apps** to uninstall it. Neither action removes the separate user-data
+folder.
+Release installers are code-signed only when the `WINDOWS_SIGNING_CERTIFICATE`
+(base64 PFX) and `WINDOWS_SIGNING_PASSWORD` repository secrets are configured
+for the release workflow. Model weights are never bundled.
 
 Check that the bundled CLI runs:
 
@@ -158,6 +171,7 @@ All beta distributions come from the same repository, engine, and version.
 | rimv Capture | `rimv-capture`, capture runtime, no ASR/model manager/model weights | Staged locally on macOS arm64 |
 | rimv Transcribe | `rimv`, capture, VAD, ASR runtime, model manager, native ASR libraries | Staged locally on macOS arm64; model weights installed separately |
 | rimv Server | `rimv serve`, same runtime libraries as Transcribe | Experimental; binds to `127.0.0.1` by default |
+| RimV Desktop for Windows | Tauri desktop app with ASR runtime DLLs; model weights are installed separately | Per-user NSIS installer; Windows hardware runtime validation remains open |
 | rimv Full | Ready-to-use Transcribe with bundled model weights | Omitted from this beta until third-party model redistribution terms are verified |
 
 Model weights are not bundled in the beta staging output.
@@ -167,7 +181,7 @@ Model weights are not bundled in the beta staging output.
 | Platform | Build status | Runtime capture | Transcription | Release status |
 |---|---|---|---|---|
 | macOS arm64 | Verified locally | Microphone and ScreenCaptureKit system capture have been exercised on this host | Parakeet path has been exercised on this host | Primary beta target |
-| Windows x64 | Release build configured | Microphone and WASAPI loopback adapter exist in code, but were not runtime-tested on Windows hardware | Not runtime-tested | Preview public beta artifact |
+| Windows x64 | CLI archives and a per-user Tauri installer are built by the release workflow | Microphone and WASAPI loopback adapter exist in code, but were not runtime-tested on Windows hardware | Not runtime-tested | Preview public beta artifacts; installer signature depends on release signing configuration |
 | Linux x64 | Scheduled/manual validation configured | Microphone uses CPAL/ALSA; system capture is explicitly unsupported pending PipeWire | Not runtime-tested | Experimental/partial; no public beta binary |
 
 Compilation alone does not mean runtime support. Hardware and permission-based
@@ -382,12 +396,13 @@ redistribution has not been verified.
 ## Release Pipeline
 
 `.github/workflows/release.yml` validates release tags, runs one locked Linux
-quality gate for the exact tagged commit, then builds and archives macOS arm64
-and Windows x64 beta packages, inspects archive contents, generates
-`SHA256SUMS`, and publishes a GitHub Release only for tag pushes. Windows is a
-preview release target; Linux remains a scheduled/manual validation target and
-does not publish beta artifacts. Manual `workflow_dispatch` runs are dry runs:
-they build and upload workflow artifacts but do not publish a GitHub Release.
+quality gate for the exact tagged commit, then builds macOS arm64 and Windows
+x64 CLI packages plus the Windows Tauri installer. It inspects package
+contents, generates `SHA256SUMS`, and publishes a GitHub Release only for tag
+pushes. Windows remains a preview release target pending hardware/runtime
+validation; Linux remains a scheduled/manual validation target and does not
+publish beta artifacts. Manual `workflow_dispatch` runs are dry runs: they
+build and upload workflow artifacts but do not publish a GitHub Release.
 
 For `v0.1.0-beta`, the public release attaches:
 
@@ -395,6 +410,7 @@ For `v0.1.0-beta`, the public release attaches:
 rimv-capture-v0.1.0-beta-macos-arm64.tar.gz
 rimv-transcribe-v0.1.0-beta-macos-arm64.tar.gz
 rimv-server-v0.1.0-beta-macos-arm64.tar.gz
+RimV-0.1.0-beta-windows-x64-setup.exe
 rimv-capture-v0.1.0-beta-windows-x64.zip
 rimv-transcribe-v0.1.0-beta-windows-x64.zip
 rimv-server-v0.1.0-beta-windows-x64.zip

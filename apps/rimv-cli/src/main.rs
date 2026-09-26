@@ -63,6 +63,12 @@ struct ListenArgs {
     both: bool,
     #[arg(long)]
     model: Option<PathBuf>,
+    /// Input device ID from `rimv devices`; applies to Microphone and Both.
+    #[arg(long)]
+    mic_device: Option<String>,
+    /// Output device ID from `rimv devices`; applies to System and Both.
+    #[arg(long)]
+    system_device: Option<String>,
     #[arg(long, value_enum, default_value_t = Backend::Parakeet)]
     backend: Backend,
     #[arg(long, visible_alias = "lang", default_value = "auto")]
@@ -234,6 +240,8 @@ fn listen(args: ListenArgs, terminal: SharedTerminal<io::Stdout>) -> Result<()> 
     };
     config.microphone.enabled = args.mic || args.both || !args.system;
     config.system_audio.enabled = args.system || args.both;
+    config.microphone.configured.device_id = args.mic_device;
+    config.system_audio.configured.device_id = args.system_device;
     apply_transcription_options(
         &mut config.transcription,
         RuntimeTranscriptionOptions {
@@ -586,7 +594,7 @@ fn default_vad_model_path() -> Option<PathBuf> {
 fn model_root() -> PathBuf {
     std::env::var_os("RIMV_MODELS_DIR").map_or_else(
         || {
-            std::env::var_os("HOME").map_or_else(
+            std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")).map_or_else(
                 || PathBuf::from("resources/models"),
                 |home| ModelManager::default_root(&PathBuf::from(home)),
             )
@@ -660,6 +668,25 @@ mod tests {
         sync::mpsc,
         time::{Duration, Instant},
     };
+
+    #[test]
+    fn listen_accepts_distinct_microphone_and_system_device_ids() {
+        let parsed = Cli::try_parse_from([
+            "rimv",
+            "listen",
+            "--both",
+            "--mic-device",
+            "input:USB Mic:0",
+            "--system-device",
+            "output:Speakers:0",
+        ])
+        .unwrap();
+        let Command::Listen(args) = parsed.command else {
+            panic!("expected listen command");
+        };
+        assert_eq!(args.mic_device.as_deref(), Some("input:USB Mic:0"));
+        assert_eq!(args.system_device.as_deref(), Some("output:Speakers:0"));
+    }
 
     #[derive(Debug, Clone)]
     struct AsrCall {

@@ -5,12 +5,14 @@ members = [
     "crates/engine-protocol",
     "crates/engine-runtime",
     "crates/model-manager",
+    "crates/app-paths",
     "crates/speech-transcription",
     "crates/system-profile",
     "crates/whisper-models",
     "apps/capture-cli",
     "apps/engine-cli",
     "apps/menu-bar",
+    "apps/windows",
     "apps/rimv-cli",
     "apps/transcribe-cli",
 ]
@@ -28,6 +30,8 @@ audio-capture = { path = "crates/audio-capture" }
 engine-protocol = { path = "crates/engine-protocol" }
 engine-runtime = { path = "crates/engine-runtime" }
 model-manager = { path = "crates/model-manager" }
+app-paths = { path = "crates/app-paths" }
+rimv-windows = { path = "apps/windows" }
 speech-transcription = { path = "crates/speech-transcription" }
 system-profile = { path = "crates/system-profile" }
 whisper-models = { path = "crates/whisper-models" }
@@ -38,7 +42,7 @@ serde_json = "1"
 sha2 = "0.10"
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls"] }
 axum = { version = "0.8", features = ["ws"] }
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "sync"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "sync", "time"] }
 futures-util = "0.3"
 
 [patch.crates-io]

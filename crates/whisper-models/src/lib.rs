@@ -89,7 +89,7 @@ pub fn recommend(p: &SystemProfile) -> ModelRecommendation {
     }
 }
 pub fn models_root(home: &Path) -> PathBuf {
-    home.join("Library/Application Support/rimv/models/whisper")
+    app_paths::data_root(home).join("models/whisper")
 }
 pub fn model_path(root: &Path, model: WhisperModel) -> PathBuf {
     root.join(match model {

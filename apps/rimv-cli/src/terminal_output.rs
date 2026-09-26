@@ -99,6 +99,7 @@ impl<W: Write, D: Write> Drop for DiagnosticWriter<W, D> {
 mod tests {
     use super::*;
     use engine_protocol::AudioSource;
+    use std::time::Instant;
 
     #[derive(Clone, Default)]
     struct Buffer(Arc<Mutex<Vec<u8>>>);

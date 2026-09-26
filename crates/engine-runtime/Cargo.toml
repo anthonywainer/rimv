@@ -9,15 +9,19 @@ authors.workspace = true
 audio-core.workspace = true
 audio-capture.workspace = true
 engine-protocol = { workspace = true, features = ["serde"] }
+app-paths.workspace = true
 tracing.workspace = true
 uuid = { version = "1", features = ["v4"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 hound = "3.5"
-speech-transcription = { workspace = true, features = ["whisper", "silero-vad", "parakeet"] }
+speech-transcription = { workspace = true, features = ["silero-vad", "parakeet"] }
 axum.workspace = true
 tokio.workspace = true
 futures-util.workspace = true
+
+[target.'cfg(not(target_os = "windows"))'.dependencies]
+speech-transcription = { workspace = true, features = ["whisper"] }
 
 [dev-dependencies]
 tempfile = "3"

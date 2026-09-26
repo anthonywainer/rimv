@@ -1,6 +1,8 @@
 # Cargo build output
 /target/
 /target/benchmarks/
+/apps/windows/runtime/*.dll
+/apps/windows/runtime/runtime-dlls.txt
 
 # Locally captured audio, background-agent state, and temporary recording data
 /recordings/

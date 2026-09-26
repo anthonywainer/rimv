@@ -164,11 +164,126 @@ jobs:
           path: target/release-artifacts
           if-no-files-found: error
 
+  windows-desktop:
+    name: Package Windows desktop installer
+    needs:
+      - validate
+      - quality
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          cache-targets: false
+
+      - name: Install Tauri CLI
+        run: cargo install tauri-cli --version 2.11.4 --locked
+
+      - name: Import optional release signing certificate
+        if: github.event_name == 'push'
+        id: windows-signing
+        shell: pwsh
+        env:
+          WINDOWS_SIGNING_CERTIFICATE: ${{ secrets.WINDOWS_SIGNING_CERTIFICATE }}
+          WINDOWS_SIGNING_PASSWORD: ${{ secrets.WINDOWS_SIGNING_PASSWORD }}
+        run: |
+          if (-not $env:WINDOWS_SIGNING_CERTIFICATE) {
+            "enabled=false" >> $env:GITHUB_OUTPUT
+            Write-Host 'No Windows signing certificate is configured; the installer will be unsigned.'
+            exit 0
+          }
+          if (-not $env:WINDOWS_SIGNING_PASSWORD) {
+            throw 'WINDOWS_SIGNING_PASSWORD must be set when a signing certificate is configured.'
+          }
+
+          $certificatePath = Join-Path $env:RUNNER_TEMP 'rimv-windows-signing.pfx'
+          $certificateBytes = [Convert]::FromBase64String($env:WINDOWS_SIGNING_CERTIFICATE)
+          [IO.File]::WriteAllBytes($certificatePath, $certificateBytes)
+          try {
+            $password = ConvertTo-SecureString $env:WINDOWS_SIGNING_PASSWORD -AsPlainText -Force
+            $certificate = Import-PfxCertificate -FilePath $certificatePath -CertStoreLocation Cert:\CurrentUser\My -Password $password |
+              Where-Object { $_.HasPrivateKey } |
+              Select-Object -First 1
+            if (-not $certificate) {
+              throw 'The imported Windows signing certificate has no private key.'
+            }
+            "thumbprint=$($certificate.Thumbprint)" >> $env:GITHUB_OUTPUT
+            "certificate_path=$certificatePath" >> $env:GITHUB_OUTPUT
+            "enabled=true" >> $env:GITHUB_OUTPUT
+          } catch {
+            Remove-Item -LiteralPath $certificatePath -Force -ErrorAction SilentlyContinue
+            throw
+          }
+
+      - name: Build Windows desktop installer
+        shell: pwsh
+        env:
+          SIGNING_ENABLED: ${{ steps.windows-signing.outputs.enabled }}
+          SIGNING_THUMBPRINT: ${{ steps.windows-signing.outputs.thumbprint }}
+          SIGNING_CERTIFICATE_PATH: ${{ steps.windows-signing.outputs.certificate_path }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Push-Location apps/windows
+          try {
+            if ($env:SIGNING_ENABLED -eq 'true') {
+              $signingConfig = Join-Path $env:RUNNER_TEMP 'rimv-tauri-signing.json'
+              $configuration = @{
+                bundle = @{
+                  windows = @{
+                    certificateThumbprint = $env:SIGNING_THUMBPRINT
+                    digestAlgorithm = 'sha256'
+                    timestampUrl = 'http://timestamp.digicert.com'
+                  }
+                }
+              } | ConvertTo-Json -Depth 5
+              Set-Content -LiteralPath $signingConfig -Value $configuration -Encoding utf8
+              cargo tauri build --config $signingConfig
+              if ($LASTEXITCODE -ne 0) { throw 'Tauri failed to build or sign the Windows installer.' }
+            } else {
+              cargo tauri build
+              if ($LASTEXITCODE -ne 0) { throw 'Tauri failed to build the Windows installer.' }
+            }
+          } finally {
+            Pop-Location
+            if ($env:SIGNING_CERTIFICATE_PATH) {
+              Remove-Item -LiteralPath $env:SIGNING_CERTIFICATE_PATH -Force -ErrorAction SilentlyContinue
+            }
+            if ($env:SIGNING_THUMBPRINT) {
+              Remove-Item -Path "Cert:\CurrentUser\My\$env:SIGNING_THUMBPRINT" -Force -ErrorAction SilentlyContinue
+            }
+          }
+
+          $version = (Select-String -Path Cargo.toml -Pattern '^version = "([^"]+)"' | Select-Object -First 1).Matches.Groups[1].Value
+          $installer = Get-ChildItem -LiteralPath 'target/release/bundle/nsis' -Filter '*-setup.exe' -File | Select-Object -First 1
+          if (-not $installer) {
+            throw 'Tauri did not produce the expected NSIS setup executable.'
+          }
+          $artifactDirectory = Join-Path $env:GITHUB_WORKSPACE 'target/release-artifacts'
+          New-Item -ItemType Directory -Path $artifactDirectory -Force | Out-Null
+          $artifactName = "RimV-$version-windows-x64-setup.exe"
+          Copy-Item -LiteralPath $installer.FullName -Destination (Join-Path $artifactDirectory $artifactName)
+          Get-FileHash -LiteralPath (Join-Path $artifactDirectory $artifactName) -Algorithm SHA256 | Format-List
+
+      - name: Upload Windows desktop installer
+        uses: actions/upload-artifact@v6
+        with:
+          name: rimv-windows-x64-desktop-installer
+          path: target/release-artifacts/*.exe
+          if-no-files-found: error
+
   checksums:
     name: SHA256SUMS
     needs:
       - validate
       - package
+      - windows-desktop
     runs-on: ubuntu-latest
 
     steps:
@@ -183,7 +298,7 @@ jobs:
         run: |
           set -euo pipefail
           cd target/release-artifacts
-          find . -maxdepth 1 -type f \( -name '*.tar.gz' -o -name '*.zip' \) -print0 \
+          find . -maxdepth 1 -type f \( -name '*.tar.gz' -o -name '*.zip' -o -name '*.exe' \) -print0 \
             | sort -z \
             | xargs -0 shasum -a 256 > SHA256SUMS
           test -s SHA256SUMS
@@ -225,4 +340,5 @@ jobs:
           files: |
             target/release-artifacts/*.tar.gz
             target/release-artifacts/*.zip
+            target/release-artifacts/*.exe
             target/release-artifacts/SHA256SUMS
