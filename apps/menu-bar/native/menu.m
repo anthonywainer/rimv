@@ -661,15 +661,15 @@ static NSString *elapsed(uint64_t milliseconds) {
 }
 - (void)selectSystem:(id)sender {
     (void)sender;
-    self.command(40, 0);
+    self.command(50, 0);
 }
 - (void)selectMicrophone:(id)sender {
     (void)sender;
-    self.command(40, 1);
+    self.command(50, 1);
 }
 - (void)selectBoth:(id)sender {
     (void)sender;
-    self.command(40, 2);
+    self.command(50, 2);
 }
 - (void)toggleCapture:(id)sender {
     (void)sender;

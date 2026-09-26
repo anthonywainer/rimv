@@ -234,6 +234,7 @@ static DOWNLOAD_PROGRESS: OnceLock<Mutex<std::collections::HashMap<String, (u64,
 static LIVE_TRANSCRIPT: OnceLock<Mutex<LiveTranscriptCache>> = OnceLock::new();
 
 const RIMV_SESSION_METADATA: &str = "rimv-session.json";
+const SELECT_CAPTURE_SOURCE_COMMAND: u32 = 50;
 
 fn validated_recording_directory(path: &std::path::Path) -> Result<PathBuf, String> {
     let root = RECORDINGS_ROOT
@@ -429,7 +430,8 @@ extern "C" fn command(code: u32, enabled: u8) {
         4 => Action::Command(EngineCommand::SetSystemAudioEnabled {
             enabled: enabled != 0,
         }),
-        40 => Action::SetCaptureSource(match enabled {
+        // Model download commands occupy codes 40 through 46.
+        SELECT_CAPTURE_SOURCE_COMMAND => Action::SetCaptureSource(match enabled {
             0 => CaptureSource::System,
             1 => CaptureSource::Microphone,
             2 => CaptureSource::Both,
@@ -827,6 +829,13 @@ mod recording_metadata_tests {
             ),
             CaptureSource::Both,
         );
+    }
+
+    #[test]
+    fn source_preset_command_does_not_overlap_model_download_commands() {
+        assert_eq!(model_for_code(40, 40), Some("parakeet-tdt-0.6b-v3-int8"));
+        assert_eq!(model_for_code(46, 40), Some("whisper-turbo"));
+        assert!(!(40..=46).contains(&SELECT_CAPTURE_SOURCE_COMMAND));
     }
 }
 
