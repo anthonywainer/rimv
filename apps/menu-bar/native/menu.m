@@ -661,18 +661,15 @@ static NSString *elapsed(uint64_t milliseconds) {
 }
 - (void)selectSystem:(id)sender {
     (void)sender;
-    self.command(3, 0);
-    self.command(4, 1);
+    self.command(40, 0);
 }
 - (void)selectMicrophone:(id)sender {
     (void)sender;
-    self.command(3, 1);
-    self.command(4, 0);
+    self.command(40, 1);
 }
 - (void)selectBoth:(id)sender {
     (void)sender;
-    self.command(3, 1);
-    self.command(4, 1);
+    self.command(40, 2);
 }
 - (void)toggleCapture:(id)sender {
     (void)sender;
@@ -1292,6 +1289,8 @@ bool rimv_menu_self_test(void) {
         CommandCallback original = menu.command;
         menu.command = testCommand;
         NSMutableDictionary *state = [menu.snapshot mutableCopy];
+        state[@"microphone"] = @{@"enabled": @YES, @"active": @YES};
+        state[@"system_audio"] = @{@"enabled": @NO, @"active": @NO};
         BOOL passed = menu.statusItem != nil && menu.capture.enabled;
         passed &= [menu.captureLabel.stringValue isEqualToString:@"Start Listening"];
         passed &= [menu.statusLine.stringValue isEqualToString:@"Ready"];

@@ -166,6 +166,7 @@ unsafe extern "C" {
 
 enum Action {
     Command(EngineCommand),
+    SetCaptureSource(CaptureSource),
     SetLanguage(Option<String>),
     SelectModel(String),
     RemoveModel(String),
@@ -173,6 +174,53 @@ enum Action {
     DeleteRecording(PathBuf),
     OpenLiveViewer,
     Quit,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum CaptureSource {
+    System,
+    Microphone,
+    Both,
+    None,
+}
+
+impl CaptureSource {
+    fn from_enabled(microphone: bool, system_audio: bool) -> Self {
+        match (microphone, system_audio) {
+            (false, true) => Self::System,
+            (true, false) => Self::Microphone,
+            (true, true) => Self::Both,
+            (false, false) => Self::None,
+        }
+    }
+
+    fn enabled(self) -> (bool, bool) {
+        match self {
+            Self::System => (false, true),
+            Self::Microphone => (true, false),
+            Self::Both => (true, true),
+            Self::None => (false, false),
+        }
+    }
+
+    fn parse(value: &str) -> Option<Self> {
+        match value.trim() {
+            "system" => Some(Self::System),
+            "microphone" => Some(Self::Microphone),
+            "both" => Some(Self::Both),
+            "none" => Some(Self::None),
+            _ => None,
+        }
+    }
+
+    fn setting(self) -> &'static str {
+        match self {
+            Self::System => "system",
+            Self::Microphone => "microphone",
+            Self::Both => "both",
+            Self::None => "none",
+        }
+    }
 }
 static COMMANDS: OnceLock<SyncSender<Action>> = OnceLock::new();
 static MODELS: OnceLock<ModelManager> = OnceLock::new();
@@ -381,6 +429,12 @@ extern "C" fn command(code: u32, enabled: u8) {
         4 => Action::Command(EngineCommand::SetSystemAudioEnabled {
             enabled: enabled != 0,
         }),
+        40 => Action::SetCaptureSource(match enabled {
+            0 => CaptureSource::System,
+            1 => CaptureSource::Microphone,
+            2 => CaptureSource::Both,
+            _ => return,
+        }),
         9 => Action::Command(EngineCommand::SetTranscriptionEnabled {
             enabled: enabled != 0,
         }),
@@ -526,6 +580,40 @@ fn update_selector_state(model: Option<&ModelDescriptor>) {
 
 fn persist_language(support: &std::path::Path, language: Option<&str>) -> std::io::Result<()> {
     std::fs::write(language_settings_path(support), language.unwrap_or("auto"))
+}
+
+fn capture_source_settings_path(support: &std::path::Path) -> PathBuf {
+    support.join("menu-capture-source")
+}
+
+fn saved_capture_source(support: &std::path::Path) -> CaptureSource {
+    std::fs::read_to_string(capture_source_settings_path(support))
+        .ok()
+        .and_then(|value| CaptureSource::parse(&value))
+        .unwrap_or(CaptureSource::Both)
+}
+
+fn persist_capture_source(
+    support: &std::path::Path,
+    source: CaptureSource,
+) -> std::io::Result<()> {
+    let path = capture_source_settings_path(support);
+    let temporary = support.join("menu-capture-source.tmp");
+    std::fs::write(&temporary, source.setting())?;
+    std::fs::rename(temporary, path)
+}
+
+fn capture_source_after_command(
+    source: CaptureSource,
+    command: &EngineCommand,
+) -> CaptureSource {
+    let (mut microphone, mut system_audio) = source.enabled();
+    match command {
+        EngineCommand::SetMicrophoneEnabled { enabled } => microphone = *enabled,
+        EngineCommand::SetSystemAudioEnabled { enabled } => system_audio = *enabled,
+        _ => return source,
+    }
+    CaptureSource::from_enabled(microphone, system_audio)
 }
 
 fn show_error(error: &str) {
@@ -697,6 +785,49 @@ mod recording_metadata_tests {
         std::fs::remove_dir_all(support).unwrap();
         std::fs::remove_dir_all(recordings).unwrap();
     }
+
+    #[test]
+    fn capture_source_defaults_to_both_and_preferences_round_trip() {
+        let support = temporary_session_path();
+        assert_eq!(saved_capture_source(&support), CaptureSource::Both);
+        assert_eq!(saved_capture_source(&support).enabled(), (true, true));
+
+        for source in [
+            CaptureSource::System,
+            CaptureSource::Microphone,
+            CaptureSource::Both,
+        ] {
+            persist_capture_source(&support, source).unwrap();
+            assert_eq!(saved_capture_source(&support), source);
+        }
+        assert_eq!(CaptureSource::parse("invalid"), None);
+        std::fs::remove_dir_all(support).unwrap();
+    }
+
+    #[test]
+    fn individual_capture_toggles_keep_saved_source_in_sync() {
+        assert_eq!(
+            capture_source_after_command(
+                CaptureSource::Both,
+                &EngineCommand::SetMicrophoneEnabled { enabled: false },
+            ),
+            CaptureSource::System,
+        );
+        assert_eq!(
+            capture_source_after_command(
+                CaptureSource::System,
+                &EngineCommand::SetSystemAudioEnabled { enabled: false },
+            ),
+            CaptureSource::None,
+        );
+        assert_eq!(
+            capture_source_after_command(
+                CaptureSource::Microphone,
+                &EngineCommand::SetSystemAudioEnabled { enabled: true },
+            ),
+            CaptureSource::Both,
+        );
+    }
 }
 
 fn update_transcription_window(update: &engine_runtime::TranscriptUpdate) {
@@ -838,6 +969,9 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         recordings_directory: directory.clone(),
         ..Default::default()
     };
+    let (microphone_enabled, system_audio_enabled) = saved_capture_source(&support).enabled();
+    config.microphone.enabled = microphone_enabled;
+    config.system_audio.enabled = system_audio_enabled;
     config.transcription.backend = if selected_model
         .as_ref()
         .is_some_and(|model| model.backend == "whisper")
@@ -922,8 +1056,34 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
                 };
                 match action {
                     Action::Command(command) => {
-                        if let Err(error) = controller_engine.send(command) {
+                        let next_source =
+                            capture_source_after_command(saved_capture_source(&support), &command);
+                        match controller_engine.send(command) {
+                            Err(error) => show_error(&error.to_string()),
+                            Ok(_) => {
+                                if next_source != saved_capture_source(&support)
+                                    && let Err(error) = persist_capture_source(&support, next_source)
+                                {
+                                    show_error(&format!("could not save capture source: {error}"));
+                                }
+                            }
+                        }
+                    }
+                    Action::SetCaptureSource(source) => {
+                        let (microphone, system_audio) = source.enabled();
+                        let result = controller_engine
+                            .send(EngineCommand::SetMicrophoneEnabled { enabled: microphone })
+                            .and_then(|_| {
+                                controller_engine.send(EngineCommand::SetSystemAudioEnabled {
+                                    enabled: system_audio,
+                                })
+                            });
+                        if let Err(error) = result {
                             show_error(&error.to_string());
+                            continue;
+                        }
+                        if let Err(error) = persist_capture_source(&support, source) {
+                            show_error(&format!("could not save capture source: {error}"));
                         }
                     }
                     Action::SetLanguage(language) => {
