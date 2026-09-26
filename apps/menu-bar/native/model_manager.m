@@ -6,6 +6,7 @@ static BOOL MMIsDark(NSAppearance *appearance) {
 }
 
 extern void rimv_menu_selector_did_close(NSInteger);
+extern bool rimv_menu_release_popover_focus(NSWindow *, NSInteger);
 @interface RimvModelManager : NSObject <NSWindowDelegate, NSPopoverDelegate>
 @property(nonatomic, copy) NSArray<NSDictionary *> *models;
 @property(nonatomic, copy) NSString *storagePath;
@@ -17,6 +18,17 @@ extern void rimv_menu_selector_did_close(NSInteger);
 @end
 
 @implementation RimvModelManager
+- (BOOL)releaseSelectorFocus {
+    NSWindow *window = self.selector.contentViewController.view.window;
+    if (!self.selector.shown) return YES;
+    return rimv_menu_release_popover_focus(window, 2);
+}
+- (BOOL)closeSelectorSafely {
+    if (!self.selector.shown) return YES;
+    if (![self releaseSelectorFocus]) return NO;
+    [self.selector performClose:nil];
+    return YES;
+}
 - (NSColor *)color:(CGFloat)lr :(CGFloat)lg :(CGFloat)lb dark:(CGFloat)dr :(CGFloat)dg :(CGFloat)db {
     BOOL dark = MMIsDark(self.content.effectiveAppearance ?: NSApp.effectiveAppearance);
     return [NSColor colorWithRed:(dark ? dr : lr) / 255.0 green:(dark ? dg : lg) / 255.0 blue:(dark ? db : lb) / 255.0 alpha:1];
@@ -81,12 +93,12 @@ extern void rimv_menu_selector_did_close(NSInteger);
     self.selector = [[NSPopover alloc] init]; self.selector.delegate=self; self.selector.behavior = NSPopoverBehaviorApplicationDefined; self.selector.contentSize = view.bounds.size; self.selector.contentViewController = controller;
     [self.selector showRelativeToRect:anchor.bounds ofView:anchor preferredEdge:NSRectEdgeMaxX];
 }
-- (void)selectAndClose:(NSButton *)sender { [self send:sender.tag]; [self.selector performClose:nil]; }
+- (void)selectAndClose:(NSButton *)sender { [self send:sender.tag]; [self closeSelectorSafely]; }
 - (void)popoverDidClose:(NSNotification *)notification {
     if (notification.object != self.selector) return;
     rimv_menu_selector_did_close(2);
 }
-- (void)openManager:(id)sender { (void)sender; [self.selector performClose:nil]; [self showWindow]; }
+- (void)openManager:(id)sender { (void)sender; if ([self closeSelectorSafely]) [self showWindow]; }
 - (void)switchTab:(NSButton *)sender { self.tab = sender.identifier; [self render]; }
 - (void)showWindow {
     if (!self.window) {
@@ -142,4 +154,4 @@ void rimv_model_manager_show_selector(NSView *anchor) {
 }
 bool rimv_model_manager_selector_contains_window(NSWindow *window) { return manager.selector.shown && manager.selector.contentViewController.view.window == window; }
 bool rimv_model_manager_selector_is_shown(void) { return manager.selector.shown; }
-void rimv_model_manager_close_selector(void) { [manager.selector performClose:nil]; }
+bool rimv_model_manager_close_selector(void) { return [manager closeSelectorSafely]; }

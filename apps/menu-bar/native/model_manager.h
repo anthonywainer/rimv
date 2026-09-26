@@ -8,4 +8,4 @@ void rimv_model_manager_update(const char *catalog_json);
 void rimv_model_manager_show_selector(NSView *anchor);
 bool rimv_model_manager_selector_contains_window(NSWindow *window);
 bool rimv_model_manager_selector_is_shown(void);
-void rimv_model_manager_close_selector(void);
+bool rimv_model_manager_close_selector(void);

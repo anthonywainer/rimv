@@ -47,13 +47,15 @@ pub(crate) struct RecordingInfo {
     received_sample_frames: u64,
 }
 
-/// Session-specific WAV sink. Unlike the fixed-duration v0.1 CLI sink, this
-/// accepts repeated source activations against a session-relative timeline.
+/// Session-specific WAV sink. It preserves timestamp gaps between captured
+/// blocks, but starts at the first captured frame and ends at the last frame
+/// instead of padding inactive time at either edge of the session.
 pub(crate) struct Recording {
     path: PathBuf,
     source: AudioSource,
     writer: Option<hound::WavWriter<BufWriter<File>>>,
     format: Option<AudioFormat>,
+    timeline_origin: Option<Duration>,
     written: u64,
     received: u64,
 }
@@ -68,6 +70,7 @@ impl Recording {
             source,
             writer: None,
             format: None,
+            timeline_origin: None,
             written: 0,
             received: 0,
         }
@@ -100,7 +103,11 @@ impl Recording {
             );
             self.format = Some(format);
         }
-        let position = sample_position(timestamp, format)?;
+        let origin = *self.timeline_origin.get_or_insert(timestamp);
+        let relative_timestamp = timestamp.checked_sub(origin).ok_or_else(|| {
+            storage_error("audio timestamp moved before the first recorded frame")
+        })?;
+        let position = sample_position(relative_timestamp, format)?;
         let end = position
             .checked_add(frame.sample_frames() as u64)
             .ok_or_else(|| storage_error("sample timeline overflow"))?;
@@ -156,19 +163,16 @@ impl Recording {
         Ok(())
     }
 
-    pub fn finish(mut self, duration: Duration) -> Result<Option<RecordingInfo>> {
+    pub fn finish(mut self, _session_duration: Duration) -> Result<Option<RecordingInfo>> {
         let Some(format) = self.format else {
             return Ok(None);
         };
-        // Attempt finalization even if padding fails (disk full or WAV limit).
-        let padding = sample_position(duration, format).and_then(|end| self.pad(end));
         let finalization = self
             .writer
             .take()
             .ok_or_else(|| storage_error("WAV writer unavailable"))?
             .finalize()
             .map_err(storage_error);
-        padding?;
         finalization?;
         Ok(Some(RecordingInfo {
             source: self.source,
@@ -275,7 +279,7 @@ mod tests {
         recording.write(&frame, Duration::from_millis(500)).unwrap();
         recording.finish(Duration::from_secs(1)).unwrap();
         let mut reader = hound::WavReader::open(dir.path().join("system.wav")).unwrap();
-        assert_eq!(reader.duration(), 10);
+        assert_eq!(reader.duration(), 6);
         let samples: Vec<_> = reader
             .samples::<f32>()
             .map(std::result::Result::unwrap)
@@ -285,6 +289,27 @@ mod tests {
         assert_eq!(&samples[10..12], &[0.25, -0.25]);
         let mut duplicate = Recording::new(dir.path(), AudioSource::System);
         assert!(duplicate.write(&frame, Duration::ZERO).is_err());
+    }
+
+    #[test]
+    fn trims_session_lead_and_tail_padding_around_captured_audio() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut recording = Recording::new(dir.path(), AudioSource::Microphone);
+        let format = AudioFormat::new(10, 1).unwrap();
+        let frame = AudioFrame::new(
+            audio_core::AudioSourceKind::Microphone,
+            Duration::ZERO,
+            format,
+            vec![0.2, 0.4, 0.6],
+        )
+        .unwrap();
+        recording.write(&frame, Duration::from_secs(3)).unwrap();
+        recording.finish(Duration::from_secs(8)).unwrap();
+
+        let mut reader = hound::WavReader::open(dir.path().join("microphone.wav")).unwrap();
+        assert_eq!(reader.duration(), 3);
+        let samples = reader.samples::<f32>().map(|sample| sample.unwrap()).collect::<Vec<_>>();
+        assert_eq!(samples, vec![0.2, 0.4, 0.6]);
     }
     #[test]
     fn changed_format_and_oversized_timeline_fail_cleanly() {

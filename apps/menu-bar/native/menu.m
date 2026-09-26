@@ -93,7 +93,10 @@ static BOOL RimvIsDark(NSAppearance *appearance) {
 @property(nonatomic, strong) NSImageView *modelIcon;
 @property(nonatomic, strong) NSImageView *languageChevron;
 @property(nonatomic, strong) NSImageView *modelChevron;
+@property(nonatomic, strong) NSImageView *recordingsIcon;
+@property(nonatomic, strong) NSImageView *recordingsChevron;
 @property(nonatomic, copy) NSString *selectedLanguage;
+@property(nonatomic, copy) NSString *effectiveModelTitle;
 @property(nonatomic, copy) NSArray<NSString *> *supportedLanguages;
 @property(nonatomic) BOOL supportsLanguageDetection;
 @property(nonatomic, strong) NSPopover *languagePopover;
@@ -116,6 +119,7 @@ static BOOL RimvIsDark(NSAppearance *appearance) {
 @property(nonatomic) BOOL systemTermination;
 @property(nonatomic) NSInteger pendingSelector;
 @property(nonatomic) NSInteger activeSelector;
+@property(nonatomic) NSInteger closingSelector;
 @property(nonatomic) NSUInteger interactionGeneration;
 @property(nonatomic, strong) dispatch_source_t interruptSignal;
 @property(nonatomic, strong) dispatch_source_t terminateSignal;
@@ -124,6 +128,8 @@ static BOOL RimvIsDark(NSAppearance *appearance) {
 - (void)requestSelector:(NSInteger)selector;
 - (void)openPendingSelector;
 - (void)selectorDidClose:(NSInteger)selector;
+- (BOOL)closeSelector:(NSInteger)selector reason:(NSString *)reason;
+- (BOOL)releasePopoverFocusInWindow:(NSWindow *)window selector:(NSInteger)selector;
 - (void)dismissSelectorsForReason:(NSString *)reason;
 - (void)logSelectorEvent:(NSString *)event selector:(NSInteger)selector reason:(NSString *)reason;
 @end
@@ -135,6 +141,9 @@ static NSString *pendingError;
 static BOOL updateScheduled;
 void rimv_menu_selector_did_close(NSInteger selector) {
     dispatch_async(dispatch_get_main_queue(), ^{ [menu selectorDidClose:selector]; });
+}
+bool rimv_menu_release_popover_focus(NSWindow *window, NSInteger selector) {
+    return [menu releasePopoverFocusInWindow:window selector:selector];
 }
 
 static void RimvSelectorUncaughtException(NSException *exception) {
@@ -224,11 +233,16 @@ static NSString *elapsed(uint64_t milliseconds) {
     NSTextField *label = [NSTextField labelWithString:labelText];
     label.font = [NSFont systemFontOfSize:14 weight:NSFontWeightRegular];
     label.translatesAutoresizingMaskIntoConstraints = NO;
-    NSTextField *value = [NSTextField labelWithString:@""];
-    value.font = [NSFont systemFontOfSize:14 weight:NSFontWeightRegular];
-    value.alignment = NSTextAlignmentRight;
-    value.lineBreakMode = NSLineBreakByTruncatingHead;
-    value.translatesAutoresizingMaskIntoConstraints = NO;
+    NSTextField *value = nil;
+    if (valueOut) {
+        value = [NSTextField labelWithString:@""];
+        value.font = [NSFont systemFontOfSize:14 weight:NSFontWeightRegular];
+        value.alignment = NSTextAlignmentRight;
+        value.lineBreakMode = NSLineBreakByTruncatingHead;
+        value.translatesAutoresizingMaskIntoConstraints = NO;
+        [value setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationHorizontal];
+        [value setContentHuggingPriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationHorizontal];
+    }
     NSImageView *chevron = [[NSImageView alloc] initWithFrame:NSZeroRect];
     chevron.image = [[NSImage imageWithSystemSymbolName:@"chevron.right" accessibilityDescription:@"Choose"]
         imageWithSymbolConfiguration:[NSImageSymbolConfiguration configurationWithPointSize:12 weight:NSFontWeightSemibold]];
@@ -236,9 +250,9 @@ static NSString *elapsed(uint64_t milliseconds) {
     chevron.translatesAutoresizingMaskIntoConstraints = NO;
     [button addSubview:icon];
     [button addSubview:label];
-    [button addSubview:value];
+    if (value) [button addSubview:value];
     [button addSubview:chevron];
-    [NSLayoutConstraint activateConstraints:@[
+    NSMutableArray<NSLayoutConstraint *> *constraints = [NSMutableArray arrayWithArray:@[
         [icon.leadingAnchor constraintEqualToAnchor:button.leadingAnchor constant:12],
         [icon.centerYAnchor constraintEqualToAnchor:button.centerYAnchor],
         [icon.widthAnchor constraintEqualToConstant:16], [icon.heightAnchor constraintEqualToConstant:16],
@@ -247,10 +261,16 @@ static NSString *elapsed(uint64_t milliseconds) {
         [chevron.trailingAnchor constraintEqualToAnchor:button.trailingAnchor constant:-12],
         [chevron.centerYAnchor constraintEqualToAnchor:button.centerYAnchor],
         [chevron.widthAnchor constraintEqualToConstant:12], [chevron.heightAnchor constraintEqualToConstant:12],
-        [value.trailingAnchor constraintEqualToAnchor:chevron.leadingAnchor constant:-8],
-        [value.leadingAnchor constraintGreaterThanOrEqualToAnchor:label.trailingAnchor constant:12],
-        [value.centerYAnchor constraintEqualToAnchor:button.centerYAnchor],
     ]];
+    [label setContentCompressionResistancePriority:NSLayoutPriorityRequired forOrientation:NSLayoutConstraintOrientationHorizontal];
+    if (value) {
+        [constraints addObjectsFromArray:@[
+            [value.trailingAnchor constraintEqualToAnchor:chevron.leadingAnchor constant:-8],
+            [value.leadingAnchor constraintGreaterThanOrEqualToAnchor:label.trailingAnchor constant:12],
+            [value.centerYAnchor constraintEqualToAnchor:button.centerYAnchor],
+        ]];
+    }
+    [NSLayoutConstraint activateConstraints:constraints];
     if (valueOut) *valueOut = value;
     if (iconOut) *iconOut = icon;
     if (chevronOut) *chevronOut = chevron;
@@ -315,13 +335,14 @@ static NSString *elapsed(uint64_t milliseconds) {
         RimvMenu *strongSelf = weakSelf;
         if (!strongSelf.popover.shown) return event;
         if (event.keyCode == 53) {
+            if (strongSelf.pendingSelector != 0) {
+                [strongSelf logSelectorEvent:@"pending-selector-cleared" selector:strongSelf.pendingSelector reason:@"Escape cancelled pending transition"];
+            }
             strongSelf.pendingSelector = 0;
             NSInteger visible = [strongSelf visibleSelector];
             if (visible != 0) {
                 [strongSelf logSelectorEvent:@"escape-close-child" selector:visible reason:@"Escape key"];
-                if (visible == 1) [strongSelf.languagePopover performClose:nil];
-                else if (visible == 2) rimv_model_manager_close_selector();
-                else rimv_recordings_selector_close();
+                [strongSelf closeSelector:visible reason:@"Escape key"];
                 return nil;
             }
             [strongSelf logSelectorEvent:@"escape-close-parent" selector:0 reason:@"Escape key"];
@@ -342,13 +363,14 @@ static NSString *elapsed(uint64_t milliseconds) {
         if (!strongSelf) return;
         NSUInteger observedGeneration = strongSelf.interactionGeneration;
         dispatch_async(dispatch_get_main_queue(), ^{
-            // A status-item click can reopen RimV before this queued global
-            // monitor callback runs. Do not let an old outside click dismiss
-            // that newer presentation.
+            // Global monitors observe clicks in other applications. Ignore a
+            // stale event if a newer local interaction has since reopened or
+            // switched RimV's popovers.
             if (strongSelf.interactionGeneration != observedGeneration) {
-                [strongSelf logSelectorEvent:@"ignore-stale-global-click" selector:0 reason:@"a newer local interaction occurred"];
+                [strongSelf logSelectorEvent:@"ignore-stale-global-click" selector:strongSelf.activeSelector reason:@"a newer local interaction occurred"];
                 return;
             }
+            [strongSelf logSelectorEvent:@"global-outside-click" selector:strongSelf.activeSelector reason:@"dismiss active selector and parent"];
             [strongSelf dismissSelectorsForReason:@"global outside click"];
         });
     }];
@@ -431,7 +453,6 @@ static NSString *elapsed(uint64_t milliseconds) {
     NSImageView *languageChevron;
     self.language = [self selectorRow:@"Language" symbol:@"globe" action:@selector(showLanguages:) frame:NSMakeRect(30, 319, 344, 36) value:&languageValue icon:&languageIcon chevron:&languageChevron];
     self.languageValue = languageValue;
-    self.languageValue.stringValue = @"Auto Detect";
     self.languageIcon = languageIcon;
     self.languageChevron = languageChevron;
     NSTextField *modelValue;
@@ -439,18 +460,23 @@ static NSString *elapsed(uint64_t milliseconds) {
     NSImageView *modelChevron;
     self.model = [self selectorRow:@"Model" symbol:@"cpu" action:@selector(showModels:) frame:NSMakeRect(30, 363, 344, 36) value:&modelValue icon:&modelIcon chevron:&modelChevron];
     self.modelValue = modelValue;
-    self.modelValue.stringValue = @"No model";
+    self.modelValue.stringValue = self.effectiveModelTitle.length ? self.effectiveModelTitle : @"";
     self.modelIcon = modelIcon;
     self.modelChevron = modelChevron;
+    self.model.accessibilityValue = self.modelValue.stringValue;
     [self separatorAt:412];
     self.errorItem = [self row:@"Show Capture Error…" symbol:@"exclamationmark.triangle" action:@selector(errorDetails:) frame:NSMakeRect(30, 428, 344, 28)];
     self.errorItem.hidden = YES;
     self.drops = [self label:@"" frame:NSZeroRect size:12 weight:NSFontWeightRegular];
-    self.recordings = [self row:@"Recordings" symbol:@"waveform" action:@selector(showRecordings:) frame:NSMakeRect(30, 428, 344, 28)];
-    self.recordings.image.template = YES;
+    NSImageView *recordingsIcon;
+    NSImageView *recordingsChevron;
+    self.recordings = [self selectorRow:@"Recordings" symbol:@"waveform" action:@selector(showRecordings:) frame:NSMakeRect(30, 428, 344, 36) value:NULL icon:&recordingsIcon chevron:&recordingsChevron];
+    self.recordingsIcon = recordingsIcon;
+    self.recordingsChevron = recordingsChevron;
     [self separatorAt:500];
     NSButton *quit = [self row:@"Quit RimV                                             ⌘Q" symbol:@"power" action:@selector(quit:) frame:NSMakeRect(30, 510, 344, 28)];
     quit.font = [NSFont systemFontOfSize:14 weight:NSFontWeightRegular];
+    [self updateLanguageTitle];
     [self applySnapshot:self.snapshot];
 }
 - (void)applySnapshot:(NSDictionary *)snapshot {
@@ -470,6 +496,8 @@ static NSString *elapsed(uint64_t milliseconds) {
     for (NSImageView *chevron in @[self.languageChevron, self.modelChevron]) chevron.contentTintColor = secondary;
     self.languageValue.textColor = secondary;
     self.modelValue.textColor = secondary;
+    self.recordingsIcon.contentTintColor = primary;
+    self.recordingsChevron.contentTintColor = secondary;
     NSString *status = snapshot[@"status"];
     BOOL recording = [status isEqualToString:@"recording"];
     BOOL starting = [status isEqualToString:@"starting"];
@@ -515,8 +543,6 @@ static NSString *elapsed(uint64_t milliseconds) {
     self.capture.contentTintColor = recording
         ? [self color:195 green:77 blue:83 darkRed:247 green:133 blue:133]
         : NSColor.whiteColor;
-    self.recordings.image.template = YES;
-    self.recordings.contentTintColor = primary;
     self.capture.layer.backgroundColor = (recording
         ? NSColor.clearColor
         : ([status isEqualToString:@"error"]
@@ -711,6 +737,7 @@ static NSString *elapsed(uint64_t milliseconds) {
     self.languageValue.stringValue = (self.supportedLanguages.count == 0 && !self.supportsLanguageDetection)
         ? @"Model required"
         : [self languageTitle:self.selectedLanguage];
+    self.language.accessibilityValue = self.languageValue.stringValue;
     self.languageSummary.stringValue = self.languageValue.stringValue;
 }
 - (NSColor *)languageColor:(CGFloat)lightR green:(CGFloat)lightG blue:(CGFloat)lightB darkR:(CGFloat)darkR green:(CGFloat)darkG blue:(CGFloat)darkB {
@@ -914,33 +941,84 @@ static NSString *elapsed(uint64_t milliseconds) {
           rimv_recordings_selector_is_shown() ? @"yes" : @"no",
           self.popover.shown ? @"yes" : @"no", (unsigned long)self.interactionGeneration, reason);
 }
-- (void)closeSelector:(NSInteger)selector reason:(NSString *)reason {
+- (BOOL)releasePopoverFocusInWindow:(NSWindow *)window selector:(NSInteger)selector {
+    if (!window || window.firstResponder == window) return YES;
+    NSResponder *responder = window.firstResponder;
+    // AppKit documents nil as the request to make the window itself first
+    // responder; use that public path to resign a search field's field editor.
+    BOOL resigned = [window makeFirstResponder:nil];
+    NSString *reason = [NSString stringWithFormat:@"firstResponder %@; makeFirstResponder(nil)=%@; resulting firstResponder %@",
+                        NSStringFromClass(responder.class), resigned ? @"YES" : @"NO",
+                        NSStringFromClass(window.firstResponder.class)];
+    [self logSelectorEvent:@"focus-transfer" selector:selector reason:reason];
+    return resigned && window.firstResponder == window;
+}
+- (BOOL)closeSelector:(NSInteger)selector reason:(NSString *)reason {
+    if (self.closingSelector != 0) {
+        [self logSelectorEvent:@"duplicate-close-suppressed" selector:selector reason:[NSString stringWithFormat:@"%@ is already closing", [self selectorName:self.closingSelector]]];
+        return NO;
+    }
+    if (![self selectorIsShown:selector]) return YES;
+    self.closingSelector = selector;
+    BOOL closed = NO;
+    if (selector == 1) {
+        NSWindow *window = self.languagePopover.contentViewController.view.window;
+        closed = [self releasePopoverFocusInWindow:window selector:selector];
+        if (closed) [self.languagePopover performClose:nil];
+    } else if (selector == 2) {
+        closed = rimv_model_manager_close_selector();
+    } else if (selector == 3) {
+        closed = rimv_recordings_selector_close();
+    }
+    if (!closed) {
+        self.closingSelector = 0;
+        if (self.pendingSelector != 0) {
+            [self logSelectorEvent:@"pending-selector-cleared" selector:self.pendingSelector reason:@"first responder refused transfer"];
+            self.pendingSelector = 0;
+        }
+        [self logSelectorEvent:@"selector-close-blocked" selector:selector reason:@"could not safely transfer first responder"];
+        return NO;
+    }
     [self logSelectorEvent:@"close-selector" selector:selector reason:reason];
-    if (selector == 1) [self.languagePopover performClose:nil];
-    else if (selector == 2) rimv_model_manager_close_selector();
-    else if (selector == 3) rimv_recordings_selector_close();
+    return YES;
 }
 - (void)dismissSelectorsForReason:(NSString *)reason {
     self.interactionGeneration += 1;
+    if (self.pendingSelector != 0) {
+        [self logSelectorEvent:@"pending-selector-cleared" selector:self.pendingSelector reason:reason];
+    }
     self.pendingSelector = 0;
     self.activeSelector = 0;
     [self logSelectorEvent:@"dismiss-all" selector:0 reason:reason];
-    if (self.languagePopover.shown) [self.languagePopover performClose:nil];
-    if (rimv_model_manager_selector_is_shown()) rimv_model_manager_close_selector();
-    if (rimv_recordings_selector_is_shown()) rimv_recordings_selector_close();
+    NSInteger visible = [self visibleSelector];
+    if (visible != 0 && ![self closeSelector:visible reason:reason]) return;
     if (self.popover.shown) [self.popover performClose:nil];
 }
 - (void)requestSelector:(NSInteger)selector {
     if (selector < 1 || selector > 3) return;
     self.interactionGeneration += 1;
+    if (self.closingSelector != 0) {
+        if (self.pendingSelector == selector) {
+            [self logSelectorEvent:@"duplicate-transition-request-suppressed" selector:selector reason:[NSString stringWithFormat:@"%@ is closing", [self selectorName:self.closingSelector]]];
+            return;
+        }
+        if (self.pendingSelector != 0) {
+            [self logSelectorEvent:@"pending-selector-replaced" selector:selector reason:[NSString stringWithFormat:@"replaced %@ while %@ closes", [self selectorName:self.pendingSelector], [self selectorName:self.closingSelector]]];
+        }
+        self.pendingSelector = selector;
+        [self logSelectorEvent:@"pending-selector-set-during-close" selector:selector reason:[NSString stringWithFormat:@"waiting for %@ delegate close", [self selectorName:self.closingSelector]]];
+        return;
+    }
     NSInteger visible = [self visibleSelector];
     if (visible == selector) {
+        [self logSelectorEvent:@"user-requested-close" selector:selector reason:@"same selector row clicked"];
         self.pendingSelector = 0;
         self.activeSelector = selector;
         [self closeSelector:selector reason:@"same selector toggled"];
         return;
     }
     self.pendingSelector = selector;
+    [self logSelectorEvent:@"pending-selector-set" selector:selector reason:@"selector switch requested"];
     [self logSelectorEvent:@"request-selector" selector:selector reason:@"selector row clicked"];
     if (visible != 0) {
         self.activeSelector = visible;
@@ -956,6 +1034,10 @@ static NSString *elapsed(uint64_t milliseconds) {
         self.activeSelector = 0;
         return;
     }
+    if (self.closingSelector != 0) {
+        [self logSelectorEvent:@"wait-for-close-callback" selector:self.pendingSelector reason:[NSString stringWithFormat:@"%@ has not completed closing", [self selectorName:self.closingSelector]]];
+        return;
+    }
     NSInteger visible = [self visibleSelector];
     if (visible != 0) {
         self.activeSelector = visible;
@@ -966,13 +1048,16 @@ static NSString *elapsed(uint64_t milliseconds) {
     }
     NSInteger selector = self.pendingSelector;
     if (selector == 0) { self.activeSelector = 0; return; }
+    [self logSelectorEvent:@"pending-selector-consumed" selector:selector reason:@"opening queued selector"];
     self.pendingSelector = 0;
     self.activeSelector = selector;
     [self logSelectorEvent:@"open-selector" selector:selector reason:@"no child selector is visible"];
     if (selector == 1) {
         [self buildLanguagePopover]; self.languageSearch.stringValue=@""; [self reloadLanguageOptions];
         [self.languagePopover showRelativeToRect:self.language.bounds ofView:self.language preferredEdge:NSRectEdgeMaxX];
-        [self.languagePopover.contentViewController.view.window makeFirstResponder:self.languageSearch];
+        NSWindow *window = self.languagePopover.contentViewController.view.window;
+        BOOL focused = [window makeFirstResponder:self.languageSearch];
+        [self logSelectorEvent:@"focus-search" selector:selector reason:[NSString stringWithFormat:@"Language search focused=%@ firstResponder=%@", focused ? @"YES" : @"NO", NSStringFromClass(window.firstResponder.class)]];
     } else if (selector == 2) rimv_model_manager_show_selector(self.model);
     else if (selector == 3) rimv_recordings_selector_show(self.recordings);
     if (![self selectorIsShown:selector]) {
@@ -986,13 +1071,20 @@ static NSString *elapsed(uint64_t milliseconds) {
     // A queued callback from an earlier presentation must not clear a newly
     // reopened instance of that selector.
     if (isShown) { self.activeSelector = selector; return; }
+    if (self.closingSelector != 0 && self.closingSelector != selector) {
+        [self logSelectorEvent:@"stale-close-callback-ignored" selector:selector reason:[NSString stringWithFormat:@"%@ is the active close transition", [self selectorName:self.closingSelector]]];
+        return;
+    }
+    if (self.closingSelector == selector) self.closingSelector = 0;
     if (self.activeSelector == selector) self.activeSelector = 0;
     [self openPendingSelector];
 }
 - (void)popoverDidClose:(NSNotification *)notification {
     if (notification.object == self.languagePopover) {
+        [self logSelectorEvent:@"delegate-close" selector:1 reason:@"Language popoverDidClose"];
         rimv_menu_selector_did_close(1);
     } else if (notification.object == self.popover) {
+        [self logSelectorEvent:@"parent-popover-dismissed" selector:0 reason:@"main popoverDidClose"];
         [self dismissSelectorsForReason:@"parent popover closed"];
     }
 }
@@ -1013,7 +1105,7 @@ static NSString *elapsed(uint64_t milliseconds) {
     self.selectedLanguage = sender.identifier;
     [self updateLanguageTitle];
     self.command([self languageCommand:self.selectedLanguage], 0);
-    [self.languagePopover performClose:nil];
+    [self closeSelector:1 reason:@"language selected"];
 }
 - (void)showError:(NSString *)message {
     self.displayedError = message;
@@ -1066,8 +1158,14 @@ static NSString *elapsed(uint64_t milliseconds) {
     [self quit:nil];
     return NSTerminateLater;
 }
+- (BOOL)applicationShouldTerminateAfterLastWindowClosed:(NSApplication *)sender {
+    (void)sender;
+    // RimV is a menu-bar app; closing a viewer is never an application quit.
+    return NO;
+}
 - (void)applicationWillTerminate:(NSNotification *)notification {
     (void)notification;
+    rimv_transcription_window_shutdown_playback();
     [self logSelectorEvent:@"application-will-terminate" selector:0 reason:@"AppKit termination callback"];
 }
 @end
@@ -1146,7 +1244,10 @@ void rimv_menu_set_selector_state(const char *state) {
     NSDictionary *selectors = [NSJSONSerialization JSONObjectWithData:data options:0 error:NULL];
     if (![selectors isKindOfClass:NSDictionary.class]) return;
     void (^update)(void) = ^{
-        menu.modelValue.stringValue = selectors[@"model"] ?: @"Model required";
+        NSString *modelTitle = [selectors[@"model"] isKindOfClass:NSString.class] ? selectors[@"model"] : @"No model";
+        menu.effectiveModelTitle = modelTitle;
+        menu.modelValue.stringValue = modelTitle;
+        menu.model.accessibilityValue = modelTitle;
         menu.supportedLanguages = selectors[@"languages"] ?: @[];
         menu.supportsLanguageDetection = [selectors[@"auto_detect"] boolValue];
         if (![menu.selectedLanguage isEqualToString:@"auto"] && ![menu.supportedLanguages containsObject:menu.selectedLanguage]) {
@@ -1162,6 +1263,8 @@ void rimv_menu_set_selector_state(const char *state) {
 
 void rimv_menu_exit(void) {
     dispatch_async(dispatch_get_main_queue(), ^{
+        // Recorded-audio playback is independent of the active Rust capture.
+        rimv_transcription_window_shutdown_playback();
         if (menu.systemTermination) {
             [NSApp replyToApplicationShouldTerminate:YES];
         } else {
@@ -1192,6 +1295,24 @@ bool rimv_menu_self_test(void) {
         BOOL passed = menu.statusItem != nil && menu.capture.enabled;
         passed &= [menu.captureLabel.stringValue isEqualToString:@"Start Listening"];
         passed &= [menu.statusLine.stringValue isEqualToString:@"Ready"];
+        passed &= menu.effectiveModelTitle.length > 0 && [menu.modelValue.stringValue isEqualToString:menu.effectiveModelTitle];
+        passed &= menu.languageValue.stringValue.length > 0;
+        passed &= menu.recordingsIcon.image != nil && menu.recordingsChevron.image != nil;
+        passed &= NSEqualSizes(menu.recordings.frame.size, menu.language.frame.size);
+
+        // Repeated row actions during a close must update one pending request,
+        // not send another close to the same NSPopover.
+        NSInteger previousPending = menu.pendingSelector;
+        NSInteger previousClosing = menu.closingSelector;
+        menu.closingSelector = 2;
+        menu.pendingSelector = 1;
+        [menu requestSelector:1];
+        passed &= menu.closingSelector == 2 && menu.pendingSelector == 1;
+        [menu requestSelector:3];
+        passed &= menu.closingSelector == 2 && menu.pendingSelector == 3;
+        menu.pendingSelector = previousPending;
+        menu.closingSelector = previousClosing;
+
         menu.supportedLanguages = @[@"en", @"es", @"ru"];
         menu.supportsLanguageDetection = YES;
         menu.modelValue.stringValue = @"Whisper Tiny";

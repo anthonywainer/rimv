@@ -3,7 +3,7 @@ use engine_runtime::{
 };
 use model_manager::{ModelDescriptor, ModelManager, ModelState};
 use std::{
-    ffi::{CString, c_char},
+    ffi::{CStr, CString, c_char},
     path::PathBuf,
     sync::{
         Mutex, OnceLock,
@@ -13,6 +13,123 @@ use std::{
     thread,
     time::Duration,
 };
+
+#[derive(Debug, Clone, Default)]
+struct LiveTranscriptCache {
+    session_id: Option<String>,
+    revision: u64,
+    finalized: Vec<engine_runtime::TranscriptUpdate>,
+    partials: Vec<engine_runtime::TranscriptUpdate>,
+}
+
+impl LiveTranscriptCache {
+    fn observe_snapshot(&mut self, snapshot: &engine_runtime::EngineSnapshot) {
+        let Some(session) = &snapshot.session else {
+            return;
+        };
+        let session_id = session.id.to_string();
+        if self.session_id.as_deref() != Some(session_id.as_str()) {
+            self.session_id = Some(session_id);
+            self.finalized.clear();
+            self.partials.clear();
+            self.revision = self.revision.saturating_add(1);
+        }
+    }
+
+    fn update(&mut self, update: engine_runtime::TranscriptUpdate) {
+        self.revision = self.revision.saturating_add(1);
+        if update.is_final {
+            self.partials
+                .retain(|partial| partial.utterance_id != update.utterance_id);
+            if let Some(existing) = self
+                .finalized
+                .iter_mut()
+                .find(|finalized| finalized.utterance_id == update.utterance_id)
+            {
+                *existing = update;
+            } else {
+                self.finalized.push(update);
+            }
+            self.finalized.sort_by(|a, b| {
+                a.start_ms
+                    .cmp(&b.start_ms)
+                    .then_with(|| a.utterance_id.cmp(&b.utterance_id))
+            });
+        } else if update.stable_text.is_empty() && update.unstable_text.is_empty() {
+            self.partials
+                .retain(|partial| partial.utterance_id != update.utterance_id);
+        } else if let Some(existing) = self
+            .partials
+            .iter_mut()
+            .find(|partial| partial.utterance_id == update.utterance_id)
+        {
+            *existing = update;
+        } else {
+            self.partials.push(update);
+        }
+    }
+
+    fn json(&self) -> String {
+        serde_json::json!({
+            "session_id": self.session_id,
+            "revision": self.revision,
+            "finalized": self.finalized,
+            "partials": self.partials,
+        })
+        .to_string()
+    }
+}
+
+#[cfg(test)]
+mod live_transcript_cache_tests {
+    use super::LiveTranscriptCache;
+    use engine_runtime::{AudioSource, SessionId, SessionInfo, TranscriptUpdate};
+
+    fn update(id: &str, text: &str, final_result: bool) -> TranscriptUpdate {
+        TranscriptUpdate {
+            source: AudioSource::Microphone,
+            utterance_id: id.into(),
+            start_ms: 10,
+            end_ms: 20,
+            stable_text: text.into(),
+            unstable_text: String::new(),
+            is_final: final_result,
+            language: Some("en".into()),
+            confidence: None,
+        }
+    }
+
+    #[test]
+    fn partials_replace_and_finalized_utterances_are_deduplicated() {
+        let mut cache = LiveTranscriptCache::default();
+        cache.update(update("utterance-1", "hello", false));
+        cache.update(update("utterance-1", "hello there", false));
+        assert_eq!(cache.partials.len(), 1);
+        assert_eq!(cache.partials[0].stable_text, "hello there");
+
+        cache.update(update("utterance-1", "Hello there.", true));
+        cache.update(update("utterance-1", "Hello there!", true));
+        assert!(cache.partials.is_empty());
+        assert_eq!(cache.finalized.len(), 1);
+        assert_eq!(cache.finalized[0].stable_text, "Hello there!");
+    }
+
+    #[test]
+    fn session_change_clears_the_previous_session_transcript() {
+        let mut cache = LiveTranscriptCache::default();
+        cache.update(update("utterance-1", "old session", true));
+        cache.observe_snapshot(&engine_runtime::EngineSnapshot {
+            session: Some(SessionInfo {
+                id: SessionId("new-session".into()),
+                started_at_unix_ms: 0,
+                recording_directory: "/tmp/new-session".into(),
+            }),
+            ..Default::default()
+        });
+        assert!(cache.finalized.is_empty());
+        assert!(cache.partials.is_empty());
+    }
+}
 
 unsafe extern "C" {
     fn rimv_menu_create(
@@ -37,6 +154,13 @@ unsafe extern "C" {
     fn rimv_transcription_window_configure(command: extern "C" fn(u32, u8));
     fn rimv_transcription_window_snapshot(snapshot_json: *const c_char);
     fn rimv_transcription_window_update(update_json: *const c_char);
+    fn rimv_transcription_window_open_live(
+        snapshot_json: *const c_char,
+        transcript_state_json: *const c_char,
+    );
+    fn rimv_transcription_window_shutdown_playback();
+    fn rimv_transcription_window_recording_metadata(path: *const c_char, title: *const c_char, deleted: u8);
+    fn rimv_transcription_window_close_session(path: *const c_char);
     fn rimv_recordings_selector_update(json: *const c_char);
 }
 
@@ -45,6 +169,9 @@ enum Action {
     SetLanguage(Option<String>),
     SelectModel(String),
     RemoveModel(String),
+    RenameRecording { path: PathBuf, title: String },
+    DeleteRecording(PathBuf),
+    OpenLiveViewer,
     Quit,
 }
 static COMMANDS: OnceLock<SyncSender<Action>> = OnceLock::new();
@@ -56,6 +183,79 @@ static SELECTED_MODEL: OnceLock<Mutex<String>> = OnceLock::new();
 static DOWNLOADING: OnceLock<Mutex<std::collections::HashSet<String>>> = OnceLock::new();
 static DOWNLOAD_PROGRESS: OnceLock<Mutex<std::collections::HashMap<String, (u64, Option<u64>)>>> =
     OnceLock::new();
+static LIVE_TRANSCRIPT: OnceLock<Mutex<LiveTranscriptCache>> = OnceLock::new();
+
+const RIMV_SESSION_METADATA: &str = "rimv-session.json";
+
+fn validated_recording_directory(path: &std::path::Path) -> Result<PathBuf, String> {
+    let root = RECORDINGS_ROOT
+        .get()
+        .ok_or_else(|| "recordings are not initialized".to_owned())?
+        .canonicalize()
+        .map_err(|error| format!("could not access recordings folder: {error}"))?;
+    let directory = path
+        .canonicalize()
+        .map_err(|error| format!("could not access recording: {error}"))?;
+    if directory.parent() != Some(root.as_path()) || directory == root {
+        return Err("the selected folder is not a RimV recording".into());
+    }
+    Ok(directory)
+}
+
+fn session_metadata(path: &std::path::Path) -> Option<serde_json::Value> {
+    serde_json::from_slice(&std::fs::read(path.join(RIMV_SESSION_METADATA)).ok()?).ok()
+}
+
+fn persisted_session_identity(path: &std::path::Path) -> Result<(String, u64), String> {
+    let metadata: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(path.join("session.json")).map_err(|error| format!("could not read session metadata: {error}"))?,
+    )
+    .map_err(|error| format!("could not read session metadata: {error}"))?;
+    let session = metadata.get("snapshot").and_then(|snapshot| snapshot.get("session")).ok_or("recording metadata is incomplete")?;
+    let id = session.get("id").and_then(serde_json::Value::as_str).ok_or("recording identifier is missing")?;
+    let started_at = session.get("started_at_unix_ms").and_then(serde_json::Value::as_u64).ok_or("recording start time is missing")?;
+    if path.file_name().and_then(|name| name.to_str()) != Some(id) {
+        return Err("recording metadata does not match its session folder".into());
+    }
+    Ok((id.to_owned(), started_at))
+}
+
+fn write_sidecar(path: &std::path::Path, session_id: &str, started_at_unix_ms: u64, title: &str) -> Result<(), String> {
+    let metadata = serde_json::json!({
+        "schema_version": 1,
+        "session_id": session_id,
+        "started_at_unix_ms": started_at_unix_ms,
+        "title": title,
+    });
+    let temporary = path.join(format!("{RIMV_SESSION_METADATA}.tmp"));
+    let destination = path.join(RIMV_SESSION_METADATA);
+    let bytes = serde_json::to_vec_pretty(&metadata).map_err(|error| error.to_string())?;
+    std::fs::write(&temporary, bytes).map_err(|error| format!("could not save recording name: {error}"))?;
+    std::fs::rename(&temporary, &destination).map_err(|error| {
+        let _ = std::fs::remove_file(&temporary);
+        format!("could not save recording name: {error}")
+    })
+}
+
+fn enqueue_recording_action(action: Action) {
+    if COMMANDS.get().is_none_or(|sender| sender.try_send(action).is_err()) {
+        show_error("RimV is busy. Try the recording action again.");
+    }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn rimv_recording_rename(path: *const c_char, title: *const c_char) {
+    if path.is_null() || title.is_null() { return; }
+    let (Ok(path), Ok(title)) = (unsafe { CStr::from_ptr(path) }.to_str(), unsafe { CStr::from_ptr(title) }.to_str()) else { return; };
+    enqueue_recording_action(Action::RenameRecording { path: PathBuf::from(path), title: title.to_owned() });
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn rimv_recording_delete(path: *const c_char) {
+    if path.is_null() { return; }
+    let Ok(path) = unsafe { CStr::from_ptr(path) }.to_str() else { return; };
+    enqueue_recording_action(Action::DeleteRecording(PathBuf::from(path)));
+}
 
 extern "C" fn command(code: u32, enabled: u8) {
     if let Some(model_id) = match code {
@@ -160,6 +360,15 @@ extern "C" fn command(code: u32, enabled: u8) {
         QUIT_REQUESTED.store(true, Ordering::Release);
         if let Some(sender) = COMMANDS.get() {
             let _ = sender.try_send(Action::Quit);
+        }
+        return;
+    }
+    if code == 6 {
+        if COMMANDS
+            .get()
+            .is_none_or(|sender| sender.try_send(Action::OpenLiveViewer).is_err())
+        {
+            show_error("RimV is busy. Try opening the live viewer again.");
         }
         return;
     }
@@ -328,6 +537,11 @@ fn show_error(error: &str) {
 }
 
 fn update(snapshot: &engine_runtime::EngineSnapshot) {
+    LIVE_TRANSCRIPT
+        .get_or_init(|| Mutex::new(LiveTranscriptCache::default()))
+        .lock()
+        .expect("live transcript lock poisoned")
+        .observe_snapshot(snapshot);
     if let Ok(json) = serde_json::to_string(snapshot)
         && let Ok(text) = CString::new(json)
     {
@@ -343,21 +557,163 @@ fn publish_recordings(snapshot: &engine_runtime::EngineSnapshot) {
     let mut items = Vec::new();
     if let Some(session) = &snapshot.session
         && matches!(snapshot.status, engine_runtime::EngineStatus::Recording | engine_runtime::EngineStatus::Starting | engine_runtime::EngineStatus::Stopping)
-    { items.push(serde_json::json!({"state":"recording","name":"Current Recording","detail":format!("● Recording · {:02}:{:02}",snapshot.elapsed_ms/60000,(snapshot.elapsed_ms/1000)%60),"path":session.recording_directory,"root":root})); }
-    if let Ok(entries) = std::fs::read_dir(root) { for entry in entries.flatten() { let path=entry.path(); if path.join("session.json").is_file() { items.push(serde_json::json!({"state":"completed","name":path.file_name().unwrap_or_default().to_string_lossy(),"detail":"Completed","path":path,"root":root})); } } }
+    {
+        let path = PathBuf::from(&session.recording_directory);
+        let name = session_metadata(&path)
+            .filter(|metadata| metadata["session_id"].as_str() == Some(session.id.0.as_str()))
+            .and_then(|metadata| metadata["title"].as_str().map(str::to_owned));
+        items.push(serde_json::json!({"state":"recording","name":name,"session_id":session.id.0,"started_at_unix_ms":session.started_at_unix_ms,"duration_ms":snapshot.elapsed_ms,"path":session.recording_directory,"root":root}));
+    }
+    if let Ok(entries) = std::fs::read_dir(root) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let metadata_path = path.join("session.json");
+            let Ok(metadata) = std::fs::read(&metadata_path).and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).map_err(std::io::Error::other)) else { continue; };
+            let Some(session) = metadata.pointer("/snapshot/session") else { continue; };
+            let session_id = session.get("id").and_then(serde_json::Value::as_str).unwrap_or_default();
+            let started_at_unix_ms = session.get("started_at_unix_ms").and_then(serde_json::Value::as_u64).unwrap_or_default();
+            let duration_ms = metadata.pointer("/snapshot/elapsed_ms").and_then(serde_json::Value::as_u64).unwrap_or_default();
+            let name = session_metadata(&path)
+                .filter(|title| title["session_id"].as_str() == Some(session_id))
+                .and_then(|title| title["title"].as_str().map(str::to_owned));
+            items.push(serde_json::json!({"state":"completed","name":name,"session_id":session_id,"started_at_unix_ms":started_at_unix_ms,"duration_ms":duration_ms,"path":path,"root":root}));
+        }
+    }
+    items.sort_by(|a, b| {
+        let active_a = a["state"] == "recording";
+        let active_b = b["state"] == "recording";
+        active_b.cmp(&active_a).then_with(|| b["started_at_unix_ms"].as_u64().cmp(&a["started_at_unix_ms"].as_u64()))
+    });
     if let Ok(text)=CString::new(serde_json::to_string(&items).unwrap_or_default()) { unsafe { rimv_recordings_selector_update(text.as_ptr()) }; }
 }
 
+fn active_recording_matches(snapshot: &engine_runtime::EngineSnapshot, directory: &PathBuf) -> bool {
+    (matches!(snapshot.status, engine_runtime::EngineStatus::Starting | engine_runtime::EngineStatus::Recording | engine_runtime::EngineStatus::Stopping)
+        || snapshot.microphone.active
+        || snapshot.system_audio.active)
+        && snapshot.session.as_ref().is_some_and(|session| {
+            PathBuf::from(&session.recording_directory).canonicalize().ok().as_ref() == Some(directory)
+        })
+}
+
+fn rename_recording(snapshot: &engine_runtime::EngineSnapshot, requested_path: &PathBuf, title: &str) -> Result<(PathBuf, String), String> {
+    let title = title.trim();
+    if title.is_empty() || title.chars().count() > 120 || title.chars().any(char::is_control) {
+        return Err("recording names must contain 1–120 visible characters".into());
+    }
+    let path = validated_recording_directory(requested_path)?;
+    let (session_id, started_at) = if active_recording_matches(snapshot, &path) {
+        let session = snapshot.session.as_ref().ok_or("active session is unavailable")?;
+        if path.file_name().and_then(|name| name.to_str()) != Some(session.id.0.as_str()) {
+            return Err("recording identifier does not match its session folder".into());
+        }
+        (session.id.0.clone(), session.started_at_unix_ms)
+    } else {
+        persisted_session_identity(&path)?
+    };
+    write_sidecar(&path, &session_id, started_at, title)?;
+    Ok((path, title.to_owned()))
+}
+
+fn delete_recording(snapshot: &engine_runtime::EngineSnapshot, requested_path: &PathBuf) -> Result<PathBuf, String> {
+    let path = validated_recording_directory(requested_path)?;
+    if active_recording_matches(snapshot, &path) {
+        return Err("an active or finalizing recording cannot be deleted".into());
+    }
+    if !path.join("session.json").is_file() {
+        return Err("only completed recordings can be deleted".into());
+    }
+    persisted_session_identity(&path)?;
+    let path_text = CString::new(path.to_string_lossy().as_bytes()).map_err(|_| "invalid recording path")?;
+    unsafe { rimv_transcription_window_close_session(path_text.as_ptr()) };
+    std::fs::remove_dir_all(&path).map_err(|error| format!("could not delete recording: {error}"))?;
+    Ok(path)
+}
+
+#[cfg(test)]
+mod recording_metadata_tests {
+    use super::*;
+    use engine_runtime::{EngineSnapshot, EngineStatus, SessionId, SessionInfo};
+    use std::sync::atomic::AtomicU64;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn temporary_session_path() -> PathBuf {
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
+        let nonce = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let path = std::env::temp_dir().join(format!("rimv-session-metadata-{}-{nonce}-{}", std::process::id(), COUNTER.fetch_add(1, Ordering::Relaxed)));
+        std::fs::create_dir(&path).unwrap();
+        path
+    }
+
+    #[test]
+    fn recording_title_sidecar_round_trips_session_identity() {
+        let path = temporary_session_path();
+        write_sidecar(&path, "stable-session-id", 1_790_000_000_000, "Planning Notes").unwrap();
+        let metadata = session_metadata(&path).unwrap();
+        assert_eq!(metadata["session_id"], "stable-session-id");
+        assert_eq!(metadata["started_at_unix_ms"], 1_790_000_000_000u64);
+        assert_eq!(metadata["title"], "Planning Notes");
+        std::fs::remove_dir_all(path).unwrap();
+    }
+
+    #[test]
+    fn active_and_finalizing_session_states_are_protected_from_deletion() {
+        let path = temporary_session_path();
+        let session = SessionInfo {
+            id: SessionId("active-id".into()),
+            started_at_unix_ms: 1,
+            recording_directory: path.to_string_lossy().into_owned(),
+        };
+        for status in [EngineStatus::Starting, EngineStatus::Recording, EngineStatus::Stopping] {
+            let snapshot = EngineSnapshot { status, session: Some(session.clone()), ..Default::default() };
+            assert!(active_recording_matches(&snapshot, &path.canonicalize().unwrap()));
+        }
+        let completed = EngineSnapshot { status: EngineStatus::Idle, session: Some(session), ..Default::default() };
+        assert!(!active_recording_matches(&completed, &path.canonicalize().unwrap()));
+        std::fs::remove_dir_all(path).unwrap();
+    }
+
+    #[test]
+    fn explicit_recordings_root_is_restored_when_launch_argument_is_omitted() {
+        let support = temporary_session_path();
+        let recordings = temporary_session_path();
+        let canonical_recordings = recordings.canonicalize().unwrap();
+        let explicit = Options {
+            directory: recordings.clone(),
+            recordings_override: true,
+            profile: None,
+            seconds: 30,
+            self_test: false,
+        };
+        assert_eq!(resolve_recordings_directory(&support, &explicit).unwrap(), canonical_recordings);
+        let later_launch = Options {
+            directory: PathBuf::from("default-recordings"),
+            recordings_override: false,
+            profile: None,
+            seconds: 30,
+            self_test: false,
+        };
+        assert_eq!(resolve_recordings_directory(&support, &later_launch).unwrap(), canonical_recordings);
+        std::fs::remove_dir_all(support).unwrap();
+        std::fs::remove_dir_all(recordings).unwrap();
+    }
+}
+
 fn update_transcription_window(update: &engine_runtime::TranscriptUpdate) {
-    if let Ok(json) = serde_json::to_string(update)
-        && let Ok(text) = CString::new(json)
-    {
+    let cache = LIVE_TRANSCRIPT.get_or_init(|| Mutex::new(LiveTranscriptCache::default()));
+    let json = {
+        let mut cache = cache.lock().expect("live transcript lock poisoned");
+        cache.update(update.clone());
+        serde_json::json!({ "revision": cache.revision, "update": update }).to_string()
+    };
+    if let Ok(text) = CString::new(json) {
         unsafe { rimv_transcription_window_update(text.as_ptr()) };
     }
 }
 
 struct Options {
     directory: PathBuf,
+    recordings_override: bool,
     profile: Option<String>,
     seconds: u64,
     self_test: bool,
@@ -367,6 +723,7 @@ impl Options {
         let mut options = Self {
             directory: PathBuf::from(std::env::var_os("HOME").ok_or("HOME is not set")?)
                 .join("Library/Application Support/rimv/recordings"),
+            recordings_override: false,
             profile: None,
             seconds: 30,
             self_test: false,
@@ -376,7 +733,8 @@ impl Options {
             match arg.as_str() {
                 "--self-test" => options.self_test = true,
                 "--recordings" => {
-                    options.directory = args.next().ok_or("missing recordings path")?.into()
+                    options.directory = args.next().ok_or("missing recordings path")?.into();
+                    options.recordings_override = true;
                 }
                 "--profile" => {
                     let mode = args.next().ok_or("missing profile mode")?;
@@ -398,6 +756,33 @@ impl Options {
     }
 }
 
+fn resolve_recordings_directory(support: &std::path::Path, options: &Options) -> Result<PathBuf, std::io::Error> {
+    let configured = support.join("recordings-directory.txt");
+    if options.recordings_override {
+        let requested = if options.directory.is_absolute() {
+            options.directory.clone()
+        } else {
+            std::env::current_dir()?.join(&options.directory)
+        };
+        let requested = requested.canonicalize().unwrap_or(requested);
+        let temporary = support.join("recordings-directory.txt.tmp");
+        std::fs::write(&temporary, requested.to_string_lossy().as_bytes())?;
+        std::fs::rename(temporary, configured)?;
+        return Ok(requested);
+    }
+    if let Ok(saved) = std::fs::read_to_string(&configured) {
+        let saved = PathBuf::from(saved.trim());
+        if saved.is_absolute() {
+            return Ok(saved);
+        }
+    }
+    if options.directory.is_absolute() {
+        Ok(options.directory.clone())
+    } else {
+        Ok(std::env::current_dir()?.join(&options.directory))
+    }
+}
+
 pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     let options = Options::parse()?;
     let support = PathBuf::from(std::env::var_os("HOME").ok_or("HOME is not set")?)
@@ -414,7 +799,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     instance
         .try_lock()
         .map_err(|_| "rimv is already running; use its menu-bar icon")?;
-    let directory = std::env::current_dir()?.join(&options.directory);
+    let directory = resolve_recordings_directory(&support, &options)?;
     std::fs::create_dir_all(&directory)?;
     let home = PathBuf::from(std::env::var_os("HOME").ok_or("HOME is not set")?);
     let model_root = std::env::var_os("RIMV_MODELS_DIR")
@@ -621,7 +1006,54 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
                             publish_model_catalog();
                         }
                     }
+                    Action::RenameRecording { path, title } => {
+                        match rename_recording(&controller_engine.snapshot(), &path, &title) {
+                            Ok((path, title)) => {
+                                publish_recordings(&controller_engine.snapshot());
+                                if let (Ok(path), Ok(title)) = (
+                                    CString::new(path.to_string_lossy().as_bytes()),
+                                    CString::new(title),
+                                ) {
+                                    unsafe { rimv_transcription_window_recording_metadata(path.as_ptr(), title.as_ptr(), 0) };
+                                }
+                            }
+                            Err(error) => show_error(&error),
+                        }
+                    }
+                    Action::DeleteRecording(path) => {
+                        match delete_recording(&controller_engine.snapshot(), &path) {
+                            Ok(_) => publish_recordings(&controller_engine.snapshot()),
+                            Err(error) => show_error(&error),
+                        }
+                    }
+                    Action::OpenLiveViewer => {
+                        let snapshot = controller_engine.snapshot();
+                        let transcript_json = {
+                            let mut transcript = LIVE_TRANSCRIPT
+                                .get_or_init(|| Mutex::new(LiveTranscriptCache::default()))
+                                .lock()
+                                .expect("live transcript lock poisoned");
+                            transcript.observe_snapshot(&snapshot);
+                            transcript.json()
+                        };
+                        match serde_json::to_string(&snapshot) {
+                            Ok(snapshot_json) => match (
+                                CString::new(snapshot_json),
+                                CString::new(transcript_json),
+                            ) {
+                                (Ok(snapshot), Ok(transcript)) => unsafe {
+                                    rimv_transcription_window_open_live(
+                                        snapshot.as_ptr(),
+                                        transcript.as_ptr(),
+                                    );
+                                },
+                                _ => show_error("Could not restore the current transcription view."),
+                            },
+                            Err(_) => show_error("Could not restore the current transcription view."),
+                        }
+                    }
                     Action::Quit => {
+                        unsafe { rimv_transcription_window_shutdown_playback() };
                         if let Err(error) = controller_engine.shutdown() {
                             show_error(&error.to_string());
                         }
