@@ -24,149 +24,151 @@ env:
   MACOSX_DEPLOYMENT_TARGET: '13.0'
 
 jobs:
-  # Temporarily disabled for this Windows installer run; only windows-desktop is active.
-#   validate:
-#     name: Validate Release
-#     runs-on: ubuntu-latest
-#     outputs:
-#       tag: ${{ steps.version.outputs.tag }}
-#       version: ${{ steps.version.outputs.version }}
-#       publish: ${{ steps.version.outputs.publish }}
+  validate:
+    name: Validate Release
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+      version: ${{ steps.version.outputs.version }}
+      publish: ${{ steps.version.outputs.publish }}
 
-#     steps:
-#       - name: Checkout
-#         uses: actions/checkout@v5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
 
-#       - name: Validate tag and version
-#         id: version
-#         shell: bash
-#         run: |
-#           set -euo pipefail
-#           if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
-#             tag="${{ inputs.tag }}"
-#             publish=false
-#           else
-#             tag="${GITHUB_REF_NAME}"
-#             publish=true
-#           fi
+      - name: Validate tag and version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+            tag="${{ inputs.tag }}"
+            publish=false
+          else
+            tag="${GITHUB_REF_NAME}"
+            publish=true
+          fi
 
-#           if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
-#             echo "Invalid release tag: $tag" >&2
-#             exit 1
-#           fi
+          if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "Invalid release tag: $tag" >&2
+            exit 1
+          fi
 
-#           manifest_version="$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -n 1)"
-#           version="${tag#v}"
-#           if [[ "$version" != "$manifest_version" ]]; then
-#             echo "Tag $tag does not match Cargo workspace version $manifest_version" >&2
-#             exit 1
-#           fi
+          manifest_version="$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -n 1)"
+          version="${tag#v}"
+          if [[ "$version" != "$manifest_version" ]]; then
+            echo "Tag $tag does not match Cargo workspace version $manifest_version" >&2
+            exit 1
+          fi
 
-#           echo "tag=$tag" >> "$GITHUB_OUTPUT"
-#           echo "version=$version" >> "$GITHUB_OUTPUT"
-#           echo "publish=$publish" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "publish=$publish" >> "$GITHUB_OUTPUT"
 
-#   quality:
-#     name: Release quality (Linux x64)
-#     needs: validate
-#     runs-on: ubuntu-latest
+  quality:
+    name: Release quality (Linux x64)
+    needs: validate
+    runs-on: ubuntu-latest
 
-#     steps:
-#       - name: Checkout
-#         uses: actions/checkout@v5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
 
-#       - name: Install Linux audio build dependencies
-#         run: |
-#           sudo apt-get update
-#           sudo apt-get install -y --no-install-recommends libasound2-dev pkg-config
+      - name: Install Linux audio build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libasound2-dev pkg-config
 
-#       - name: Setup Rust
-#         uses: dtolnay/rust-toolchain@stable
-#         with:
-#           components: rustfmt, clippy
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
 
-#       - name: Cache Rust dependencies
-#         uses: Swatinem/rust-cache@v2
-#         with:
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
           # Tagged commits receive one full quality gate. Keep native Sherpa
           # build output out of the cache so its sibling libraries stay in sync.
-#           cache-targets: false
+          cache-targets: false
 
-#       - name: Check formatting
-#         run: cargo fmt --all -- --check
+      - name: Check formatting
+        run: cargo fmt --all -- --check
 
-#       - name: Check workspace
-#         run: cargo check --workspace --locked
+      - name: Check workspace
+        run: cargo check --workspace --locked
 
-#       - name: Lint workspace
-#         run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - name: Lint workspace
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
-#       - name: Test workspace
-#         run: cargo test --workspace --locked
+      - name: Test workspace
+        run: cargo test --workspace --locked
 
-#   package:
-#     name: Package distributions (${{ matrix.name }})
-#     needs:
-#       - validate
-#       - quality
-#     runs-on: ${{ matrix.os }}
-#     strategy:
-#       fail-fast: false
-#       matrix:
-#         include:
-#           - name: macOS arm64
-#             os: macos-15
-#             artifact: macos-arm64
-#           - name: Windows x64
-#             os: windows-latest
-#             artifact: windows-x64
+  package:
+    name: Package distributions (${{ matrix.name }})
+    needs:
+      - validate
+      - quality
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS arm64
+            os: macos-15
+            artifact: macos-arm64
+          - name: Windows x64
+            os: windows-latest
+            artifact: windows-x64
 
-#     steps:
-#       - name: Checkout
-#         uses: actions/checkout@v5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
 
-#       - name: Select Xcode 26.3
-#         if: runner.os == 'macOS'
-#         run: |
-#           sudo xcode-select --switch /Applications/Xcode_26.3.app/Contents/Developer
-#           xcodebuild -version
+      - name: Select Xcode 26.3
+        if: runner.os == 'macOS'
+        run: |
+          sudo xcode-select --switch /Applications/Xcode_26.3.app/Contents/Developer
+          xcodebuild -version
 
-#       - name: Setup Rust
-#         uses: dtolnay/rust-toolchain@stable
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
 
-#       - name: Cache Rust dependencies
-#         uses: Swatinem/rust-cache@v2
-#         with:
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
           # See the release quality job: cached target artifacts can retain a
           # link search path to a missing Sherpa native-library directory.
-#           cache-targets: false
+          cache-targets: false
 
-#       - name: Build release binaries once
-#         run: cargo build --release --locked -p capture-cli -p rimv
+      - name: Build release binaries once
+        run: cargo build --release --locked -p capture-cli -p rimv
 
-#       - name: Stage and archive distributions
-#         shell: bash
-#         env:
-#           RELEASE_TAG: ${{ needs.validate.outputs.tag }}
-#         run: |
-#           set -euo pipefail
-#           for kind in capture transcribe server; do
-#             staged="$(RIMV_STAGE_SKIP_BUILD=1 scripts/stage-distribution.sh "$kind")"
-#             test -d "$staged"
-#             archive="$(scripts/archive-distribution.sh "$kind" "$staged")"
-#             test -s "$archive"
-#             test -s "$archive.contents.txt"
-#           done
+      - name: Stage and archive distributions
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ needs.validate.outputs.tag }}
+        run: |
+          set -euo pipefail
+          for kind in capture transcribe server; do
+            staged="$(RIMV_STAGE_SKIP_BUILD=1 scripts/stage-distribution.sh "$kind")"
+            test -d "$staged"
+            archive="$(scripts/archive-distribution.sh "$kind" "$staged")"
+            test -s "$archive"
+            test -s "$archive.contents.txt"
+          done
 
-#       - name: Upload package artifacts
-#         uses: actions/upload-artifact@v6
-#         with:
-#           name: rimv-${{ matrix.artifact }}-packages
-#           path: target/release-artifacts
-#           if-no-files-found: error
+      - name: Upload package artifacts
+        uses: actions/upload-artifact@v6
+        with:
+          name: rimv-${{ matrix.artifact }}-packages
+          path: target/release-artifacts
+          if-no-files-found: error
 
   windows-desktop:
     name: Package Windows desktop installer
+    needs:
+      - validate
+      - quality
     runs-on: windows-latest
 
     steps:
@@ -220,6 +222,10 @@ jobs:
             throw
           }
 
+      - name: Prepare Windows runtime DLLs
+        shell: pwsh
+        run: ./scripts/windows/prepare-windows-runtime.ps1
+
       - name: Build Windows desktop installer
         shell: pwsh
         env:
@@ -228,8 +234,6 @@ jobs:
           SIGNING_CERTIFICATE_PATH: ${{ steps.windows-signing.outputs.certificate_path }}
         run: |
           $ErrorActionPreference = 'Stop'
-          & (Join-Path $env:GITHUB_WORKSPACE 'scripts/windows/prepare-windows-runtime.ps1')
-          if ($LASTEXITCODE -ne 0) { throw 'Failed to prepare Windows runtime DLLs.' }
           Push-Location apps/windows
           try {
             if ($env:SIGNING_ENABLED -eq 'true') {
@@ -278,67 +282,67 @@ jobs:
           path: target/release-artifacts/*.exe
           if-no-files-found: error
 
-#   checksums:
-#     name: SHA256SUMS
-#     needs:
-#       - validate
-#       - package
-#       - windows-desktop
-#     runs-on: ubuntu-latest
+  checksums:
+    name: SHA256SUMS
+    needs:
+      - validate
+      - package
+      - windows-desktop
+    runs-on: ubuntu-latest
 
-#     steps:
-#       - name: Download package artifacts
-#         uses: actions/download-artifact@v6
-#         with:
-#           path: target/release-artifacts
-#           merge-multiple: true
+    steps:
+      - name: Download package artifacts
+        uses: actions/download-artifact@v6
+        with:
+          path: target/release-artifacts
+          merge-multiple: true
 
-#       - name: Generate SHA256SUMS
-#         shell: bash
-#         run: |
-#           set -euo pipefail
-#           cd target/release-artifacts
-#           find . -maxdepth 1 -type f \( -name '*.tar.gz' -o -name '*.zip' -o -name '*.exe' \) -print0 \
-#             | sort -z \
-#             | xargs -0 shasum -a 256 > SHA256SUMS
-#           test -s SHA256SUMS
-#           cat SHA256SUMS
+      - name: Generate SHA256SUMS
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd target/release-artifacts
+          find . -maxdepth 1 -type f \( -name '*.tar.gz' -o -name '*.zip' -o -name '*.exe' \) -print0 \
+            | sort -z \
+            | xargs -0 shasum -a 256 > SHA256SUMS
+          test -s SHA256SUMS
+          cat SHA256SUMS
 
-#       - name: Upload checksum artifact
-#         uses: actions/upload-artifact@v6
-#         with:
-#           name: SHA256SUMS
-#           path: target/release-artifacts/SHA256SUMS
-#           if-no-files-found: error
+      - name: Upload checksum artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: SHA256SUMS
+          path: target/release-artifacts/SHA256SUMS
+          if-no-files-found: error
 
-#   publish:
-#     name: Publish GitHub Release
-#     needs:
-#       - validate
-#       - checksums
-#     if: needs.validate.outputs.publish == 'true'
-#     runs-on: ubuntu-latest
-#     permissions:
-#       contents: write
+  publish:
+    name: Publish GitHub Release
+    needs:
+      - validate
+      - checksums
+    if: needs.validate.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
-#     steps:
-#       - name: Checkout
-#         uses: actions/checkout@v5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
 
-#       - name: Download release artifacts
-#         uses: actions/download-artifact@v6
-#         with:
-#           path: target/release-artifacts
-#           merge-multiple: true
+      - name: Download release artifacts
+        uses: actions/download-artifact@v6
+        with:
+          path: target/release-artifacts
+          merge-multiple: true
 
-#       - name: Create GitHub Release
-#         uses: softprops/action-gh-release@v2
-#         with:
-#           tag_name: ${{ needs.validate.outputs.tag }}
-#           name: rimv ${{ needs.validate.outputs.tag }}
-#           body_path: RELEASES.md
-#           files: |
-#             target/release-artifacts/*.tar.gz
-#             target/release-artifacts/*.zip
-#             target/release-artifacts/*.exe
-#             target/release-artifacts/SHA256SUMS
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.validate.outputs.tag }}
+          name: rimv ${{ needs.validate.outputs.tag }}
+          body_path: RELEASES.md
+          files: |
+            target/release-artifacts/*.tar.gz
+            target/release-artifacts/*.zip
+            target/release-artifacts/*.exe
+            target/release-artifacts/SHA256SUMS
