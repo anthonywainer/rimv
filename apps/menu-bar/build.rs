@@ -18,7 +18,12 @@ fn main() {
         _ => panic!("unsupported macOS architecture"),
     };
     let out = PathBuf::from(env::var_os("OUT_DIR").unwrap());
-    for source in ["native/menu.m", "native/model_manager.m", "native/transcription_window.m", "native/recordings_selector.m"] {
+    for source in [
+        "native/menu.m",
+        "native/model_manager.m",
+        "native/transcription_window.m",
+        "native/recordings_selector.m",
+    ] {
         let object = out.join(format!(
             "{}.o",
             PathBuf::from(source).file_stem().unwrap().to_string_lossy()
