@@ -5,7 +5,8 @@ static BOOL MMIsDark(NSAppearance *appearance) {
         isEqualToString:NSAppearanceNameDarkAqua];
 }
 
-@interface RimvModelManager : NSObject <NSWindowDelegate>
+extern void rimv_menu_selector_did_close(NSInteger);
+@interface RimvModelManager : NSObject <NSWindowDelegate, NSPopoverDelegate>
 @property(nonatomic, copy) NSArray<NSDictionary *> *models;
 @property(nonatomic, copy) NSString *storagePath;
 @property(nonatomic) RimvModelCommandCallback command;
@@ -50,10 +51,10 @@ static BOOL MMIsDark(NSAppearance *appearance) {
     if ([alert runModal] == NSAlertFirstButtonReturn) [self send:sender.tag];
 }
 - (void)showSelector:(NSView *)anchor {
-    // A transient popover can still be closing when the status-item menu is
-    // reopened. Close it explicitly before replacing its controller; this
-    // avoids leaving an orphaned transient window that steals the next click.
-    if (self.selector.shown) [self.selector performClose:nil];
+    // Selector transitions are serialized by RimvMenu. Never replace a
+    // visible selector; doing so detaches the old delegate from the close
+    // lifecycle and can leave the coordinator waiting on the wrong window.
+    if (self.selector.shown) return;
     NSView *view = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 330, 0)];
     NSArray *installed = [self.models filteredArrayUsingPredicate:[NSPredicate predicateWithBlock:^BOOL(NSDictionary *m, NSDictionary *b) { (void)b; return [m[@"state"] isEqual:@"installed"]; }]];
     CGFloat height = installed.count ? MIN(330, 74 + installed.count * 46 + 42) : 166;
@@ -77,10 +78,14 @@ static BOOL MMIsDark(NSAppearance *appearance) {
         NSButton *manage = [NSButton buttonWithTitle:@"Manage Models…" target:self action:@selector(openManager:)]; manage.frame = NSMakeRect(14, 4, 160, 28); manage.bordered = NO; manage.alignment = NSTextAlignmentLeft; [view addSubview:manage];
     }
     NSViewController *controller = [[NSViewController alloc] init]; controller.view = view;
-    self.selector = [[NSPopover alloc] init]; self.selector.behavior = NSPopoverBehaviorTransient; self.selector.contentSize = view.bounds.size; self.selector.contentViewController = controller;
+    self.selector = [[NSPopover alloc] init]; self.selector.delegate=self; self.selector.behavior = NSPopoverBehaviorApplicationDefined; self.selector.contentSize = view.bounds.size; self.selector.contentViewController = controller;
     [self.selector showRelativeToRect:anchor.bounds ofView:anchor preferredEdge:NSRectEdgeMaxX];
 }
 - (void)selectAndClose:(NSButton *)sender { [self send:sender.tag]; [self.selector performClose:nil]; }
+- (void)popoverDidClose:(NSNotification *)notification {
+    if (notification.object != self.selector) return;
+    rimv_menu_selector_did_close(2);
+}
 - (void)openManager:(id)sender { (void)sender; [self.selector performClose:nil]; [self showWindow]; }
 - (void)switchTab:(NSButton *)sender { self.tab = sender.identifier; [self render]; }
 - (void)showWindow {
@@ -135,3 +140,6 @@ void rimv_model_manager_show_selector(NSView *anchor) {
     if (!manager || !anchor) return;
     [manager showSelector:anchor];
 }
+bool rimv_model_manager_selector_contains_window(NSWindow *window) { return manager.selector.shown && manager.selector.contentViewController.view.window == window; }
+bool rimv_model_manager_selector_is_shown(void) { return manager.selector.shown; }
+void rimv_model_manager_close_selector(void) { [manager.selector performClose:nil]; }

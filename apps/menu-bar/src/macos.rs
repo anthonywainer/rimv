@@ -34,6 +34,10 @@ unsafe extern "C" {
         command: extern "C" fn(u32, u8),
     );
     fn rimv_model_manager_update(catalog_json: *const c_char);
+    fn rimv_transcription_window_configure(command: extern "C" fn(u32, u8));
+    fn rimv_transcription_window_snapshot(snapshot_json: *const c_char);
+    fn rimv_transcription_window_update(update_json: *const c_char);
+    fn rimv_recordings_selector_update(json: *const c_char);
 }
 
 enum Action {
@@ -46,6 +50,7 @@ enum Action {
 static COMMANDS: OnceLock<SyncSender<Action>> = OnceLock::new();
 static MODELS: OnceLock<ModelManager> = OnceLock::new();
 static SETTINGS_ROOT: OnceLock<PathBuf> = OnceLock::new();
+static RECORDINGS_ROOT: OnceLock<PathBuf> = OnceLock::new();
 static QUIT_REQUESTED: AtomicBool = AtomicBool::new(false);
 static SELECTED_MODEL: OnceLock<Mutex<String>> = OnceLock::new();
 static DOWNLOADING: OnceLock<Mutex<std::collections::HashSet<String>>> = OnceLock::new();
@@ -301,7 +306,7 @@ fn selected_language_for_model(saved: Option<String>, model: Option<&ModelDescri
 
 fn update_selector_state(model: Option<&ModelDescriptor>) {
     let state = serde_json::json!({
-        "model": model.map(|model| model.display_name.as_str()).unwrap_or("Model required"),
+        "model": model.map(|model| model.display_name.as_str()).unwrap_or("No model"),
         "languages": model.map(|model| &model.languages).cloned().unwrap_or_default(),
         "auto_detect": model.is_some_and(|model| model.capabilities.supports_language_detection),
     });
@@ -328,6 +333,26 @@ fn update(snapshot: &engine_runtime::EngineSnapshot) {
     {
         // Only serialized control state crosses this boundary, never audio data.
         unsafe { rimv_menu_update(text.as_ptr()) };
+        unsafe { rimv_transcription_window_snapshot(text.as_ptr()) };
+    }
+    publish_recordings(snapshot);
+}
+
+fn publish_recordings(snapshot: &engine_runtime::EngineSnapshot) {
+    let Some(root) = RECORDINGS_ROOT.get() else { return; };
+    let mut items = Vec::new();
+    if let Some(session) = &snapshot.session
+        && matches!(snapshot.status, engine_runtime::EngineStatus::Recording | engine_runtime::EngineStatus::Starting | engine_runtime::EngineStatus::Stopping)
+    { items.push(serde_json::json!({"state":"recording","name":"Current Recording","detail":format!("● Recording · {:02}:{:02}",snapshot.elapsed_ms/60000,(snapshot.elapsed_ms/1000)%60),"path":session.recording_directory,"root":root})); }
+    if let Ok(entries) = std::fs::read_dir(root) { for entry in entries.flatten() { let path=entry.path(); if path.join("session.json").is_file() { items.push(serde_json::json!({"state":"completed","name":path.file_name().unwrap_or_default().to_string_lossy(),"detail":"Completed","path":path,"root":root})); } } }
+    if let Ok(text)=CString::new(serde_json::to_string(&items).unwrap_or_default()) { unsafe { rimv_recordings_selector_update(text.as_ptr()) }; }
+}
+
+fn update_transcription_window(update: &engine_runtime::TranscriptUpdate) {
+    if let Ok(json) = serde_json::to_string(update)
+        && let Ok(text) = CString::new(json)
+    {
+        unsafe { rimv_transcription_window_update(text.as_ptr()) };
     }
 }
 
@@ -440,6 +465,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         selected_language_for_model(saved_language(&support), selected_model.as_ref());
     config.transcription.language =
         (selected_language != "auto").then_some(selected_language.clone());
+    config.transcription_enabled = selected_model.is_some();
     if let Some(selected) = selected.filter(|path| path.exists()) {
         config.transcription.model_path = Some(selected);
     }
@@ -457,6 +483,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     SETTINGS_ROOT
         .set(support.clone())
         .map_err(|_| "menu settings already initialized")?;
+    RECORDINGS_ROOT.set(directory.clone()).map_err(|_| "recordings root already initialized")?;
     SELECTED_MODEL
         .set(Mutex::new(
             selected_model
@@ -469,6 +496,8 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     let initial = CString::new(serde_json::to_string(&engine.snapshot())?)?;
     // AppKit is created and run on the process main thread.
     unsafe { rimv_menu_create(root.as_ptr(), initial.as_ptr(), command) };
+    unsafe { rimv_transcription_window_configure(command) };
+    update(&engine.snapshot());
     let model_catalog = CString::new("[]")?;
     let model_root = CString::new(models.root().to_string_lossy().as_bytes())?;
     unsafe { rimv_model_manager_configure(model_catalog.as_ptr(), model_root.as_ptr(), command) };
@@ -610,9 +639,11 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
                 match events.recv() {
                     Ok(EngineEvent::Snapshot { snapshot }) => update(&snapshot),
                     Ok(EngineEvent::Error { error }) => show_error(&error.to_string()),
-                    Ok(EngineEvent::TranscriptPartial { .. })
-                    | Ok(EngineEvent::TranscriptFinal { .. })
-                    | Ok(EngineEvent::TranscriptUpdate { .. }) => {}
+                    Ok(EngineEvent::TranscriptUpdate { update }) => update_transcription_window(&update),
+                    // TranscriptUpdate is the authoritative stable/unstable
+                    // representation. Do not append the legacy partial/final
+                    // events here, or the live window could duplicate text.
+                    Ok(EngineEvent::TranscriptPartial { .. }) | Ok(EngineEvent::TranscriptFinal { .. }) => {}
                     Ok(EngineEvent::TranscriptionError { error }) => show_error(&error.to_string()),
                     Err(SubscriptionError::Lagged { .. }) => update(&listener_engine.snapshot()),
                     Err(SubscriptionError::Closed) => break,

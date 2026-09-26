@@ -4,6 +4,10 @@ fn main() {
     println!("cargo:rerun-if-changed=native/menu.m");
     println!("cargo:rerun-if-changed=native/model_manager.m");
     println!("cargo:rerun-if-changed=native/model_manager.h");
+    println!("cargo:rerun-if-changed=native/transcription_window.m");
+    println!("cargo:rerun-if-changed=native/transcription_window.h");
+    println!("cargo:rerun-if-changed=native/recordings_selector.m");
+    println!("cargo:rerun-if-changed=native/recordings_selector.h");
     println!("cargo:rerun-if-changed=Info.plist");
     if env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("macos") {
         return;
@@ -14,7 +18,7 @@ fn main() {
         _ => panic!("unsupported macOS architecture"),
     };
     let out = PathBuf::from(env::var_os("OUT_DIR").unwrap());
-    for source in ["native/menu.m", "native/model_manager.m"] {
+    for source in ["native/menu.m", "native/model_manager.m", "native/transcription_window.m", "native/recordings_selector.m"] {
         let object = out.join(format!(
             "{}.o",
             PathBuf::from(source).file_stem().unwrap().to_string_lossy()
@@ -44,4 +48,5 @@ fn main() {
     }
     println!("cargo:rustc-link-lib=framework=AppKit");
     println!("cargo:rustc-link-lib=framework=Foundation");
+    println!("cargo:rustc-link-lib=framework=AVFoundation");
 }

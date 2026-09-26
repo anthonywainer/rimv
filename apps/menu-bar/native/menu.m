@@ -1,6 +1,8 @@
 #import <AppKit/AppKit.h>
 #import <signal.h>
 #import "model_manager.h"
+#import "transcription_window.h"
+#import "recordings_selector.h"
 
 typedef void (*CommandCallback)(uint32_t, uint8_t);
 
@@ -94,7 +96,6 @@ static BOOL RimvIsDark(NSAppearance *appearance) {
 @property(nonatomic, copy) NSString *selectedLanguage;
 @property(nonatomic, copy) NSArray<NSString *> *supportedLanguages;
 @property(nonatomic) BOOL supportsLanguageDetection;
-@property(nonatomic) BOOL languageMenuOpen;
 @property(nonatomic, strong) NSPopover *languagePopover;
 @property(nonatomic, strong) RimvLanguageSelectorView *languagePopoverView;
 @property(nonatomic, strong) NSSearchField *languageSearch;
@@ -113,10 +114,18 @@ static BOOL RimvIsDark(NSAppearance *appearance) {
 @property(nonatomic, copy) NSString *displayedError;
 @property(nonatomic) BOOL quitting;
 @property(nonatomic) BOOL systemTermination;
+@property(nonatomic) NSInteger pendingSelector;
+@property(nonatomic) NSInteger activeSelector;
+@property(nonatomic) NSUInteger interactionGeneration;
 @property(nonatomic, strong) dispatch_source_t interruptSignal;
 @property(nonatomic, strong) dispatch_source_t terminateSignal;
 - (void)applySnapshot:(NSDictionary *)snapshot;
 - (void)showError:(NSString *)message;
+- (void)requestSelector:(NSInteger)selector;
+- (void)openPendingSelector;
+- (void)selectorDidClose:(NSInteger)selector;
+- (void)dismissSelectorsForReason:(NSString *)reason;
+- (void)logSelectorEvent:(NSString *)event selector:(NSInteger)selector reason:(NSString *)reason;
 @end
 
 static RimvMenu *menu;
@@ -124,6 +133,15 @@ static NSLock *mailboxLock;
 static NSDictionary *pendingSnapshot;
 static NSString *pendingError;
 static BOOL updateScheduled;
+void rimv_menu_selector_did_close(NSInteger selector) {
+    dispatch_async(dispatch_get_main_queue(), ^{ [menu selectorDidClose:selector]; });
+}
+
+static void RimvSelectorUncaughtException(NSException *exception) {
+    if (![NSProcessInfo.processInfo.environment[@"RIMV_SELECTOR_DIAGNOSTICS"] boolValue]) return;
+    NSLog(@"[RimV selectors] uncaught Objective-C exception=%@ backtrace=%@",
+          exception, exception.callStackSymbols);
+}
 
 // Coalesce updates into one main-thread task. A blocked/open menu cannot cause
 // an unbounded backlog of snapshots or errors. All audio stays inside Rust.
@@ -279,7 +297,10 @@ static NSString *elapsed(uint64_t milliseconds) {
     NSViewController *controller = [[NSViewController alloc] init];
     controller.view = self.popoverView;
     self.popover = [[NSPopover alloc] init];
-    self.popover.behavior = NSPopoverBehaviorTransient;
+    // Child selectors are separate AppKit windows. A transient parent treats
+    // a click in those windows as an outside click and closes mid-switch.
+    // Outside dismissal is handled explicitly by the scoped event monitors.
+    self.popover.behavior = NSPopoverBehaviorApplicationDefined;
     self.popover.delegate = self;
     self.popover.contentSize = self.popoverView.bounds.size;
     self.popover.contentViewController = controller;
@@ -294,10 +315,16 @@ static NSString *elapsed(uint64_t milliseconds) {
         RimvMenu *strongSelf = weakSelf;
         if (!strongSelf.popover.shown) return event;
         if (event.keyCode == 53) {
-            if (strongSelf.languagePopover.shown) {
-                [strongSelf.languagePopover performClose:nil];
+            strongSelf.pendingSelector = 0;
+            NSInteger visible = [strongSelf visibleSelector];
+            if (visible != 0) {
+                [strongSelf logSelectorEvent:@"escape-close-child" selector:visible reason:@"Escape key"];
+                if (visible == 1) [strongSelf.languagePopover performClose:nil];
+                else if (visible == 2) rimv_model_manager_close_selector();
+                else rimv_recordings_selector_close();
                 return nil;
             }
+            [strongSelf logSelectorEvent:@"escape-close-parent" selector:0 reason:@"Escape key"];
             [strongSelf.popover performClose:nil];
             return nil;
         }
@@ -310,20 +337,52 @@ static NSString *elapsed(uint64_t milliseconds) {
         else return event;
         return nil;
     }];
-    self.globalClickMonitor = [NSEvent addGlobalMonitorForEventsMatchingMask:(NSEventMaskLeftMouseDown | NSEventMaskRightMouseDown)
-                                                                       handler:^(__unused NSEvent *event) {
+    self.globalClickMonitor = [NSEvent addGlobalMonitorForEventsMatchingMask:(NSEventMaskLeftMouseDown | NSEventMaskRightMouseDown) handler:^(__unused NSEvent *event) {
+        RimvMenu *strongSelf = weakSelf;
+        if (!strongSelf) return;
+        NSUInteger observedGeneration = strongSelf.interactionGeneration;
         dispatch_async(dispatch_get_main_queue(), ^{
-            [weakSelf.languagePopover performClose:nil];
-            [weakSelf.popover performClose:nil];
+            // A status-item click can reopen RimV before this queued global
+            // monitor callback runs. Do not let an old outside click dismiss
+            // that newer presentation.
+            if (strongSelf.interactionGeneration != observedGeneration) {
+                [strongSelf logSelectorEvent:@"ignore-stale-global-click" selector:0 reason:@"a newer local interaction occurred"];
+                return;
+            }
+            [strongSelf dismissSelectorsForReason:@"global outside click"];
         });
     }];
     self.localClickMonitor = [NSEvent addLocalMonitorForEventsMatchingMask:(NSEventMaskLeftMouseDown | NSEventMaskRightMouseDown)
                                                                       handler:^NSEvent *(NSEvent *event) {
         RimvMenu *strongSelf = weakSelf;
+        if (!strongSelf) return event;
+        strongSelf.interactionGeneration += 1;
         NSWindow *popoverWindow = strongSelf.popover.contentViewController.view.window;
         NSWindow *languageWindow = strongSelf.languagePopover.contentViewController.view.window;
-        if (strongSelf.languagePopover.shown && event.window != languageWindow) [strongSelf.languagePopover performClose:nil];
-        if (strongSelf.popover.shown && event.window != popoverWindow && event.window != languageWindow) [strongSelf.popover performClose:nil];
+        NSWindow *statusWindow = strongSelf.statusItem.button.window;
+        if (event.window && event.window == statusWindow) return event;
+        // The language selector is a separate AppKit window, just like the
+        // Model and Recordings selectors. Treat its controls as inside clicks
+        // or the outside-click monitor closes both popovers before the action
+        // can complete.
+        if (strongSelf.languagePopover.shown && event.window == languageWindow) {
+            [strongSelf logSelectorEvent:@"internal-click" selector:1 reason:@"Language selector window"];
+            return event;
+        }
+        if (rimv_recordings_selector_contains_window(event.window)) {
+            [strongSelf logSelectorEvent:@"internal-click" selector:3 reason:@"Recordings selector window"];
+            return event;
+        }
+        if (rimv_model_manager_selector_contains_window(event.window)) {
+            [strongSelf logSelectorEvent:@"internal-click" selector:2 reason:@"Model selector window"];
+            return event;
+        }
+        if (event.window == popoverWindow) {
+            [strongSelf logSelectorEvent:@"parent-click" selector:strongSelf.activeSelector reason:@"main popover window"];
+            return event;
+        }
+        [strongSelf logSelectorEvent:@"local-outside-click" selector:strongSelf.activeSelector reason:[NSString stringWithFormat:@"window=%p", event.window]];
+        [strongSelf dismissSelectorsForReason:@"local outside click"];
         return event;
     }];
 
@@ -372,6 +431,7 @@ static NSString *elapsed(uint64_t milliseconds) {
     NSImageView *languageChevron;
     self.language = [self selectorRow:@"Language" symbol:@"globe" action:@selector(showLanguages:) frame:NSMakeRect(30, 319, 344, 36) value:&languageValue icon:&languageIcon chevron:&languageChevron];
     self.languageValue = languageValue;
+    self.languageValue.stringValue = @"Auto Detect";
     self.languageIcon = languageIcon;
     self.languageChevron = languageChevron;
     NSTextField *modelValue;
@@ -379,16 +439,15 @@ static NSString *elapsed(uint64_t milliseconds) {
     NSImageView *modelChevron;
     self.model = [self selectorRow:@"Model" symbol:@"cpu" action:@selector(showModels:) frame:NSMakeRect(30, 363, 344, 36) value:&modelValue icon:&modelIcon chevron:&modelChevron];
     self.modelValue = modelValue;
+    self.modelValue.stringValue = @"No model";
     self.modelIcon = modelIcon;
     self.modelChevron = modelChevron;
     [self separatorAt:412];
     self.errorItem = [self row:@"Show Capture Error…" symbol:@"exclamationmark.triangle" action:@selector(errorDetails:) frame:NSMakeRect(30, 428, 344, 28)];
     self.errorItem.hidden = YES;
     self.drops = [self label:@"" frame:NSZeroRect size:12 weight:NSFontWeightRegular];
-    self.recordings = [self row:@"Open Recordings" symbol:@"folder" action:@selector(openRecordings:) frame:NSMakeRect(30, 428, 344, 28)];
+    self.recordings = [self row:@"Recordings" symbol:@"waveform" action:@selector(showRecordings:) frame:NSMakeRect(30, 428, 344, 28)];
     self.recordings.image.template = YES;
-    NSButton *preferences = [self row:@"Preferences" symbol:@"gearshape" action:NULL frame:NSMakeRect(30, 464, 344, 28)];
-    preferences.enabled = NO;
     [self separatorAt:500];
     NSButton *quit = [self row:@"Quit RimV                                             ⌘Q" symbol:@"power" action:@selector(quit:) frame:NSMakeRect(30, 510, 344, 28)];
     quit.font = [NSFont systemFontOfSize:14 weight:NSFontWeightRegular];
@@ -539,9 +598,12 @@ static NSString *elapsed(uint64_t milliseconds) {
 }
 - (void)togglePopover:(id)sender {
     (void)sender;
+    self.interactionGeneration += 1;
     if (self.popover.shown) {
+        [self logSelectorEvent:@"toggle-close-parent" selector:0 reason:@"status item clicked"];
         [self.popover performClose:nil];
     } else {
+        [self logSelectorEvent:@"toggle-open-parent" selector:0 reason:@"status item clicked"];
         [self.popover showRelativeToRect:self.statusItem.button.bounds
                                   ofView:self.statusItem.button
                            preferredEdge:NSRectEdgeMinY];
@@ -549,7 +611,8 @@ static NSString *elapsed(uint64_t milliseconds) {
 }
 - (void)applicationDidResignActive:(NSNotification *)notification {
     (void)notification;
-    [self.popover performClose:nil];
+    // A child NSPopover may briefly become key while its parent remains the
+    // active menu-bar UI. Global click monitoring owns real outside dismissal.
 }
 - (BOOL)popoverShouldDetach:(NSPopover *)popover {
     (void)popover;
@@ -671,7 +734,7 @@ static NSString *elapsed(uint64_t milliseconds) {
     NSViewController *controller = [[NSViewController alloc] init];
     controller.view = self.languagePopoverView;
     self.languagePopover = [[NSPopover alloc] init];
-    self.languagePopover.behavior = NSPopoverBehaviorTransient;
+    self.languagePopover.behavior = NSPopoverBehaviorApplicationDefined;
     self.languagePopover.delegate = self;
     self.languagePopover.contentSize = self.languagePopoverView.bounds.size;
     self.languagePopover.contentViewController = controller;
@@ -818,11 +881,120 @@ static NSString *elapsed(uint64_t milliseconds) {
 - (void)showLanguages:(id)sender {
     (void)sender;
     if (!self.language.enabled) return;
-    [self buildLanguagePopover];
-    self.languageSearch.stringValue = @"";
-    [self reloadLanguageOptions];
-    [self.languagePopover showRelativeToRect:self.language.bounds ofView:self.language preferredEdge:NSRectEdgeMaxX];
-    [self.languagePopover.contentViewController.view.window makeFirstResponder:self.languageSearch];
+    [self requestSelector:1];
+}
+- (NSString *)selectorName:(NSInteger)selector {
+    switch (selector) {
+        case 1: return @"Language";
+        case 2: return @"Model";
+        case 3: return @"Recordings";
+        default: return @"none";
+    }
+}
+- (BOOL)selectorIsShown:(NSInteger)selector {
+    switch (selector) {
+        case 1: return self.languagePopover.shown;
+        case 2: return rimv_model_manager_selector_is_shown();
+        case 3: return rimv_recordings_selector_is_shown();
+        default: return NO;
+    }
+}
+- (NSInteger)visibleSelector {
+    if (self.languagePopover.shown) return 1;
+    if (rimv_model_manager_selector_is_shown()) return 2;
+    if (rimv_recordings_selector_is_shown()) return 3;
+    return 0;
+}
+- (void)logSelectorEvent:(NSString *)event selector:(NSInteger)selector reason:(NSString *)reason {
+    if (![NSProcessInfo.processInfo.environment[@"RIMV_SELECTOR_DIAGNOSTICS"] boolValue]) return;
+    NSLog(@"[RimV selectors] time=%@ event=%@ selector=%@ active=%@ pending=%@ visible={language:%@ model:%@ recordings:%@ parent:%@} generation=%lu reason=%@",
+          NSDate.date, event, [self selectorName:selector], [self selectorName:self.activeSelector],
+          [self selectorName:self.pendingSelector], self.languagePopover.shown ? @"yes" : @"no",
+          rimv_model_manager_selector_is_shown() ? @"yes" : @"no",
+          rimv_recordings_selector_is_shown() ? @"yes" : @"no",
+          self.popover.shown ? @"yes" : @"no", (unsigned long)self.interactionGeneration, reason);
+}
+- (void)closeSelector:(NSInteger)selector reason:(NSString *)reason {
+    [self logSelectorEvent:@"close-selector" selector:selector reason:reason];
+    if (selector == 1) [self.languagePopover performClose:nil];
+    else if (selector == 2) rimv_model_manager_close_selector();
+    else if (selector == 3) rimv_recordings_selector_close();
+}
+- (void)dismissSelectorsForReason:(NSString *)reason {
+    self.interactionGeneration += 1;
+    self.pendingSelector = 0;
+    self.activeSelector = 0;
+    [self logSelectorEvent:@"dismiss-all" selector:0 reason:reason];
+    if (self.languagePopover.shown) [self.languagePopover performClose:nil];
+    if (rimv_model_manager_selector_is_shown()) rimv_model_manager_close_selector();
+    if (rimv_recordings_selector_is_shown()) rimv_recordings_selector_close();
+    if (self.popover.shown) [self.popover performClose:nil];
+}
+- (void)requestSelector:(NSInteger)selector {
+    if (selector < 1 || selector > 3) return;
+    self.interactionGeneration += 1;
+    NSInteger visible = [self visibleSelector];
+    if (visible == selector) {
+        self.pendingSelector = 0;
+        self.activeSelector = selector;
+        [self closeSelector:selector reason:@"same selector toggled"];
+        return;
+    }
+    self.pendingSelector = selector;
+    [self logSelectorEvent:@"request-selector" selector:selector reason:@"selector row clicked"];
+    if (visible != 0) {
+        self.activeSelector = visible;
+        [self closeSelector:visible reason:[NSString stringWithFormat:@"switch to %@", [self selectorName:selector]]];
+        return;
+    }
+    [self openPendingSelector];
+}
+- (void)openPendingSelector {
+    if (!self.popover.shown) {
+        if (self.pendingSelector != 0) [self logSelectorEvent:@"cancel-pending" selector:self.pendingSelector reason:@"parent popover is closed"];
+        self.pendingSelector = 0;
+        self.activeSelector = 0;
+        return;
+    }
+    NSInteger visible = [self visibleSelector];
+    if (visible != 0) {
+        self.activeSelector = visible;
+        if (visible != self.pendingSelector && self.pendingSelector != 0) {
+            [self logSelectorEvent:@"wait-for-visible-selector" selector:self.pendingSelector reason:[NSString stringWithFormat:@"%@ has not finished closing", [self selectorName:visible]]];
+        }
+        return;
+    }
+    NSInteger selector = self.pendingSelector;
+    if (selector == 0) { self.activeSelector = 0; return; }
+    self.pendingSelector = 0;
+    self.activeSelector = selector;
+    [self logSelectorEvent:@"open-selector" selector:selector reason:@"no child selector is visible"];
+    if (selector == 1) {
+        [self buildLanguagePopover]; self.languageSearch.stringValue=@""; [self reloadLanguageOptions];
+        [self.languagePopover showRelativeToRect:self.language.bounds ofView:self.language preferredEdge:NSRectEdgeMaxX];
+        [self.languagePopover.contentViewController.view.window makeFirstResponder:self.languageSearch];
+    } else if (selector == 2) rimv_model_manager_show_selector(self.model);
+    else if (selector == 3) rimv_recordings_selector_show(self.recordings);
+    if (![self selectorIsShown:selector]) {
+        self.activeSelector = 0;
+        [self logSelectorEvent:@"open-failed" selector:selector reason:@"AppKit did not present the child popover"];
+    }
+}
+- (void)selectorDidClose:(NSInteger)selector {
+    BOOL isShown = [self selectorIsShown:selector];
+    [self logSelectorEvent:(isShown ? @"ignore-close-still-visible" : @"selector-did-close") selector:selector reason:@"popover delegate callback"];
+    // A queued callback from an earlier presentation must not clear a newly
+    // reopened instance of that selector.
+    if (isShown) { self.activeSelector = selector; return; }
+    if (self.activeSelector == selector) self.activeSelector = 0;
+    [self openPendingSelector];
+}
+- (void)popoverDidClose:(NSNotification *)notification {
+    if (notification.object == self.languagePopover) {
+        rimv_menu_selector_did_close(1);
+    } else if (notification.object == self.popover) {
+        [self dismissSelectorsForReason:@"parent popover closed"];
+    }
 }
 - (void)controlTextDidChange:(NSNotification *)notification {
     if (notification.object == self.languageSearch) [self reloadLanguageOptions];
@@ -862,6 +1034,8 @@ static NSString *elapsed(uint64_t milliseconds) {
     (void)sender;
     [NSWorkspace.sharedWorkspace openURL:[NSURL fileURLWithPath:self.root isDirectory:YES]];
 }
+- (void)openLiveView:(id)sender { (void)sender; rimv_transcription_window_open(); }
+- (void)showRecordings:(id)sender { (void)sender; [self requestSelector:3]; }
 - (void)showAbout:(id)sender {
     (void)sender;
     [NSApp orderFrontStandardAboutPanel:nil];
@@ -869,7 +1043,7 @@ static NSString *elapsed(uint64_t milliseconds) {
 }
 - (void)showModels:(id)sender {
     (void)sender;
-    rimv_model_manager_show_selector(self.model);
+    [self requestSelector:2];
 }
 - (void)openPermissions:(id)sender {
     (void)sender;
@@ -887,9 +1061,14 @@ static NSString *elapsed(uint64_t milliseconds) {
 }
 - (NSApplicationTerminateReply)applicationShouldTerminate:(NSApplication *)sender {
     (void)sender;
+    [self logSelectorEvent:@"application-termination-requested" selector:0 reason:@"AppKit requested termination"];
     self.systemTermination = YES;
     [self quit:nil];
     return NSTerminateLater;
+}
+- (void)applicationWillTerminate:(NSNotification *)notification {
+    (void)notification;
+    [self logSelectorEvent:@"application-will-terminate" selector:0 reason:@"AppKit termination callback"];
 }
 @end
 
@@ -897,6 +1076,9 @@ void rimv_menu_create(const char *root, const char *snapshot, CommandCallback co
     @autoreleasepool {
         [NSApplication sharedApplication];
         [NSApp setActivationPolicy:NSApplicationActivationPolicyAccessory];
+        if ([NSProcessInfo.processInfo.environment[@"RIMV_SELECTOR_DIAGNOSTICS"] boolValue]) {
+            NSSetUncaughtExceptionHandler(RimvSelectorUncaughtException);
+        }
         mailboxLock = [[NSLock alloc] init];
         menu = [[RimvMenu alloc] init];
         menu.command = command;
@@ -951,17 +1133,19 @@ void rimv_menu_set_model_summary(const char *summary) {
 
 void rimv_menu_set_language(const char *language) {
     NSString *selected = [NSString stringWithUTF8String:language];
-    dispatch_async(dispatch_get_main_queue(), ^{
+    void (^update)(void) = ^{
         menu.selectedLanguage = selected ?: @"auto";
         [menu updateLanguageTitle];
-    });
+    };
+    if (NSThread.isMainThread) update();
+    else dispatch_async(dispatch_get_main_queue(), update);
 }
 
 void rimv_menu_set_selector_state(const char *state) {
     NSData *data = [[NSString stringWithUTF8String:state] dataUsingEncoding:NSUTF8StringEncoding];
     NSDictionary *selectors = [NSJSONSerialization JSONObjectWithData:data options:0 error:NULL];
     if (![selectors isKindOfClass:NSDictionary.class]) return;
-    dispatch_async(dispatch_get_main_queue(), ^{
+    void (^update)(void) = ^{
         menu.modelValue.stringValue = selectors[@"model"] ?: @"Model required";
         menu.supportedLanguages = selectors[@"languages"] ?: @[];
         menu.supportsLanguageDetection = [selectors[@"auto_detect"] boolValue];
@@ -971,7 +1155,9 @@ void rimv_menu_set_selector_state(const char *state) {
         [menu updateLanguageTitle];
         [menu reloadLanguageOptions];
         [menu applySnapshot:menu.snapshot];
-    });
+    };
+    if (NSThread.isMainThread) update();
+    else dispatch_async(dispatch_get_main_queue(), update);
 }
 
 void rimv_menu_exit(void) {
