@@ -67,7 +67,7 @@ public sealed partial class RecordingsWindow : Window
         OpenButton.IsEnabled = hasSelection;
         RenameButton.IsEnabled = hasSelection;
         DeleteButton.IsEnabled = hasSelection && NativeWindowsPolicy.CanDeleteRecording(_selected!.State);
-        if (_selected?.State == "recording") DeleteButton.ToolTip = "Active recordings cannot be deleted.";
+        if (_selected?.State == "recording") ToolTipService.SetToolTip(DeleteButton, "Active recordings cannot be deleted.");
         else DeleteButton.ClearValue(ToolTipService.ToolTipProperty);
     }
 

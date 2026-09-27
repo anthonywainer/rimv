@@ -23,9 +23,9 @@ public sealed partial class ShellWindow : Window
         _coordinator = coordinator;
         _coordinator.Changed += Coordinator_Changed;
         WindowHandle = WindowNative.GetWindowHandle(this);
-        WindowId id = Microsoft.UI.Win32Interop.GetWindowIdFromWindow(WindowHandle);
+        var id = Microsoft.UI.Win32Interop.GetWindowIdFromWindow(WindowHandle);
         _appWindow = AppWindow.GetFromWindowId(id);
-        _appWindow.Resize(new Windows.Graphics.SizeInt32(420, 640));
+        _appWindow.Resize(new global::Windows.Graphics.SizeInt32(420, 640));
         var presenter = OverlappedPresenter.Create();
         presenter.IsResizable = false;
         presenter.IsMaximizable = false;
@@ -101,7 +101,7 @@ public sealed partial class ShellWindow : Window
             y = work.Bottom - height - 8;
 
         y = Math.Clamp(y, work.Top + 8, Math.Max(work.Top + 8, work.Bottom - height - 8));
-        _appWindow.MoveAndResize(new Windows.Graphics.RectInt32(x, y, width, height));
+        _appWindow.MoveAndResize(new global::Windows.Graphics.RectInt32(x, y, width, height));
     }
 
     private void HidePopup()
@@ -137,8 +137,8 @@ public sealed partial class ShellWindow : Window
         };
         StatusText.Text = _coordinator.IsCoreAvailable ? status : "Shared engine unavailable";
         StatusText.Foreground = state.Status == "recording"
-            ? (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["RimVLiveBrush"]
-            : (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["RimVSecondaryTextBrush"];
+            ? (Microsoft.UI.Xaml.Media.Brush)Microsoft.UI.Xaml.Application.Current.Resources["RimVLiveBrush"]
+            : (Microsoft.UI.Xaml.Media.Brush)Microsoft.UI.Xaml.Application.Current.Resources["RimVSecondaryTextBrush"];
         bool transition = state.Status is "starting" or "stopping";
         ListenButton.IsEnabled = _coordinator.IsCoreAvailable && !transition;
         ListenButton.Content = state.Status is "recording" or "starting" ? "Stop listening" : "Start listening";
