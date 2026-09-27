@@ -72,6 +72,7 @@ public sealed partial class ShellWindow : Window
             PositionNearTaskbar();
             _isVisible = true;
         }
+        _appWindow.Show();
         Activate();
         Render();
     }
