@@ -57,6 +57,7 @@ function Assert-Payload([string] $root, $manifest) {
     foreach ($path in $actualFiles) {
         Assert-Condition $expected.ContainsKey($path) "Unexpected file is present in the production payload: $path"
         Assert-Condition ($path -notmatch '(?i)(^|/)(tests?|fixtures?|mock)s?(/|$)|\.pdb$|testhost|coverlet') "Test-only/debug file found in production payload: $path"
+        Assert-Condition ($path -notmatch '(?i)(^|/)(tauri|node_modules|vite)(/|$)|\.(html|js|css)$') "Legacy HTML/Tauri asset found in native payload: $path"
     }
 
     $appExe = Join-Path $root 'RimV.Windows.exe'
@@ -97,7 +98,12 @@ function Assert-Payload([string] $root, $manifest) {
 }
 
 function Invoke-Installer([string] $path, [string] $arguments, [string] $label) {
-    $process = Start-Process -FilePath $path -ArgumentList $arguments -PassThru -Wait
+    $process = Start-Process -FilePath $path -ArgumentList $arguments -PassThru
+    if (-not $process.WaitForExit(180000)) {
+        $process.Kill($true)
+        $process.WaitForExit(10000) | Out-Null
+        throw "$label did not finish within three minutes."
+    }
     Assert-Condition ($process.ExitCode -eq 0) "$label exited with code $($process.ExitCode)."
 }
 

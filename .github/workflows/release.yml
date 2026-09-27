@@ -7,15 +7,14 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Dry-run release tag to validate, for example v0.1.0-beta'
-        required: false
-        default: 'v0.1.0-beta'
+        description: 'Candidate tag (dry run; does not publish)'
+        required: true
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
-  # Tags and manual dry-run tags are isolated so one release never cancels another.
   group: release-${{ github.workflow }}-${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
   cancel-in-progress: false
 
@@ -25,128 +24,123 @@ env:
 
 jobs:
   validate:
-    name: Validate Release
+    name: Validate release identity and manual evidence
     runs-on: ubuntu-latest
     outputs:
       tag: ${{ steps.version.outputs.tag }}
       version: ${{ steps.version.outputs.version }}
+      commit: ${{ steps.version.outputs.commit }}
       publish: ${{ steps.version.outputs.publish }}
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v5
+      - uses: actions/checkout@v5
 
-      - name: Validate tag and version
+      - name: Validate tag, version and release evidence
         id: version
         shell: bash
+        env:
+          REQUESTED_TAG: ${{ inputs.tag }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
-            tag="${{ inputs.tag }}"
+          if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]]; then
+            tag="$REQUESTED_TAG"
             publish=false
           else
-            tag="${GITHUB_REF_NAME}"
+            tag="$GITHUB_REF_NAME"
             publish=true
           fi
-
-          if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
-            echo "Invalid release tag: $tag" >&2
+          if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-[0-9A-Za-z][0-9A-Za-z.-]*$ ]]; then
+            echo "A new prerelease tag is required: $tag" >&2
             exit 1
           fi
-
-          manifest_version="$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -n 1)"
-          version="${tag#v}"
-          if [[ "$version" != "$manifest_version" ]]; then
-            echo "Tag $tag does not match Cargo workspace version $manifest_version" >&2
+          if [[ "$tag" == v0.1.0-beta || "$tag" == v0.1.0-beta.1 ]]; then
+            echo "Historical release tag $tag cannot be reused." >&2
             exit 1
+          fi
+          version="${tag#v}"
+          manifest_version="$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -n 1)"
+          test "$version" = "$manifest_version" || { echo "Tag and Cargo workspace version differ." >&2; exit 1; }
+          test "$version" = "$(sed -n 's/.*<Version>\([^<]*\)<\/Version>.*/\1/p' apps/windows-native/RimV.Windows.csproj | head -n 1)" || { echo "WinUI version differs from the release tag." >&2; exit 1; }
+          commit="$(git rev-parse HEAD)"
+
+          if [[ "$publish" == true ]]; then
+            evidence="docs/native-windows-validation/$tag.md"
+            test -f "$evidence" || { echo "Manual Windows acceptance evidence is missing: $evidence" >&2; exit 1; }
+            for check in installer tray keyboard_scaling microphone system_audio both_audio recordings_exports shutdown; do
+              grep -qx "$check: PASS" "$evidence" || { echo "Manual acceptance item $check has not passed in $evidence" >&2; exit 1; }
+            done
+            if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+              echo "Release $tag already exists; refusing to modify a historical release." >&2
+              exit 1
+            fi
           fi
 
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "commit=$commit" >> "$GITHUB_OUTPUT"
           echo "publish=$publish" >> "$GITHUB_OUTPUT"
 
-  quality:
-    name: Release quality (Linux x64)
+  prior-validation:
+    name: Require successful CI and native installer run for this commit
     needs: validate
     runs-on: ubuntu-latest
+    outputs:
+      native_run_id: ${{ steps.runs.outputs.native_run_id }}
+      native_run_url: ${{ steps.runs.outputs.native_run_url }}
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v5
-
-      - name: Install Linux audio build dependencies
+      - name: Locate completed main-branch validations
+        id: runs
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COMMIT: ${{ needs.validate.outputs.commit }}
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends libasound2-dev pkg-config
+          set -euo pipefail
+          find_run() {
+            local workflow="$1"
+            gh api "repos/$GITHUB_REPOSITORY/actions/workflows/$workflow/runs?head_sha=$COMMIT&status=success&per_page=100" \
+              | jq -r --arg commit "$COMMIT" '[.workflow_runs[] | select(.head_sha == $commit and .head_branch == "main" and (.event == "push" or .event == "workflow_dispatch"))] | first | .id // empty'
+          }
+          ci_run="$(find_run ci.yml)"
+          native_run="$(find_run windows-native-package.yml)"
+          test -n "$ci_run" || { echo "No successful main-branch CI run exists for $COMMIT." >&2; exit 1; }
+          test -n "$native_run" || { echo "No successful native Windows package and fresh-runner test exists for $COMMIT." >&2; exit 1; }
+          echo "native_run_id=$native_run" >> "$GITHUB_OUTPUT"
+          echo "native_run_url=https://github.com/$GITHUB_REPOSITORY/actions/runs/$native_run" >> "$GITHUB_OUTPUT"
+          echo "CI run: https://github.com/$GITHUB_REPOSITORY/actions/runs/$ci_run" >> "$GITHUB_STEP_SUMMARY"
+          echo "Native package run: https://github.com/$GITHUB_REPOSITORY/actions/runs/$native_run" >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
-
-      - name: Cache Rust dependencies
-        uses: Swatinem/rust-cache@v2
-        with:
-          # Tagged commits receive one full quality gate. Keep native Sherpa
-          # build output out of the cache so its sibling libraries stay in sync.
-          cache-targets: false
-
-      - name: Check formatting
-        run: cargo fmt --all -- --check
-
-      - name: Check workspace
-        run: cargo check --workspace --locked
-
-      - name: Lint workspace
-        run: cargo clippy --workspace --all-targets --locked -- -D warnings
-
-      - name: Test workspace
-        run: cargo test --workspace --locked
-
-  package:
-    name: Package distributions (${{ matrix.name }})
+  macos-package:
+    name: Preserve macOS arm64 release packages
     needs:
       - validate
-      - quality
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name: macOS arm64
-            os: macos-15
-            artifact: macos-arm64
-          - name: Windows x64
-            os: windows-latest
-            artifact: windows-x64
+      - prior-validation
+    runs-on: macos-15
+    timeout-minutes: 150
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v5
+      - uses: actions/checkout@v5
 
       - name: Select Xcode 26.3
-        if: runner.os == 'macOS'
         run: |
           sudo xcode-select --switch /Applications/Xcode_26.3.app/Contents/Developer
           xcodebuild -version
 
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
+      - name: Set up pinned Rust toolchain
+        uses: dtolnay/rust-toolchain@1.98.1
 
-      - name: Cache Rust dependencies
+      - name: Cache Cargo dependencies
         uses: Swatinem/rust-cache@v2
         with:
-          # See the release quality job: cached target artifacts can retain a
-          # link search path to a missing Sherpa native-library directory.
           cache-targets: false
 
-      - name: Build release binaries once
+      - name: Build macOS release binaries once
         run: cargo build --release --locked -p capture-cli -p rimv
 
-      - name: Stage and archive distributions
+      - name: Stage and archive macOS distributions
         shell: bash
-        env:
-          RELEASE_TAG: ${{ needs.validate.outputs.tag }}
         run: |
           set -euo pipefail
           for kind in capture transcribe server; do
@@ -157,192 +151,116 @@ jobs:
             test -s "$archive.contents.txt"
           done
 
-      - name: Upload package artifacts
+      - name: Upload macOS packages
         uses: actions/upload-artifact@v6
         with:
-          name: rimv-${{ matrix.artifact }}-packages
+          name: rimv-macos-arm64-packages
           path: target/release-artifacts
           if-no-files-found: error
 
-  windows-desktop:
-    name: Package Windows desktop installer
+  assemble:
+    name: Verify exact native installer and assemble release assets
     needs:
       - validate
-      - quality
-    runs-on: windows-latest
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v5
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache Rust dependencies
-        uses: Swatinem/rust-cache@v2
-        with:
-          cache-targets: false
-
-      - name: Install Tauri CLI
-        run: cargo install tauri-cli --version 2.11.4 --locked
-
-      - name: Import optional release signing certificate
-        if: github.event_name == 'push'
-        id: windows-signing
-        shell: pwsh
-        env:
-          WINDOWS_SIGNING_CERTIFICATE: ${{ secrets.WINDOWS_SIGNING_CERTIFICATE }}
-          WINDOWS_SIGNING_PASSWORD: ${{ secrets.WINDOWS_SIGNING_PASSWORD }}
-        run: |
-          if (-not $env:WINDOWS_SIGNING_CERTIFICATE) {
-            "enabled=false" >> $env:GITHUB_OUTPUT
-            Write-Host 'No Windows signing certificate is configured; the installer will be unsigned.'
-            exit 0
-          }
-          if (-not $env:WINDOWS_SIGNING_PASSWORD) {
-            throw 'WINDOWS_SIGNING_PASSWORD must be set when a signing certificate is configured.'
-          }
-
-          $certificatePath = Join-Path $env:RUNNER_TEMP 'rimv-windows-signing.pfx'
-          $certificateBytes = [Convert]::FromBase64String($env:WINDOWS_SIGNING_CERTIFICATE)
-          [IO.File]::WriteAllBytes($certificatePath, $certificateBytes)
-          try {
-            $password = ConvertTo-SecureString $env:WINDOWS_SIGNING_PASSWORD -AsPlainText -Force
-            $certificate = Import-PfxCertificate -FilePath $certificatePath -CertStoreLocation Cert:\CurrentUser\My -Password $password |
-              Where-Object { $_.HasPrivateKey } |
-              Select-Object -First 1
-            if (-not $certificate) {
-              throw 'The imported Windows signing certificate has no private key.'
-            }
-            "thumbprint=$($certificate.Thumbprint)" >> $env:GITHUB_OUTPUT
-            "certificate_path=$certificatePath" >> $env:GITHUB_OUTPUT
-            "enabled=true" >> $env:GITHUB_OUTPUT
-          } catch {
-            Remove-Item -LiteralPath $certificatePath -Force -ErrorAction SilentlyContinue
-            throw
-          }
-
-      - name: Prepare Windows runtime DLLs
-        shell: pwsh
-        run: ./scripts/windows/prepare-windows-runtime.ps1
-
-      - name: Build Windows desktop installer
-        shell: pwsh
-        env:
-          SIGNING_ENABLED: ${{ steps.windows-signing.outputs.enabled }}
-          SIGNING_THUMBPRINT: ${{ steps.windows-signing.outputs.thumbprint }}
-          SIGNING_CERTIFICATE_PATH: ${{ steps.windows-signing.outputs.certificate_path }}
-        run: |
-          $ErrorActionPreference = 'Stop'
-          Push-Location apps/windows
-          try {
-            if ($env:SIGNING_ENABLED -eq 'true') {
-              $signingConfig = Join-Path $env:RUNNER_TEMP 'rimv-tauri-signing.json'
-              $configuration = @{
-                bundle = @{
-                  windows = @{
-                    certificateThumbprint = $env:SIGNING_THUMBPRINT
-                    digestAlgorithm = 'sha256'
-                    timestampUrl = 'http://timestamp.digicert.com'
-                  }
-                }
-              } | ConvertTo-Json -Depth 5
-              Set-Content -LiteralPath $signingConfig -Value $configuration -Encoding utf8
-              cargo tauri build --config $signingConfig
-              if ($LASTEXITCODE -ne 0) { throw 'Tauri failed to build or sign the Windows installer.' }
-            } else {
-              cargo tauri build
-              if ($LASTEXITCODE -ne 0) { throw 'Tauri failed to build the Windows installer.' }
-            }
-          } finally {
-            Pop-Location
-            if ($env:SIGNING_CERTIFICATE_PATH) {
-              Remove-Item -LiteralPath $env:SIGNING_CERTIFICATE_PATH -Force -ErrorAction SilentlyContinue
-            }
-            if ($env:SIGNING_THUMBPRINT) {
-              Remove-Item -Path "Cert:\CurrentUser\My\$env:SIGNING_THUMBPRINT" -Force -ErrorAction SilentlyContinue
-            }
-          }
-
-          $version = (Select-String -Path Cargo.toml -Pattern '^version = "([^"]+)"' | Select-Object -First 1).Matches.Groups[1].Value
-          $installer = Get-ChildItem -LiteralPath 'target/release/bundle/nsis' -Filter '*-setup.exe' -File | Select-Object -First 1
-          if (-not $installer) {
-            throw 'Tauri did not produce the expected NSIS setup executable.'
-          }
-          $artifactDirectory = Join-Path $env:GITHUB_WORKSPACE 'target/release-artifacts'
-          New-Item -ItemType Directory -Path $artifactDirectory -Force | Out-Null
-          $artifactName = "RimV-$version-windows-x64-setup.exe"
-          Copy-Item -LiteralPath $installer.FullName -Destination (Join-Path $artifactDirectory $artifactName)
-          Get-FileHash -LiteralPath (Join-Path $artifactDirectory $artifactName) -Algorithm SHA256 | Format-List
-
-      - name: Upload Windows desktop installer
-        uses: actions/upload-artifact@v6
-        with:
-          name: rimv-windows-x64-desktop-installer
-          path: target/release-artifacts/*.exe
-          if-no-files-found: error
-
-  checksums:
-    name: SHA256SUMS
-    needs:
-      - validate
-      - package
-      - windows-desktop
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Download package artifacts
-        uses: actions/download-artifact@v6
-        with:
-          path: target/release-artifacts
-          merge-multiple: true
-
-      - name: Generate SHA256SUMS
-        shell: bash
-        run: |
-          set -euo pipefail
-          cd target/release-artifacts
-          find . -maxdepth 1 -type f \( -name '*.tar.gz' -o -name '*.zip' -o -name '*.exe' \) -print0 \
-            | sort -z \
-            | xargs -0 shasum -a 256 > SHA256SUMS
-          test -s SHA256SUMS
-          cat SHA256SUMS
-
-      - name: Upload checksum artifact
-        uses: actions/upload-artifact@v6
-        with:
-          name: SHA256SUMS
-          path: target/release-artifacts/SHA256SUMS
-          if-no-files-found: error
-
-  publish:
-    name: Publish GitHub Release
-    needs:
-      - validate
-      - checksums
-    if: needs.validate.outputs.publish == 'true'
+      - prior-validation
+      - macos-package
     runs-on: ubuntu-latest
     permissions:
+      actions: read
       contents: write
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v5
+      - name: Download tested native Windows artifact
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COMMIT: ${{ needs.validate.outputs.commit }}
+          RUN_ID: ${{ needs.prior-validation.outputs.native_run_id }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/native-validated"
+          gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" \
+            --name "rimv-native-windows-x64-$COMMIT" --dir "$RUNNER_TEMP/native-validated"
 
-      - name: Download release artifacts
+      - name: Verify artifact identity, checksum and native-only contents
+        shell: bash
+        env:
+          COMMIT: ${{ needs.validate.outputs.commit }}
+          VERSION: ${{ needs.validate.outputs.version }}
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/native-validated"
+          installer="RimV-$VERSION-windows-x64-setup.exe"
+          manifest="RimV-$VERSION-windows-x64-manifest.json"
+          checksums="RimV-$VERSION-windows-x64-SHA256SUMS.txt"
+          test -s "$installer" && test -s "$manifest" && test -s "$checksums"
+          test "$(find . -maxdepth 1 -type f -name '*.exe' | wc -l | tr -d ' ')" = 1
+          tr -d '\r' < "$checksums" > "$RUNNER_TEMP/native-checksums.txt"
+          sha256sum --check "$RUNNER_TEMP/native-checksums.txt"
+          jq -e --arg commit "$COMMIT" --arg version "$VERSION" \
+            '.buildCommit == $commit and .version == $version and .installerFormat == "NSIS" and .sharedRustLibrary == "rimv_core_ffi.dll"' "$manifest"
+          if find . -maxdepth 1 -type f | grep -Ei '(tauri|html|webview|\.zip$)' ; then
+            echo 'A legacy Windows artifact was found in the native package run.' >&2
+            exit 1
+          fi
+
+      - name: Download macOS release packages
         uses: actions/download-artifact@v6
         with:
+          name: rimv-macos-arm64-packages
           path: target/release-artifacts
-          merge-multiple: true
 
-      - name: Create GitHub Release
+      - name: Assemble exact release assets and checksums
+        shell: bash
+        env:
+          VERSION: ${{ needs.validate.outputs.version }}
+          VALIDATION_RUN: ${{ needs.prior-validation.outputs.native_run_url }}
+          RELEASE_TAG: ${{ needs.validate.outputs.tag }}
+        run: |
+          set -euo pipefail
+          cp "$RUNNER_TEMP/native-validated/RimV-$VERSION-windows-x64-setup.exe" target/release-artifacts/
+          cd target/release-artifacts
+          for kind in capture transcribe server; do
+            test -s "rimv-$kind-$RELEASE_TAG-macos-arm64.tar.gz"
+          done
+          sha256sum \
+            "rimv-capture-$RELEASE_TAG-macos-arm64.tar.gz" \
+            "rimv-transcribe-$RELEASE_TAG-macos-arm64.tar.gz" \
+            "rimv-server-$RELEASE_TAG-macos-arm64.tar.gz" \
+            "RimV-$VERSION-windows-x64-setup.exe" > SHA256SUMS
+          test -s SHA256SUMS
+          sha256sum --check SHA256SUMS
+          cat > "$RUNNER_TEMP/rimv-native-release-notes.md" <<EOF
+          # RimV $RELEASE_TAG — native Windows prerelease
+
+          Windows x64: install RimV-$VERSION-windows-x64-setup.exe. This is the native WinUI 3 application backed by the shared Rust core. Models are downloaded by the app after installation. The installer is currently unsigned.
+
+          The native installer passed automated Rust/.NET tests, package dependency checks, and clean-runner install, startup, reinstall, uninstall and user-data preservation checks in [the validation workflow]($VALIDATION_RUN). Interactive GUI and physical audio results are recorded in the committed manual acceptance report for this tag. See [installation instructions](https://github.com/$GITHUB_REPOSITORY/blob/$RELEASE_TAG/docs/windows-native-installation.md).
+
+          macOS arm64 Capture, Transcribe and Server archives remain available. The historical HTML/Tauri Windows releases remain unchanged.
+          EOF
+
+      - name: Upload dry-run release candidate
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v6
+        with:
+          name: rimv-native-release-candidate-${{ needs.validate.outputs.commit }}
+          path: target/release-artifacts
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Publish new GitHub prerelease
+        if: needs.validate.outputs.publish == 'true'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ needs.validate.outputs.tag }}
           name: rimv ${{ needs.validate.outputs.tag }}
-          body_path: RELEASES.md
+          prerelease: true
+          fail_on_unmatched_files: true
+          body_path: ${{ runner.temp }}/rimv-native-release-notes.md
           files: |
-            target/release-artifacts/*.tar.gz
-            target/release-artifacts/*.zip
-            target/release-artifacts/*.exe
+            target/release-artifacts/rimv-capture-${{ needs.validate.outputs.tag }}-macos-arm64.tar.gz
+            target/release-artifacts/rimv-transcribe-${{ needs.validate.outputs.tag }}-macos-arm64.tar.gz
+            target/release-artifacts/rimv-server-${{ needs.validate.outputs.tag }}-macos-arm64.tar.gz
+            target/release-artifacts/RimV-${{ needs.validate.outputs.version }}-windows-x64-setup.exe
             target/release-artifacts/SHA256SUMS

@@ -70,11 +70,22 @@ try {
         throw 'No sherpa-onnx/ONNX Runtime DLLs were staged by the shared-core build.'
     }
 
+    dotnet restore $projectFile `
+        --locked-mode `
+        --runtime win-x64 `
+        -p:Platform=x64 `
+        -p:SelfContained=true `
+        -p:WindowsAppSDKSelfContained=true `
+        -p:BuildRimvCore=false `
+        -p:NuGetAudit=false
+    if ($LASTEXITCODE -ne 0) { throw 'The locked native WinUI restore failed.' }
+
     dotnet publish $projectFile `
         --configuration Release `
         --framework net10.0-windows10.0.26100.0 `
         --runtime win-x64 `
         --self-contained true `
+        --no-restore `
         --output $payloadDirectory `
         -p:Platform=x64 `
         -p:BuildRimvCore=false `
@@ -82,6 +93,7 @@ try {
         -p:Version=$appVersion `
         -p:InformationalVersion=$appVersion `
         -p:IncludeSourceRevisionInInformationalVersion=false `
+        -p:NuGetAudit=false `
         -p:DebugType=None `
         -p:DebugSymbols=false
     if ($LASTEXITCODE -ne 0) { throw 'The native WinUI 3 self-contained publish failed.' }

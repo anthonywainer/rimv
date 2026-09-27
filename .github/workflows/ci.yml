@@ -27,13 +27,14 @@ on:
       - '**/*.svg'
       - 'docs/**'
       - 'resources/specs/**'
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   CARGO_TERM_COLOR: always
@@ -47,7 +48,6 @@ jobs:
       web: ${{ steps.platform.outputs.web }}
       rust: ${{ steps.platform.outputs.rust }}
       macos: ${{ steps.platform.outputs.macos }}
-      windows: ${{ steps.platform.outputs.windows }}
 
     steps:
       - name: Checkout
@@ -58,16 +58,25 @@ jobs:
       - name: Detect relevant changes
         id: platform
         shell: bash
+        env:
+          EVENT_BEFORE: ${{ github.event.before }}
         run: |
+          set -euo pipefail
+          if [[ "$GITHUB_EVENT_NAME" == 'workflow_dispatch' ]]; then
+            echo 'web=false' >> "$GITHUB_OUTPUT"
+            echo 'rust=true' >> "$GITHUB_OUTPUT"
+            echo 'macos=true' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           if [[ "$GITHUB_EVENT_NAME" == 'pull_request' ]]; then
             base="${{ github.event.pull_request.base.sha }}"
             head="${{ github.event.pull_request.head.sha }}"
           else
-            base="$GITHUB_EVENT_BEFORE"
+            base="$EVENT_BEFORE"
             head="$GITHUB_SHA"
           fi
 
-          if [[ "$base" =~ ^0+$ ]]; then
+          if [[ -z "$base" || "$base" =~ ^0+$ ]]; then
             base="$(git rev-parse "$head^")"
           fi
 
@@ -82,17 +91,8 @@ jobs:
           }
 
           changed web apps/web
-          changed macos Cargo.toml Cargo.lock crates/audio-capture/src/platform/macos.rs apps/menu-bar scripts/create-dmg.sh scripts/package-macos.sh
-          changed windows Cargo.toml Cargo.lock crates/audio-capture/src/platform/windows.rs crates/engine-runtime crates/model-manager crates/speech-transcription apps/windows scripts/windows .github/workflows/ci.yml
-
-          rust=false
-          while IFS= read -r path; do
-            case "$path" in
-              apps/web/*|*.md|*.png|*.jpg|*.svg|docs/*|resources/specs/*) ;;
-              *) rust=true; break ;;
-            esac
-          done < <(git diff --name-only "$base" "$head")
-          echo "rust=$rust" >> "$GITHUB_OUTPUT"
+          changed macos Cargo.toml Cargo.lock Makefile .cargo crates vendor resources/audio apps/menu-bar scripts/create-dmg.sh scripts/package-macos.sh .github/workflows/ci.yml
+          changed rust Cargo.toml Cargo.lock Makefile .cargo crates vendor resources/audio apps/capture-cli apps/engine-cli apps/menu-bar apps/rimv-cli apps/transcribe-cli apps/windows scripts/stage-distribution.sh .github/workflows/ci.yml
 
   rust:
     name: Rust (Linux x64)
@@ -110,7 +110,7 @@ jobs:
           sudo apt-get install -y --no-install-recommends libasound2-dev pkg-config
 
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@1.98.1
         with:
           components: rustfmt, clippy
 
@@ -162,7 +162,7 @@ jobs:
   macos:
     name: Rust (macOS arm64)
     needs: changes
-    if: github.event_name == 'push' && needs.changes.outputs.macos == 'true'
+    if: needs.changes.outputs.macos == 'true'
     runs-on: macos-15
 
     steps:
@@ -175,50 +175,18 @@ jobs:
           xcodebuild -version
 
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@1.98.1
 
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
         with:
           cache-targets: false
 
-      - name: Check workspace
-        run: cargo check --workspace --locked
+      - name: Check macOS host and shared core
+        run: cargo check --locked -p rimv-menu-bar -p engine-runtime -p model-manager -p rimv-ffi -p speech-transcription
 
-      - name: Build workspace
-        run: cargo build --workspace --locked
+      - name: Test shared Rust regressions
+        run: cargo test --locked -p app-paths -p engine-runtime -p model-manager -p rimv-ffi -p speech-transcription
 
-  windows:
-    name: Rust (Windows x64)
-    needs: changes
-    if: needs.changes.outputs.windows == 'true'
-    runs-on: windows-latest
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v5
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache Rust dependencies
-        uses: Swatinem/rust-cache@v2
-        with:
-          cache-targets: false
-
-      - name: Install Tauri CLI
-        run: cargo install tauri-cli --version 2.11.4 --locked
-
-      - name: Check workspace
-        run: cargo check --workspace --locked
-
-      - name: Build workspace
-        run: cargo build --workspace --locked
-
-      - name: Prepare Windows runtime DLLs
-        shell: pwsh
-        run: ./scripts/windows/prepare-windows-runtime.ps1
-
-      - name: Build Windows desktop installer
-        working-directory: apps/windows
-        run: cargo tauri build
+      - name: Build and self-test native macOS menu
+        run: make menu-test

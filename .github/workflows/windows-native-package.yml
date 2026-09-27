@@ -1,68 +1,202 @@
 name: RimV Native Windows Package
 
 on:
-  workflow_dispatch:
   pull_request:
+    branches: [main]
     paths:
       - 'Cargo.toml'
       - 'Cargo.lock'
+      - '.cargo/**'
       - 'crates/**'
+      - 'vendor/**'
+      - 'resources/audio/**'
       - 'apps/windows-native/**'
       - 'apps/windows-native-application/**'
       - 'apps/windows-native.tests/**'
       - 'apps/windows-native.integration-tests/**'
       - 'apps/windows-native.packaging-tests/**'
-      - 'scripts/windows/**'
-      - 'resources/specs/rimv-native-windows-v01/**'
+      - 'scripts/windows/build-native-package.ps1'
+      - '.github/workflows/ci.yml'
+      - '.github/workflows/release.yml'
       - '.github/workflows/windows-native-package.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.cargo/**'
+      - 'crates/**'
+      - 'vendor/**'
+      - 'resources/audio/**'
+      - 'apps/windows-native/**'
+      - 'apps/windows-native-application/**'
+      - 'apps/windows-native.tests/**'
+      - 'apps/windows-native.integration-tests/**'
+      - 'apps/windows-native.packaging-tests/**'
+      - 'scripts/windows/build-native-package.ps1'
+      - '.github/workflows/ci.yml'
+      - '.github/workflows/release.yml'
+      - '.github/workflows/windows-native-package.yml'
+  workflow_dispatch:
 
 permissions:
   contents: read
-  actions: read
 
 concurrency:
-  group: windows-native-package-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  group: native-windows-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  package:
-    name: Build and inspect native x64 installer
+  pr-validation:
+    name: Fast native Windows PR validation
+    if: github.event_name == 'pull_request'
     runs-on: windows-2025
+    timeout-minutes: 60
+    env:
+      SCCACHE_GHA_ENABLED: 'true'
+      RUSTC_WRAPPER: sccache
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v5
+      - uses: actions/checkout@v5
+
+      - name: Set up Rust and MSVC
+        uses: dtolnay/rust-toolchain@1.98.1
+        with:
+          components: rustfmt, clippy
+          targets: x86_64-pc-windows-msvc
+
+      - uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Cache Cargo downloads
+        uses: Swatinem/rust-cache@v2
+        with:
+          cache-targets: false
+          shared-key: native-windows-x64
+          add-job-id-key: false
+
+      - name: Cache Rust compiler outputs
+        uses: mozilla-actions/sccache-action@v0.0.11
+        with:
+          version: v0.16.0
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.105
+
+      - name: Cache locked NuGet packages
+        id: nuget-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-windows-2025-net10-${{ hashFiles('apps/windows-native/packages.lock.json', 'apps/windows-native.tests/packages.lock.json', 'apps/windows-native.integration-tests/packages.lock.json') }}
+
+      - name: Check Rust formatting and lints
+        shell: pwsh
+        run: |
+          cargo fmt --all -- --check
+          if ($LASTEXITCODE -ne 0) { throw 'Rust formatting failed.' }
+          cargo clippy --locked -p audio-capture -p engine-runtime -p model-manager -p rimv-ffi -p speech-transcription --all-targets -- -D warnings
+          if ($LASTEXITCODE -ne 0) { throw 'Shared Rust linting failed.' }
+
+      - name: Test shared Rust core
+        run: cargo test --locked -p app-paths -p audio-core -p audio-capture -p engine-protocol -p engine-runtime -p model-manager -p rimv-ffi -p speech-transcription
+
+      - name: Restore locked .NET projects
+        shell: pwsh
+        run: |
+          dotnet restore apps/windows-native.tests/RimV.Windows.UnitTests.csproj --locked-mode -p:NuGetAudit=false
+          if ($LASTEXITCODE -ne 0) { throw '.NET unit test restore failed.' }
+          dotnet restore apps/windows-native/RimV.Windows.csproj --locked-mode --runtime win-x64 -p:Platform=x64 -p:SelfContained=true -p:WindowsAppSDKSelfContained=true -p:BuildRimvCore=false -p:NuGetAudit=false
+          if ($LASTEXITCODE -ne 0) { throw 'WinUI restore failed.' }
+
+      - name: Test Windows application coordination
+        run: dotnet test apps/windows-native.tests/RimV.Windows.UnitTests.csproj --configuration Release --no-restore -p:NuGetAudit=false
+
+      - name: Compile the native WinUI frontend
+        run: dotnet build apps/windows-native/RimV.Windows.csproj --configuration Release --no-restore --runtime win-x64 --self-contained true -p:Platform=x64 -p:WindowsAppSDKSelfContained=true -p:BuildRimvCore=false -p:NuGetAudit=false
+
+      - name: Report cache use
+        if: always()
+        shell: pwsh
+        run: |
+          "NuGet cache hit: ${{ steps.nuget-cache.outputs.cache-hit }}" >> $env:GITHUB_STEP_SUMMARY
+          if ($env:SCCACHE_PATH) { & $env:SCCACHE_PATH --show-stats }
+
+  package:
+    name: Build and inspect native x64 installer
+    if: github.event_name != 'pull_request'
+    runs-on: windows-2025
+    timeout-minutes: 150
+    env:
+      SCCACHE_GHA_ENABLED: 'true'
+      RUSTC_WRAPPER: sccache
+
+    steps:
+      - uses: actions/checkout@v5
 
       - name: Set up pinned Rust toolchain
         uses: dtolnay/rust-toolchain@1.98.1
         with:
+          components: rustfmt, clippy
           targets: x86_64-pc-windows-msvc
 
-      - name: Set up .NET SDK
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: 10.0.105
-
-      - name: Set up MSVC build environment
-        uses: ilammy/msvc-dev-cmd@v1
+      - uses: ilammy/msvc-dev-cmd@v1
         with:
           arch: x64
 
+      - name: Cache Cargo downloads
+        uses: Swatinem/rust-cache@v2
+        with:
+          cache-targets: false
+          shared-key: native-windows-x64
+          add-job-id-key: false
+
+      - name: Cache Rust compiler outputs
+        uses: mozilla-actions/sccache-action@v0.0.11
+        with:
+          version: v0.16.0
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.105
+
+      - name: Cache locked NuGet packages
+        id: nuget-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-windows-2025-net10-${{ hashFiles('apps/windows-native/packages.lock.json', 'apps/windows-native.tests/packages.lock.json', 'apps/windows-native.integration-tests/packages.lock.json') }}
+
       - name: Install pinned NSIS compiler
         shell: pwsh
-        run: choco install nsis --version=3.11.0 --yes --no-progress
+        run: |
+          $installed = choco list --exact nsis --limit-output 2>$null
+          if (-not (@($installed) -contains 'nsis|3.11.0')) {
+            choco install nsis --version=3.11.0 --allow-downgrade --yes --no-progress
+            if ($LASTEXITCODE -ne 0) { throw 'NSIS 3.11.0 installation failed.' }
+          }
 
       - name: Check Rust formatting
         run: cargo fmt --all -- --check
 
       - name: Test shared Rust core and FFI
-        run: cargo test --locked -p model-manager -p engine-runtime -p rimv-ffi
+        run: cargo test --locked -p app-paths -p audio-core -p audio-capture -p engine-protocol -p engine-runtime -p model-manager -p rimv-ffi -p speech-transcription
+
+      - name: Restore locked .NET test projects
+        shell: pwsh
+        run: |
+          dotnet restore apps/windows-native.tests/RimV.Windows.UnitTests.csproj --locked-mode -p:NuGetAudit=false
+          if ($LASTEXITCODE -ne 0) { throw '.NET unit test restore failed.' }
+          dotnet restore apps/windows-native.integration-tests/RimV.Windows.IntegrationTests.csproj --locked-mode -p:NuGetAudit=false
+          if ($LASTEXITCODE -ne 0) { throw '.NET FFI integration restore failed.' }
 
       - name: Test portable Windows application coordination
-        run: dotnet test apps/windows-native.tests/RimV.Windows.UnitTests.csproj --configuration Release -p:NuGetAudit=false
+        run: dotnet test apps/windows-native.tests/RimV.Windows.UnitTests.csproj --configuration Release --no-restore -p:NuGetAudit=false
 
       - name: Build the self-contained WinUI and shared Rust payload
         shell: pwsh
@@ -72,7 +206,7 @@ jobs:
         shell: pwsh
         env:
           RIMV_CORE_FFI_DLL: ${{ github.workspace }}\target\windows-native-package\cargo-target\x86_64-pc-windows-msvc\release\rimv_core_ffi.dll
-        run: dotnet test apps/windows-native.integration-tests/RimV.Windows.IntegrationTests.csproj --configuration Release -p:NuGetAudit=false
+        run: dotnet test apps/windows-native.integration-tests/RimV.Windows.IntegrationTests.csproj --configuration Release --no-restore -p:NuGetAudit=false
 
       - name: Verify production payload and native dependencies
         shell: pwsh
@@ -84,7 +218,15 @@ jobs:
             -ManifestPath $manifest.FullName `
             -PayloadDirectory (Join-Path $env:GITHUB_WORKSPACE 'target/windows-native-package/payload')
 
-      - name: Upload unsigned or signed installer artifacts for validation only
+      - name: Report cache use and package identity
+        if: always()
+        shell: pwsh
+        run: |
+          "NuGet cache hit: ${{ steps.nuget-cache.outputs.cache-hit }}" >> $env:GITHUB_STEP_SUMMARY
+          "Build commit: $env:GITHUB_SHA" >> $env:GITHUB_STEP_SUMMARY
+          if ($env:SCCACHE_PATH) { & $env:SCCACHE_PATH --show-stats }
+
+      - name: Upload exact native installer for fresh-runner validation
         uses: actions/upload-artifact@v6
         with:
           name: rimv-native-windows-x64-${{ github.sha }}
@@ -93,21 +235,21 @@ jobs:
           retention-days: 14
 
   installer-lifecycle:
-    name: Install, launch and uninstall exact installer artifact
+    name: Install and uninstall the exact tested installer
     needs: package
     runs-on: windows-2025
+    timeout-minutes: 30
 
     steps:
-      - name: Checkout packaging validation harness
-        uses: actions/checkout@v5
+      - uses: actions/checkout@v5
 
-      - name: Download package job artifact
+      - name: Download the build job artifact
         uses: actions/download-artifact@v6
         with:
           name: rimv-native-windows-x64-${{ github.sha }}
           path: ${{ runner.temp }}\rimv-native-artifact
 
-      - name: Install to a path containing spaces, smoke launch, reinstall, and uninstall
+      - name: Install to a path containing spaces, launch, reinstall and uninstall
         shell: pwsh
         run: |
           $manifest = Get-ChildItem (Join-Path $env:RUNNER_TEMP 'rimv-native-artifact/*-manifest.json') | Select-Object -First 1
@@ -118,3 +260,10 @@ jobs:
             -ManifestPath $manifest.FullName `
             -InstallerPath $installer.FullName `
             -InstallDirectory (Join-Path $env:RUNNER_TEMP 'RimV Native Windows Install With Spaces')
+
+      - name: Record unattended validation limits
+        if: always()
+        shell: pwsh
+        run: |
+          'The installer test verifies checksums, startup process lifetime, dependencies, reinstall, uninstall and user-data preservation.' >> $env:GITHUB_STEP_SUMMARY
+          'Interactive tray visibility, graceful UI Quit, visual accessibility and physical audio capture still require Windows desktop/hardware checks.' >> $env:GITHUB_STEP_SUMMARY

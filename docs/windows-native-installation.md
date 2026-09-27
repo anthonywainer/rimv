@@ -47,7 +47,7 @@ $manifest = Get-ChildItem target/windows-native-package/artifacts/*-manifest.jso
   -PayloadDirectory (Join-Path $PWD 'target/windows-native-package/payload')
 ```
 
-The `RimV Native Windows Package` workflow builds and tests the package on one Windows runner, uploads that exact installer as a short-lived workflow artifact, then installs it on a separate fresh Windows runner into a path containing spaces and checks startup, same-build reinstall, uninstall and preservation of a recording-data sentinel. This is a CI artifact only; the workflow does not create a GitHub Release or tag.
+The `RimV Native Windows Package` workflow runs fast code checks on pull requests. Main-branch pushes and manual dispatches build and test the package on one Windows runner, upload that exact installer as a short-lived workflow artifact, then install it on a separate fresh Windows runner into a path containing spaces. The test checks startup, same-build reinstall, uninstall and preservation of a recording-data sentinel. The package workflow does not create a GitHub Release or tag. A later prerelease consumes the validated artifact from its exact commit only after the required automated and manual acceptance gates pass.
 
 ## Validation still required on an interactive Windows desktop
 
