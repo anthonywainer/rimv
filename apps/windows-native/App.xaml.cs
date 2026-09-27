@@ -50,8 +50,11 @@ public partial class App : Microsoft.UI.Xaml.Application
         {
             _tray.Dispose();
             Coordinator.ReportError(error);
-            _shell.ToggleNearTray();
         }
+
+        // The installed app must provide a visible first-run entry point even
+        // when the notification-area icon initializes successfully.
+        _shell.ToggleNearTray();
 
         try
         {
