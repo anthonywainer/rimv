@@ -1,5 +1,6 @@
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
+using RimV.Windows.Application;
 using System.Threading;
 
 namespace RimV.Windows;
@@ -12,6 +13,7 @@ public partial class App : Application
 
     public static App CurrentApp => (App)Current;
     public AppCoordinator Coordinator { get; private set; } = null!;
+    public ThemeManager ThemeManager { get; private set; } = null!;
     public DispatcherQueue UiQueue { get; private set; } = null!;
     public bool IsShuttingDown { get; private set; }
 
@@ -30,7 +32,14 @@ public partial class App : Application
         }
 
         UiQueue = DispatcherQueue.GetForCurrentThread();
-        Coordinator = new AppCoordinator();
+        string dataDirectory = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "RimV");
+        Coordinator = new AppCoordinator(
+            dataDirectory,
+            new CoreClientFactory(),
+            new FileUserPreferencesStore(Path.Combine(dataDirectory, "preferences.json")),
+            new WinUiDispatcher(UiQueue));
+        ThemeManager = new ThemeManager(Coordinator);
         _shell = new ShellWindow(Coordinator);
         _tray = new TrayIcon(_shell);
         try
@@ -69,6 +78,7 @@ public partial class App : Application
     {
         if (IsShuttingDown) return;
         IsShuttingDown = true;
+        ThemeManager.Dispose();
         _tray?.Dispose();
         try
         {

@@ -14,11 +14,11 @@ public sealed partial class LanguageWindow : Window
         InitializeComponent();
         _coordinator = coordinator;
         _coordinator.Changed += Coordinator_Changed;
-        _coordinator.RegisterThemeRoot(RootGrid);
+        App.CurrentApp.ThemeManager.RegisterRoot(RootGrid);
         Closed += (_, _) =>
         {
             _coordinator.Changed -= Coordinator_Changed;
-            _coordinator.UnregisterThemeRoot(RootGrid);
+            App.CurrentApp.ThemeManager.UnregisterRoot(RootGrid);
         };
         Render();
     }

@@ -13,9 +13,9 @@ public sealed partial class SettingsWindow : Window
         InitializeComponent();
         _coordinator = coordinator;
         WindowHelpers.Configure(this, 520, 480, resizable: false);
-        _coordinator.RegisterThemeRoot(RootGrid);
-        Closed += (_, _) => _coordinator.UnregisterThemeRoot(RootGrid);
-        DataLocation.Text = $"Local recordings and models: {coordinator.RecordingsDirectory ?? "Unavailable"}";
+        App.CurrentApp.ThemeManager.RegisterRoot(RootGrid);
+        Closed += (_, _) => App.CurrentApp.ThemeManager.UnregisterRoot(RootGrid);
+        DataLocation.Text = $"Local recordings and models: {coordinator.RecordingsDirectory}";
         ThemeCombo.SelectedItem = ThemeCombo.Items.Cast<ComboBoxItem>().FirstOrDefault(item => (string)item.Tag == coordinator.ThemeName);
         _initialized = true;
     }

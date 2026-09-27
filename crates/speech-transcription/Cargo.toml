@@ -24,4 +24,10 @@ whisper-rs = { version = "0.16", optional = true, features = ["tracing_backend"]
 sherpa-onnx = { version = "1.13.8", default-features = false, features = ["shared"], optional = true }
 
 [dev-dependencies]
+hound = "3.5"
 tempfile = "3"
+
+[[test]]
+name = "asr_audio_fixture"
+path = "tests/asr_audio_fixture.rs"
+required-features = ["parakeet", "silero-vad"]

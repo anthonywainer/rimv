@@ -22,11 +22,11 @@ public sealed partial class RecordingsWindow : Window
         WindowHelpers.Configure(this, 760, 620);
         RecordingList.ItemsSource = _rows;
         _coordinator.Changed += Coordinator_Changed;
-        _coordinator.RegisterThemeRoot(RootGrid);
+        App.CurrentApp.ThemeManager.RegisterRoot(RootGrid);
         Closed += (_, _) =>
         {
             _coordinator.Changed -= Coordinator_Changed;
-            _coordinator.UnregisterThemeRoot(RootGrid);
+            App.CurrentApp.ThemeManager.UnregisterRoot(RootGrid);
         };
         Render();
         _ = _coordinator.RefreshRecordingsAsync();
@@ -66,7 +66,7 @@ public sealed partial class RecordingsWindow : Window
         bool hasSelection = _selected is not null;
         OpenButton.IsEnabled = hasSelection;
         RenameButton.IsEnabled = hasSelection;
-        DeleteButton.IsEnabled = hasSelection && _selected!.State == "completed";
+        DeleteButton.IsEnabled = hasSelection && NativeWindowsPolicy.CanDeleteRecording(_selected!.State);
         if (_selected?.State == "recording") DeleteButton.ToolTip = "Active recordings cannot be deleted.";
         else DeleteButton.ClearValue(ToolTipService.ToolTipProperty);
     }

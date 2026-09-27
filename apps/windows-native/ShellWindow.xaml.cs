@@ -34,7 +34,7 @@ public sealed partial class ShellWindow : Window
         _appWindow.SetPresenter(presenter);
         _appWindow.Closing += AppWindow_Closing;
         Activated += ShellWindow_Activated;
-        RootGrid.Loaded += (_, _) => App.CurrentApp.Coordinator.RegisterThemeRoot(RootGrid);
+        RootGrid.Loaded += (_, _) => App.CurrentApp.ThemeManager.RegisterRoot(RootGrid);
         Closed += (_, _) => _coordinator.Changed -= Coordinator_Changed;
         Render();
     }
@@ -113,7 +113,7 @@ public sealed partial class ShellWindow : Window
     public void DestroyShellWindow()
     {
         _appWindow.Closing -= AppWindow_Closing;
-        App.CurrentApp.Coordinator.UnregisterThemeRoot(RootGrid);
+        App.CurrentApp.ThemeManager.UnregisterRoot(RootGrid);
         Close();
     }
 

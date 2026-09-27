@@ -20,6 +20,10 @@
     <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.0.1" />
   </ItemGroup>
   <ItemGroup>
+    <ProjectReference Include="..\windows-native-application\RimV.Windows.Application.csproj" />
+    <Using Include="RimV.Windows.Application" />
+  </ItemGroup>
+  <ItemGroup>
     <Content Include="..\windows\icons\icon.ico" Link="Assets\rimv.ico" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
   <Target Name="BuildSharedRustCore" BeforeTargets="Build" Condition="'$(BuildRimvCore)' == 'true'">

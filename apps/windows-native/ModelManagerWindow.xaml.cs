@@ -21,12 +21,12 @@ public sealed partial class ModelManagerWindow : Window
         ModelList.ItemsSource = _rows;
         _coordinator.Changed += Coordinator_Changed;
         _coordinator.ModelProgressReceived += ModelProgressReceived;
-        _coordinator.RegisterThemeRoot(RootGrid);
+        App.CurrentApp.ThemeManager.RegisterRoot(RootGrid);
         Closed += (_, _) =>
         {
             _coordinator.Changed -= Coordinator_Changed;
             _coordinator.ModelProgressReceived -= ModelProgressReceived;
-            _coordinator.UnregisterThemeRoot(RootGrid);
+            App.CurrentApp.ThemeManager.UnregisterRoot(RootGrid);
         };
         Render();
         _ = _coordinator.RefreshModelsAsync();
@@ -80,8 +80,9 @@ public sealed partial class ModelManagerWindow : Window
         bool downloading = _selected.State == "downloading";
         bool unsupported = _selected.State == "unsupported";
         ModelActionButton.Content = unsupported ? "Unavailable" : downloading ? "Cancel download" : _selected.State == "installed" ? "Installed" : "Download model";
-        ModelActionButton.IsEnabled = !unsupported && (downloading || _selected.State != "installed");
-        SelectButton.IsEnabled = !unsupported && _selected.State == "installed" && _coordinator.Snapshot.Status == "idle";
+        ModelActionButton.IsEnabled = NativeWindowsPolicy.CanCancelModelInstall(_selected.State)
+            || NativeWindowsPolicy.CanInstallModel(_selected.State);
+        SelectButton.IsEnabled = NativeWindowsPolicy.CanSelectModel(_selected.State, _coordinator.Snapshot.Status);
 
         bool hasProgress = _progress?.ModelId == _selected.Descriptor.Id;
         DownloadProgress.Visibility = downloading && hasProgress && _progress!.TotalBytes is > 0 ? Visibility.Visible : Visibility.Collapsed;

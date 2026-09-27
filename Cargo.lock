@@ -4159,6 +4159,7 @@ version = "0.1.0-beta"
 dependencies = [
  "audio-core",
  "engine-protocol",
+ "hound",
  "rubato",
  "serde",
  "sherpa-onnx",

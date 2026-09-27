@@ -33,12 +33,12 @@ public sealed partial class TranscriptionWindow : Window
         AudioPlayer.SetMediaPlayer(_player);
         _coordinator.CoreEventReceived += CoreEventReceived;
         _coordinator.Changed += Coordinator_Changed;
-        _coordinator.RegisterThemeRoot(RootGrid);
+        App.CurrentApp.ThemeManager.RegisterRoot(RootGrid);
         Closed += (_, _) =>
         {
             _coordinator.CoreEventReceived -= CoreEventReceived;
             _coordinator.Changed -= Coordinator_Changed;
-            _coordinator.UnregisterThemeRoot(RootGrid);
+            App.CurrentApp.ThemeManager.UnregisterRoot(RootGrid);
             _player.Pause();
             _player.Source = null;
             _player.Dispose();
@@ -112,8 +112,7 @@ public sealed partial class TranscriptionWindow : Window
 
     private void ConfigurePlayback(string sessionId)
     {
-        string? root = _coordinator.RecordingsDirectory;
-        if (root is null) return;
+        string root = _coordinator.RecordingsDirectory;
         string directory = Path.Combine(root, sessionId);
         string? path = new[] { "microphone.wav", "system.wav" }
             .Select(name => Path.Combine(directory, name))
@@ -211,7 +210,7 @@ public sealed partial class TranscriptionWindow : Window
 
     private async void DeleteButton_Click(object sender, RoutedEventArgs e)
     {
-        if (_summary?.State != "completed" || _sessionId is null) return;
+        if (_summary is null || !NativeWindowsPolicy.CanDeleteRecording(_summary.State) || _sessionId is null) return;
         var dialog = new ContentDialog
         {
             Title = "Delete this recording?",

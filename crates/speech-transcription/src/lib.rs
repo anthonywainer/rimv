@@ -5,6 +5,10 @@ mod audio;
 mod parakeet;
 mod realtime;
 mod rolling;
+#[cfg(test)]
+mod test_support;
+#[cfg(test)]
+mod tests;
 mod vad;
 #[cfg(feature = "whisper")]
 mod whisper;
@@ -14,6 +18,8 @@ pub use audio::{Mono16k, Preprocessor};
 #[cfg(feature = "parakeet")]
 pub use parakeet::{ParakeetEngine, ParakeetModelLayout};
 pub use rolling::{RollingWindow, deduplicate_overlap};
+#[cfg(test)]
+pub(crate) use test_support::MockAsrBackend;
 #[cfg(feature = "silero-vad")]
 pub use vad::SileroVad;
 pub use vad::{SpeechSegmenter, Utterance, VadConfig, VoiceActivityGate};
@@ -114,81 +120,4 @@ pub struct SpeechSegment {
     pub start_ms: u64,
     pub end_ms: u64,
     pub text: String,
-}
-
-/// Deterministic backend for hardware-free runtime tests. It never loads a
-/// model and keeps backend behavior outside capture callbacks.
-#[derive(Debug, Default)]
-pub struct MockAsrBackend {
-    pub responses: std::collections::VecDeque<Result<Vec<SpeechSegment>>>,
-}
-impl SpeechToTextEngine for MockAsrBackend {
-    fn info(&self) -> AsrBackendInfo {
-        AsrBackendInfo {
-            backend_id: "mock".into(),
-            backend_name: "Mock ASR".into(),
-            model_id: "mock".into(),
-            model_name: "Deterministic mock".into(),
-            capabilities: AsrCapabilities {
-                supports_incremental_audio: false,
-                supports_partial_results: false,
-                supports_word_timestamps: false,
-                supports_language_detection: false,
-                supports_true_streaming: false,
-            },
-        }
-    }
-
-    fn transcribe(
-        &mut self,
-        _audio_16khz_mono: &[f32],
-        _offset_ms: u64,
-    ) -> Result<Vec<SpeechSegment>> {
-        self.responses.pop_front().unwrap_or_else(|| Ok(Vec::new()))
-    }
-}
-
-#[cfg(test)]
-mod generic_tests {
-    use super::*;
-
-    #[test]
-    fn backend_capabilities_match_compiled_features() {
-        assert_eq!(
-            supports_backend(AsrBackendKind::Parakeet),
-            cfg!(feature = "parakeet")
-        );
-        assert_eq!(
-            supports_backend(AsrBackendKind::Whisper),
-            cfg!(feature = "whisper")
-        );
-    }
-
-    #[test]
-    fn mock_backend_is_deterministic() {
-        let mut backend = MockAsrBackend::default();
-        backend.responses.push_back(Ok(vec![SpeechSegment {
-            source: AudioSource::Microphone,
-            start_ms: 0,
-            end_ms: 1,
-            text: "ok".into(),
-        }]));
-        assert_eq!(backend.transcribe(&[], 0).unwrap()[0].text, "ok");
-        assert!(backend.transcribe(&[], 0).unwrap().is_empty());
-        assert_eq!(backend.info().backend_id, "mock");
-    }
-
-    #[cfg(feature = "parakeet")]
-    #[test]
-    fn configured_parakeet_reports_a_missing_model_without_native_loading() {
-        let error = match load_configured_backend(SpeechConfig {
-            backend: AsrBackendKind::Parakeet,
-            model_path: None,
-            ..Default::default()
-        }) {
-            Ok(_) => panic!("missing Parakeet model unexpectedly loaded"),
-            Err(error) => error,
-        };
-        assert!(matches!(error, SpeechError::ModelMissing));
-    }
 }
