@@ -33,6 +33,14 @@ pub enum AsrBackendKind {
     Whisper,
 }
 
+/// Reports whether this build includes the requested inference backend.
+pub const fn supports_backend(backend: AsrBackendKind) -> bool {
+    match backend {
+        AsrBackendKind::Parakeet => cfg!(feature = "parakeet"),
+        AsrBackendKind::Whisper => cfg!(feature = "whisper"),
+    }
+}
+
 #[derive(Debug, Clone, Error)]
 pub enum SpeechError {
     #[error("model path is not configured")]
@@ -143,6 +151,19 @@ impl SpeechToTextEngine for MockAsrBackend {
 #[cfg(test)]
 mod generic_tests {
     use super::*;
+
+    #[test]
+    fn backend_capabilities_match_compiled_features() {
+        assert_eq!(
+            supports_backend(AsrBackendKind::Parakeet),
+            cfg!(feature = "parakeet")
+        );
+        assert_eq!(
+            supports_backend(AsrBackendKind::Whisper),
+            cfg!(feature = "whisper")
+        );
+    }
+
     #[test]
     fn mock_backend_is_deterministic() {
         let mut backend = MockAsrBackend::default();

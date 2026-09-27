@@ -117,6 +117,9 @@ fn start_model_install(engine: &RimvEngine, model_id: String) -> Result<(), Stri
         .descriptor(&model_id)
         .map_err(|e| e.to_string())?
         .clone();
+    if !engine_runtime::supports_asr_backend(&descriptor.backend) {
+        return Err("this model backend is not available in the current RimV build".into());
+    }
     if engine.models.state(&descriptor) == model_manager::ModelState::Ready {
         return Ok(());
     }
@@ -386,7 +389,9 @@ pub unsafe extern "C" fn rimv_engine_request(
                     .catalog()
                     .iter()
                     .map(|descriptor| {
-                        let state = if operations.contains_key(&descriptor.id) {
+                        let state = if !engine_runtime::supports_asr_backend(&descriptor.backend) {
+                            "unsupported"
+                        } else if operations.contains_key(&descriptor.id) {
                             "downloading"
                         } else {
                             match engine.models.state(descriptor) {
@@ -408,6 +413,11 @@ pub unsafe extern "C" fn rimv_engine_request(
                     .models
                     .descriptor(&model_id)
                     .map_err(|e| e.to_string())?;
+                if !engine_runtime::supports_asr_backend(&descriptor.backend) {
+                    return Err(
+                        "this model backend is not available in the current RimV build".into(),
+                    );
+                }
                 let path = engine
                     .models
                     .runtime_path(descriptor)
@@ -448,6 +458,11 @@ pub unsafe extern "C" fn rimv_engine_request(
                     .models
                     .descriptor(&model_id)
                     .map_err(|e| e.to_string())?;
+                if !engine_runtime::supports_asr_backend(&descriptor.backend) {
+                    return Err(
+                        "this model backend is not available in the current RimV build".into(),
+                    );
+                }
                 engine
                     .models
                     .validate_language(descriptor, language.as_deref())

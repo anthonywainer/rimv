@@ -1,0 +1,33 @@
+<Window
+    x:Class="RimV.Windows.SettingsWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="RimV Settings">
+    <Grid x:Name="RootGrid" Background="{ThemeResource RimVBackgroundBrush}" Padding="24" RowSpacing="18">
+        <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+        <StackPanel Spacing="4">
+            <TextBlock Text="Settings" FontSize="24" FontWeight="SemiBold" />
+            <TextBlock Text="RimV keeps capture and transcription on this device." Foreground="{ThemeResource RimVSecondaryTextBrush}" TextWrapping="Wrap" />
+        </StackPanel>
+        <StackPanel Grid.Row="1" Spacing="8">
+            <TextBlock Text="Appearance" FontWeight="SemiBold" />
+            <ComboBox x:Name="ThemeCombo" SelectedIndex="0" SelectionChanged="ThemeCombo_SelectionChanged" AutomationProperties.Name="Appearance">
+                <ComboBoxItem Content="Use Windows theme" Tag="system" />
+                <ComboBoxItem Content="Light" Tag="light" />
+                <ComboBoxItem Content="Dark" Tag="dark" />
+            </ComboBox>
+            <TextBlock Text="High contrast follows your Windows accessibility settings." FontSize="12" Foreground="{ThemeResource RimVSecondaryTextBrush}" TextWrapping="Wrap" />
+        </StackPanel>
+        <Border Grid.Row="2" Background="{ThemeResource RimVSurfaceBrush}" BorderBrush="{ThemeResource RimVBorderBrush}" BorderThickness="1" CornerRadius="12" Padding="16">
+            <StackPanel Spacing="6">
+                <TextBlock Text="Shared engine" FontWeight="SemiBold" />
+                <TextBlock Text="Speech recognition, model downloads, recordings and exports are provided by RimV's Rust core." TextWrapping="Wrap" Foreground="{ThemeResource RimVSecondaryTextBrush}" />
+                <TextBlock x:Name="DataLocation" FontSize="12" TextWrapping="Wrap" Foreground="{ThemeResource RimVSecondaryTextBrush}" />
+            </StackPanel>
+        </Border>
+        <StackPanel Grid.Row="3" VerticalAlignment="Bottom" Spacing="4">
+            <TextBlock Text="RimV Native Windows · v0.1" />
+            <TextBlock Text="The existing browser-based Windows app remains available separately." FontSize="12" TextWrapping="Wrap" Foreground="{ThemeResource RimVSecondaryTextBrush}" />
+        </StackPanel>
+    </Grid>
+</Window>

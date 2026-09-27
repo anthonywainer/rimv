@@ -18,6 +18,13 @@ pub use recording_library::{
 };
 pub use runtime::EngineRuntime;
 pub use speech_transcription::AsrBackendKind;
+pub fn supports_asr_backend(backend: &str) -> bool {
+    match backend {
+        "parakeet" => speech_transcription::supports_backend(AsrBackendKind::Parakeet),
+        "whisper" => speech_transcription::supports_backend(AsrBackendKind::Whisper),
+        _ => false,
+    }
+}
 pub type Result<T> = std::result::Result<T, EngineError>;
 
 pub(crate) fn lock<T>(mutex: &std::sync::Mutex<T>) -> std::sync::MutexGuard<'_, T> {

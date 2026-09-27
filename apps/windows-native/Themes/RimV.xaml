@@ -1,0 +1,47 @@
+<ResourceDictionary
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <ResourceDictionary.ThemeDictionaries>
+        <ResourceDictionary x:Key="Light">
+            <SolidColorBrush x:Key="RimVBackgroundBrush" Color="#EEF2FA" />
+            <SolidColorBrush x:Key="RimVSurfaceBrush" Color="#FFFFFF" />
+            <SolidColorBrush x:Key="RimVSecondaryBrush" Color="#F6F7FB" />
+            <SolidColorBrush x:Key="RimVBorderBrush" Color="#E3E6EF" />
+            <SolidColorBrush x:Key="RimVTextBrush" Color="#171827" />
+            <SolidColorBrush x:Key="RimVSecondaryTextBrush" Color="#5E6475" />
+            <SolidColorBrush x:Key="RimVBrandBrush" Color="#6D4DE6" />
+            <SolidColorBrush x:Key="RimVPrimaryForegroundBrush" Color="#FFFFFF" />
+            <SolidColorBrush x:Key="RimVLiveBrush" Color="#16A34A" />
+            <SolidColorBrush x:Key="RimVErrorBrush" Color="#DC2626" />
+        </ResourceDictionary>
+        <ResourceDictionary x:Key="Dark">
+            <SolidColorBrush x:Key="RimVBackgroundBrush" Color="#0B0F19" />
+            <SolidColorBrush x:Key="RimVSurfaceBrush" Color="#111827" />
+            <SolidColorBrush x:Key="RimVSecondaryBrush" Color="#172033" />
+            <SolidColorBrush x:Key="RimVBorderBrush" Color="#263244" />
+            <SolidColorBrush x:Key="RimVTextBrush" Color="#F9FAFB" />
+            <SolidColorBrush x:Key="RimVSecondaryTextBrush" Color="#CBD5E1" />
+            <SolidColorBrush x:Key="RimVBrandBrush" Color="#A78BFA" />
+            <SolidColorBrush x:Key="RimVPrimaryForegroundBrush" Color="#0B0F19" />
+            <SolidColorBrush x:Key="RimVLiveBrush" Color="#22C55E" />
+            <SolidColorBrush x:Key="RimVErrorBrush" Color="#F87171" />
+        </ResourceDictionary>
+        <ResourceDictionary x:Key="HighContrast">
+            <SolidColorBrush x:Key="RimVBackgroundBrush" Color="{ThemeResource SystemColorWindowColor}" />
+            <SolidColorBrush x:Key="RimVSurfaceBrush" Color="{ThemeResource SystemColorWindowColor}" />
+            <SolidColorBrush x:Key="RimVSecondaryBrush" Color="{ThemeResource SystemColorWindowColor}" />
+            <SolidColorBrush x:Key="RimVBorderBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
+            <SolidColorBrush x:Key="RimVTextBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
+            <SolidColorBrush x:Key="RimVSecondaryTextBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
+            <SolidColorBrush x:Key="RimVBrandBrush" Color="{ThemeResource SystemColorHighlightColor}" />
+            <SolidColorBrush x:Key="RimVPrimaryForegroundBrush" Color="{ThemeResource SystemColorHighlightTextColor}" />
+            <SolidColorBrush x:Key="RimVLiveBrush" Color="{ThemeResource SystemColorHighlightColor}" />
+            <SolidColorBrush x:Key="RimVErrorBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
+        </ResourceDictionary>
+    </ResourceDictionary.ThemeDictionaries>
+    <Style x:Key="RimVPrimaryButtonStyle" TargetType="Button">
+        <Setter Property="Background" Value="{ThemeResource RimVBrandBrush}" />
+        <Setter Property="Foreground" Value="{ThemeResource RimVPrimaryForegroundBrush}" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+</ResourceDictionary>

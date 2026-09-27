@@ -1,0 +1,75 @@
+<Window
+    x:Class="RimV.Windows.ShellWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="RimV">
+    <Grid x:Name="RootGrid" Background="{ThemeResource RimVBackgroundBrush}" Padding="20" RowSpacing="14">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <Grid Grid.Row="0" ColumnSpacing="12">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+            <StackPanel Spacing="3">
+                <TextBlock Text="RimV" FontSize="22" FontWeight="SemiBold" Foreground="{ThemeResource RimVTextBrush}" />
+                <TextBlock x:Name="StatusText" Text="Starting shared engine…" FontSize="13" Foreground="{ThemeResource RimVSecondaryTextBrush}" AutomationProperties.LiveSetting="Polite" />
+            </StackPanel>
+            <Button Grid.Column="1" Content="⋯" AutomationProperties.Name="More options" ToolTipService.ToolTip="More options" Click="MoreButton_Click" />
+        </Grid>
+
+        <InfoBar x:Name="ErrorInfo" Grid.Row="1" IsOpen="False" Severity="Error" IsClosable="True" />
+        <InfoBar x:Name="ModelInfo" Grid.Row="2" IsOpen="False" Severity="Informational" />
+
+        <StackPanel Grid.Row="3" Spacing="6">
+            <TextBlock Text="Audio source" FontWeight="SemiBold" Foreground="{ThemeResource RimVTextBrush}" />
+            <ComboBox x:Name="SourceCombo" HorizontalAlignment="Stretch" AutomationProperties.Name="Audio source" SelectionChanged="SourceCombo_SelectionChanged">
+                <ComboBoxItem Content="Microphone" Tag="microphone" />
+                <ComboBoxItem Content="System audio" Tag="system" />
+                <ComboBoxItem Content="Both" Tag="both" />
+            </ComboBox>
+        </StackPanel>
+
+        <Button x:Name="ListenButton" Grid.Row="4" Content="Start listening" Style="{StaticResource RimVPrimaryButtonStyle}" HorizontalAlignment="Stretch" MinHeight="48" Click="ListenButton_Click" />
+
+        <Border Grid.Row="5" Background="{ThemeResource RimVSurfaceBrush}" BorderBrush="{ThemeResource RimVBorderBrush}" BorderThickness="1" CornerRadius="12" Padding="14">
+            <Grid ColumnSpacing="10">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                <StackPanel Spacing="3">
+                    <TextBlock Text="Transcription model" FontSize="12" Foreground="{ThemeResource RimVSecondaryTextBrush}" />
+                    <TextBlock x:Name="ModelName" Text="Choose a model" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                </StackPanel>
+                <Button Grid.Column="1" Content="Change" Click="ModelButton_Click" AutomationProperties.Name="Change transcription model" />
+            </Grid>
+        </Border>
+
+        <Border Grid.Row="6" Background="{ThemeResource RimVSurfaceBrush}" BorderBrush="{ThemeResource RimVBorderBrush}" BorderThickness="1" CornerRadius="12" Padding="14">
+            <Grid ColumnSpacing="10">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                <StackPanel Spacing="3">
+                    <TextBlock Text="Language" FontSize="12" Foreground="{ThemeResource RimVSecondaryTextBrush}" />
+                    <TextBlock x:Name="LanguageName" Text="Automatic" FontWeight="SemiBold" />
+                </StackPanel>
+                <Button Grid.Column="1" Content="Change" Click="LanguageButton_Click" AutomationProperties.Name="Change transcription language" />
+            </Grid>
+        </Border>
+
+        <Button Grid.Row="7" Content="Recordings" HorizontalAlignment="Stretch" Click="RecordingsButton_Click" />
+
+        <TextBlock x:Name="FooterState" Grid.Row="8" Text="The transcription window opens only when you choose a recording." TextWrapping="Wrap" VerticalAlignment="Bottom" FontSize="12" Foreground="{ThemeResource RimVSecondaryTextBrush}" />
+
+        <Grid Grid.Row="9" ColumnSpacing="8">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+            <Button Content="Settings" HorizontalAlignment="Stretch" Click="SettingsButton_Click" />
+            <Button Grid.Column="1" Content="Quit RimV" HorizontalAlignment="Stretch" Click="QuitButton_Click" />
+        </Grid>
+    </Grid>
+</Window>

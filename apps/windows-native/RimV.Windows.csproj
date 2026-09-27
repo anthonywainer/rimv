@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows10.0.26100.0</TargetFramework>
+    <SupportedOSPlatformVersion>10.0.19041.0</SupportedOSPlatformVersion>
+    <UseWinUI>true</UseWinUI>
+    <WindowsPackageType>None</WindowsPackageType>
+    <AppxPackage>false</AppxPackage>
+    <WindowsAppSDKSelfContained>false</WindowsAppSDKSelfContained>
+    <RootNamespace>RimV.Windows</RootNamespace>
+    <AssemblyName>RimV.Windows</AssemblyName>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Platforms>x64;ARM64</Platforms>
+    <ApplicationIcon>..\windows\icons\icon.ico</ApplicationIcon>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <DefaultLanguage>en-US</DefaultLanguage>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.0.1" />
+  </ItemGroup>
+  <ItemGroup>
+    <Content Include="..\windows\icons\icon.ico" Link="Assets\rimv.ico" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+  <Target Name="BuildSharedRustCore" BeforeTargets="Build" Condition="'$(BuildRimvCore)' == 'true'">
+    <PropertyGroup>
+      <RimvCargoTarget Condition="'$(Platform)' == 'ARM64'">aarch64-pc-windows-msvc</RimvCargoTarget>
+      <RimvCargoTarget Condition="'$(Platform)' != 'ARM64'">x86_64-pc-windows-msvc</RimvCargoTarget>
+    </PropertyGroup>
+    <Exec Command="cargo build --locked --release --target $(RimvCargoTarget) -p rimv-ffi" WorkingDirectory="$(MSBuildThisFileDirectory)..\.." />
+    <Copy SourceFiles="$(MSBuildThisFileDirectory)..\..\target\$(RimvCargoTarget)\release\rimv_core_ffi.dll" DestinationFolder="$(OutDir)" />
+  </Target>
+</Project>

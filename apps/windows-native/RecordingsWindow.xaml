@@ -1,0 +1,36 @@
+<Window
+    x:Class="RimV.Windows.RecordingsWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="Recordings">
+    <Grid x:Name="RootGrid" Background="{ThemeResource RimVBackgroundBrush}" Padding="24" RowSpacing="14">
+        <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+        <StackPanel Spacing="4">
+            <TextBlock Text="Recordings" FontSize="24" FontWeight="SemiBold" />
+            <TextBlock Text="Open, rename or remove a saved session. Active recordings stay at the top." Foreground="{ThemeResource RimVSecondaryTextBrush}" TextWrapping="Wrap" />
+        </StackPanel>
+        <Grid Grid.Row="1" ColumnSpacing="8">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+            <TextBox x:Name="SearchBox" PlaceholderText="Search recordings" AutomationProperties.Name="Search recordings" TextChanged="SearchBox_TextChanged" />
+            <Button Grid.Column="1" Content="Refresh" Click="RefreshButton_Click" />
+        </Grid>
+        <ListView x:Name="RecordingList" Grid.Row="2" SelectionChanged="RecordingList_SelectionChanged" AutomationProperties.Name="Saved recordings">
+            <ListView.ItemTemplate>
+                <DataTemplate x:DataType="local:RecordingRow" xmlns:local="using:RimV.Windows">
+                    <StackPanel Padding="8,10" Spacing="3">
+                        <TextBlock Text="{x:Bind Title}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                        <TextBlock Text="{x:Bind Subtitle}" FontSize="12" Foreground="{ThemeResource RimVSecondaryTextBrush}" />
+                    </StackPanel>
+                </DataTemplate>
+            </ListView.ItemTemplate>
+        </ListView>
+        <TextBlock x:Name="EmptyText" Grid.Row="2" Text="No recordings yet. Start listening from the RimV tray menu." TextWrapping="Wrap" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="{ThemeResource RimVSecondaryTextBrush}" />
+        <InfoBar x:Name="ErrorInfo" Grid.Row="3" IsOpen="False" Severity="Error" IsClosable="True" />
+        <Grid Grid.Row="4" ColumnSpacing="8">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+            <Button x:Name="OpenButton" Content="Open" Click="OpenButton_Click" />
+            <Button x:Name="RenameButton" Grid.Column="1" Content="Rename" Click="RenameButton_Click" />
+            <Button x:Name="DeleteButton" Grid.Column="2" Content="Delete" Click="DeleteButton_Click" Foreground="{ThemeResource RimVErrorBrush}" />
+        </Grid>
+    </Grid>
+</Window>
