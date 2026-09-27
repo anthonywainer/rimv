@@ -110,6 +110,12 @@ impl EngineRuntime {
     pub fn snapshot(&self) -> EngineSnapshot {
         self.inner.bus.snapshot()
     }
+    /// Complete latest transcript state for the current or most recent
+    /// session. Call after subscribing to reconcile events without appending
+    /// stale partials or duplicating finalized utterances.
+    pub fn transcript_snapshot(&self) -> crate::LiveTranscriptSnapshot {
+        self.inner.bus.transcript_snapshot()
+    }
     pub fn capabilities(&self) -> EngineCapabilities {
         self.snapshot().capabilities
     }

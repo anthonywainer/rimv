@@ -26,6 +26,16 @@ pub struct TranscriptUpdate {
     pub confidence: Option<String>,
 }
 
+/// Latest live state for one session, suitable for reconciling after a UI
+/// opens or resubscribes. `revision` increases for each accepted update.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct LiveTranscriptSnapshot {
+    pub session_id: Option<String>,
+    pub revision: u64,
+    pub updates: Vec<TranscriptUpdate>,
+}
+
 /// State changes and UI-rate timer updates carry complete snapshots. Errors
 /// also arrive separately so clients can show notifications without diffing.
 #[derive(Debug, Clone, PartialEq, Eq)]

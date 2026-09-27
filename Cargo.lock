@@ -3566,6 +3566,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "rimv-ffi"
+version = "0.1.0-beta"
+dependencies = [
+ "engine-protocol",
+ "engine-runtime",
+ "model-manager",
+ "serde",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
 name = "rimv-menu-bar"
 version = "0.1.0-beta"
 dependencies = [

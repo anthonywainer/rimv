@@ -4,6 +4,7 @@
 
 extern void rimv_recording_rename(const char *, const char *);
 extern void rimv_recording_delete(const char *);
+extern bool rimv_recording_export(const char *, const char *, const char *);
 
 static BOOL TWIsDark(NSAppearance *appearance) {
     NSAppearance *resolved = appearance ?: NSApp.effectiveAppearance;
@@ -574,6 +575,7 @@ typedef NS_ENUM(NSInteger, RimvViewerMode) {
     NSDictionary *metadata = metadataData ? [NSJSONSerialization JSONObjectWithData:metadataData options:0 error:nil] : nil;
     NSDictionary *session = [metadata isKindOfClass:NSDictionary.class] ? metadata[@"snapshot"][@"session"] : nil;
     NSString *sessionID = [session[@"id"] isKindOfClass:NSString.class] ? session[@"id"] : path.lastPathComponent;
+    self.liveSessionID = sessionID;
     unsigned long long startedAt = [session[@"started_at_unix_ms"] unsignedLongLongValue];
     [self displayRecordingTitle:[self recordingTitleAtPath:path sessionID:sessionID startedAt:startedAt]];
     self.savedSegments = [self readSavedSegmentsAtPath:path];
@@ -640,25 +642,23 @@ typedef NS_ENUM(NSInteger, RimvViewerMode) {
 
 - (void)exportTXT:(id)sender {
     (void)sender;
-    NSString *text = [self plainTextForSegments:self.savedSegments ?: @[]];
-    if (!text.length) return;
+    if (!self.liveSessionID.length) return;
     NSSavePanel *panel = [NSSavePanel savePanel];
     panel.nameFieldStringValue = @"transcript.txt";
     panel.allowedContentTypes = @[[UTType typeWithFilenameExtension:@"txt"]];
     [panel beginWithCompletionHandler:^(NSModalResponse result) {
-        if (result == NSModalResponseOK) [text writeToURL:panel.URL atomically:YES encoding:NSUTF8StringEncoding error:nil];
+        if (result == NSModalResponseOK) rimv_recording_export(self.liveSessionID.UTF8String, panel.URL.path.UTF8String, "txt");
     }];
 }
 
 - (void)exportJSON:(id)sender {
     (void)sender;
-    NSString *jsonPath = [self.sessionPath stringByAppendingPathComponent:@"transcript.json"];
-    if (![[NSFileManager defaultManager] fileExistsAtPath:jsonPath]) return;
+    if (!self.liveSessionID.length) return;
     NSSavePanel *panel = [NSSavePanel savePanel];
     panel.nameFieldStringValue = @"transcript.json";
     panel.allowedContentTypes = @[[UTType typeWithFilenameExtension:@"json"]];
     [panel beginWithCompletionHandler:^(NSModalResponse result) {
-        if (result == NSModalResponseOK) [[NSFileManager defaultManager] copyItemAtURL:[NSURL fileURLWithPath:jsonPath] toURL:panel.URL error:nil];
+        if (result == NSModalResponseOK) rimv_recording_export(self.liveSessionID.UTF8String, panel.URL.path.UTF8String, "json");
     }];
 }
 

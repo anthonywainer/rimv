@@ -4,6 +4,7 @@ pub mod backend;
 mod config;
 mod controller;
 mod event_bus;
+mod recording_library;
 mod runtime;
 mod session;
 mod storage;
@@ -12,6 +13,9 @@ pub mod websocket;
 pub use config::{EngineConfig, SourceSettings, TranscriptionSettings};
 pub use engine_protocol::*;
 pub use event_bus::{Subscription, SubscriptionError};
+pub use recording_library::{
+    ExportFormat, RecordingDetails, RecordingLibrary, RecordingSummary, TranscriptLine,
+};
 pub use runtime::EngineRuntime;
 pub use speech_transcription::AsrBackendKind;
 pub type Result<T> = std::result::Result<T, EngineError>;

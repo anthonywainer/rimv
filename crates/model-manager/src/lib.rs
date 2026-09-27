@@ -63,6 +63,10 @@ pub enum ModelError {
     UnknownModel(String),
     #[error("{0} requires its documented external installer")]
     ExternalInstallerRequired(String),
+    #[error("language is not supported by model: {0}")]
+    UnsupportedLanguage(String),
+    #[error("model is not installed: {0}")]
+    NotInstalled(String),
     #[error("model file has no download URL: {0}")]
     NoDownloadUrl(String),
     #[error("download cancelled")]
@@ -118,6 +122,30 @@ impl ModelManager {
 
     pub fn path(&self, descriptor: &ModelDescriptor, file: &ModelFile) -> PathBuf {
         self.directory(descriptor).join(&file.filename)
+    }
+
+    /// Resolve the artifact passed to the shared transcription runtime.
+    pub fn runtime_path(&self, descriptor: &ModelDescriptor) -> Result<PathBuf, ModelError> {
+        if self.state(descriptor) != ModelState::Ready {
+            return Err(ModelError::NotInstalled(descriptor.id.clone()));
+        }
+        if descriptor.backend == "parakeet" {
+            return Ok(self.directory(descriptor));
+        }
+        let file = descriptor.files.first().ok_or_else(|| {
+            ModelError::ExternalInstallerRequired(descriptor.display_name.clone())
+        })?;
+        Ok(self.path(descriptor, file))
+    }
+
+    /// Validate a UI-selected language against the model's canonical catalog.
+    /// `None` means automatic language selection.
+    pub fn validate_language(
+        &self,
+        descriptor: &ModelDescriptor,
+        language: Option<&str>,
+    ) -> Result<(), ModelError> {
+        validate_language(descriptor, language)
     }
 
     /// Removes a fully managed model directory. Callers are responsible for
@@ -247,6 +275,21 @@ impl ModelManager {
         let _ = fs::remove_file(&archive_path);
         result
     }
+}
+
+pub fn validate_language(
+    descriptor: &ModelDescriptor,
+    language: Option<&str>,
+) -> Result<(), ModelError> {
+    if let Some(language) = language
+        && !descriptor
+            .languages
+            .iter()
+            .any(|supported| supported == language)
+    {
+        return Err(ModelError::UnsupportedLanguage(language.to_owned()));
+    }
+    Ok(())
 }
 
 /// Stream a model download to a temporary path, timing out stalled body reads
@@ -439,5 +482,20 @@ mod tests {
             assert!(descriptor.files[0].source_url.is_some());
             assert!(descriptor.files[0].sha256.is_some());
         }
+    }
+
+    #[test]
+    fn language_validation_uses_catalogued_model_capabilities() {
+        let model = catalog()
+            .into_iter()
+            .find(|model| !model.languages.is_empty())
+            .unwrap();
+        let supported = model.languages[0].as_str();
+        assert!(validate_language(&model, Some(supported)).is_ok());
+        assert!(matches!(
+            validate_language(&model, Some("not-a-supported-language")),
+            Err(ModelError::UnsupportedLanguage(_))
+        ));
+        assert!(validate_language(&model, None).is_ok());
     }
 }

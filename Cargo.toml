@@ -9,6 +9,7 @@ members = [
     "crates/speech-transcription",
     "crates/system-profile",
     "crates/whisper-models",
+    "crates/rimv-ffi",
     "apps/capture-cli",
     "apps/engine-cli",
     "apps/menu-bar",

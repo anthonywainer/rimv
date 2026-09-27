@@ -1,0 +1,20 @@
+[package]
+name = "rimv-ffi"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[lib]
+name = "rimv_core_ffi"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+engine-runtime.workspace = true
+engine-protocol = { workspace = true, features = ["serde"] }
+model-manager.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+tempfile = "3"

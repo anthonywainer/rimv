@@ -254,12 +254,19 @@ async function openRecording(sessionId) {
   render();
 }
 
-function exportTranscript(format) {
-  const lines = transcriptLines();
-  if (!lines.length || !recordingDetails) return;
-  const body = format === "json"
-    ? JSON.stringify(lines.map(({ partial, ...line }) => line), null, 2)
-    : lines.map(line => `[${line.start_ms}–${line.end_ms} ms] ${sourceLabel(line.source)}: ${line.text}`).join("\n") + "\n";
+async function exportTranscript(format) {
+  if (!recordingDetails || recordingDetails.summary.state === "recording") return;
+  let body;
+  try {
+    body = await invoke("export_recording", {
+      sessionId: recordingDetails.summary.session_id,
+      format,
+    });
+  } catch (error) {
+    errorMessage = String(error);
+    render();
+    return;
+  }
   const blob = new Blob([body], { type: format === "json" ? "application/json" : "text/plain" });
   const link = document.createElement("a");
   link.href = URL.createObjectURL(blob);

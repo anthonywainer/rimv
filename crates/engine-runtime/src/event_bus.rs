@@ -88,6 +88,7 @@ impl Subscription {
 
 struct BusState {
     snapshot: EngineSnapshot,
+    transcript: crate::LiveTranscriptSnapshot,
     listeners: Vec<Weak<Listener>>,
     closed: bool,
 }
@@ -101,6 +102,7 @@ impl EventBus {
         Self {
             state: Mutex::new(BusState {
                 snapshot,
+                transcript: crate::LiveTranscriptSnapshot::default(),
                 listeners: Vec::new(),
                 closed: false,
             }),
@@ -110,6 +112,9 @@ impl EventBus {
     }
     pub fn snapshot(&self) -> EngineSnapshot {
         lock(&self.state).snapshot.clone()
+    }
+    pub fn transcript_snapshot(&self) -> crate::LiveTranscriptSnapshot {
+        lock(&self.state).transcript.clone()
     }
     pub fn subscribe(&self) -> Result<Subscription> {
         let mut state = lock(&self.state);
@@ -145,6 +150,16 @@ impl EventBus {
     pub fn update(&self, snapshot: &mut EngineSnapshot) {
         let mut state = lock(&self.state);
         snapshot.revision = state.snapshot.revision.saturating_add(1);
+        let session_id = snapshot
+            .session
+            .as_ref()
+            .map(|session| session.id.0.clone());
+        if session_id != state.transcript.session_id {
+            state.transcript = crate::LiveTranscriptSnapshot {
+                session_id,
+                ..Default::default()
+            };
+        }
         state.snapshot = snapshot.clone();
         Self::broadcast(
             &mut state,
@@ -163,10 +178,26 @@ impl EventBus {
         );
     }
     pub fn transcript_update(&self, update: crate::TranscriptUpdate) {
-        Self::broadcast(
-            &mut lock(&self.state),
-            EngineEvent::TranscriptUpdate { update },
-        );
+        let mut state = lock(&self.state);
+        state.transcript.revision = state.transcript.revision.saturating_add(1);
+        let position = state.transcript.updates.iter().position(|known| {
+            known.source == update.source && known.utterance_id == update.utterance_id
+        });
+        if update.stable_text.is_empty() && update.unstable_text.is_empty() {
+            if let Some(position) = position {
+                state.transcript.updates.remove(position);
+            }
+        } else if let Some(position) = position {
+            state.transcript.updates[position] = update.clone();
+        } else {
+            state.transcript.updates.push(update.clone());
+        }
+        state.transcript.updates.sort_by(|a, b| {
+            a.start_ms
+                .cmp(&b.start_ms)
+                .then_with(|| a.utterance_id.cmp(&b.utterance_id))
+        });
+        Self::broadcast(&mut state, EngineEvent::TranscriptUpdate { update });
     }
     pub fn transcript_final(&self, segment: crate::TranscriptSegment) {
         Self::broadcast(
@@ -304,5 +335,49 @@ mod tests {
             slow.recv_timeout(Duration::ZERO),
             Err(SubscriptionError::Timeout)
         );
+    }
+
+    fn transcript_update(id: &str, text: &str, final_update: bool) -> crate::TranscriptUpdate {
+        crate::TranscriptUpdate {
+            source: crate::AudioSource::Microphone,
+            utterance_id: id.into(),
+            start_ms: 10,
+            end_ms: 20,
+            stable_text: text.into(),
+            unstable_text: String::new(),
+            is_final: final_update,
+            language: Some("en".into()),
+            confidence: None,
+        }
+    }
+
+    #[test]
+    fn transcript_snapshot_replaces_updates_and_resets_for_a_new_session() {
+        let bus = EventBus::new(EngineSnapshot::default(), 8, 2);
+        let mut snapshot = bus.snapshot();
+        snapshot.session = Some(crate::SessionInfo {
+            id: crate::SessionId("session-a".into()),
+            started_at_unix_ms: 0,
+            recording_directory: "recordings/session-a".into(),
+        });
+        bus.update(&mut snapshot);
+        bus.transcript_update(transcript_update("utt-1", "partial", false));
+        bus.transcript_update(transcript_update("utt-1", "final", true));
+        let transcript = bus.transcript_snapshot();
+        assert_eq!(transcript.revision, 2);
+        assert_eq!(transcript.updates.len(), 1);
+        assert_eq!(transcript.updates[0].stable_text, "final");
+        assert!(transcript.updates[0].is_final);
+
+        snapshot.session = Some(crate::SessionInfo {
+            id: crate::SessionId("session-b".into()),
+            started_at_unix_ms: 1,
+            recording_directory: "recordings/session-b".into(),
+        });
+        bus.update(&mut snapshot);
+        let transcript = bus.transcript_snapshot();
+        assert_eq!(transcript.session_id.as_deref(), Some("session-b"));
+        assert!(transcript.updates.is_empty());
+        assert_eq!(transcript.revision, 0);
     }
 }
