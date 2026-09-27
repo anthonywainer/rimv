@@ -226,6 +226,23 @@ jobs:
               -InstallDirectory $installDirectory
           }
           catch {
+            $failure = $_
+            if ($failure.Exception.Message -eq 'Uninstall left the application executable installed.') {
+              $appPath = Join-Path $installDirectory 'RimV.Windows.exe'
+              $startMenuLink = Join-Path ([Environment]::GetFolderPath([Environment+SpecialFolder]::Programs)) 'RimV\RimV Native Windows.lnk'
+              $recordingSentinel = Join-Path $env:LOCALAPPDATA 'RimV\recordings\phase4-uninstall-preservation.txt'
+              $cleanupDeadline = [DateTime]::UtcNow.AddSeconds(30)
+              while (((Test-Path -LiteralPath $installDirectory) -or (Test-Path -LiteralPath $startMenuLink)) -and [DateTime]::UtcNow -lt $cleanupDeadline) {
+                Start-Sleep -Milliseconds 500
+              }
+              if (-not (Test-Path -LiteralPath $installDirectory) -and
+                  -not (Test-Path -LiteralPath $startMenuLink) -and
+                  (Test-Path -LiteralPath $recordingSentinel)) {
+                Write-Host 'PASS: NSIS uninstaller completed file and shortcut cleanup after its launcher returned; user recording data remains.'
+                'The NSIS launcher returned before its temporary uninstaller copy completed. CI waited for file and shortcut cleanup and verified user data preservation.' >> $env:GITHUB_STEP_SUMMARY
+                return
+              }
+            }
             Write-Host '--- Native installer failure diagnostics ---'
             $registeredInstallDirectory = (Get-ItemProperty -LiteralPath 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\RimV.Native.Windows' -Name InstallLocation -ErrorAction SilentlyContinue).InstallLocation
             Write-Host "Registered install directory: $registeredInstallDirectory"
@@ -244,7 +261,7 @@ jobs:
               }
             }
             Get-CimInstance Win32_Process -Filter "Name = 'RimV.Windows.exe'" | Select-Object ProcessId, ExecutablePath, CommandLine | Format-Table -AutoSize | Out-String | Write-Host
-            throw
+            throw $failure
           }
 
       - name: Record unattended validation limits
