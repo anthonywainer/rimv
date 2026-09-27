@@ -5,7 +5,7 @@ using System.Threading;
 
 namespace RimV.Windows;
 
-public partial class App : Application
+public partial class App : Microsoft.UI.Xaml.Application
 {
     private Mutex? _instanceMutex;
     private TrayIcon? _tray;
@@ -13,7 +13,7 @@ public partial class App : Application
 
     public static App CurrentApp => (App)Current;
     public AppCoordinator Coordinator { get; private set; } = null!;
-    public ThemeManager ThemeManager { get; private set; } = null!;
+    internal ThemeManager ThemeManager { get; private set; } = null!;
     public DispatcherQueue UiQueue { get; private set; } = null!;
     public bool IsShuttingDown { get; private set; }
 
