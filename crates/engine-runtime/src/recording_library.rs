@@ -235,6 +235,7 @@ impl RecordingLibrary {
                         .join(" "),
                 })
                 .filter(|line| !line.text.trim().is_empty())
+                .collect()
         } else if directory.join("transcript.json").exists() {
             serde_json::from_slice(
                 &fs::read(directory.join("transcript.json")).map_err(Self::error)?,

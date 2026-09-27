@@ -141,7 +141,7 @@ fn start_model_install(engine: &RimvEngine, model_id: String) -> Result<(), Stri
     let worker = match thread::Builder::new()
         .name("rimv-core-model-install".into())
         .spawn(move || {
-            let mut last_reported = 0_u64;
+            let last_reported = std::cell::Cell::new(0_u64);
             let report = |phase: String,
                           downloaded_bytes: u64,
                           total_bytes: Option<u64>,
@@ -157,22 +157,22 @@ fn start_model_install(engine: &RimvEngine, model_id: String) -> Result<(), Stri
             let result = if descriptor.backend == "parakeet" {
                 manager.install_parakeet_with_phase(
                     &cancelled,
-                    |phase| report(phase.into(), last_reported, None, None),
+                    |phase| report(phase.into(), last_reported.get(), None, None),
                     |downloaded, total| {
-                        if downloaded.saturating_sub(last_reported) >= 1024 * 1024
+                        if downloaded.saturating_sub(last_reported.get()) >= 1024 * 1024
                             || total == Some(downloaded)
                         {
-                            last_reported = downloaded;
+                            last_reported.set(downloaded);
                             report("downloading".into(), downloaded, total, None);
                         }
                     },
                 )
             } else {
                 manager.install(&descriptor.id, &cancelled, |downloaded, total| {
-                    if downloaded.saturating_sub(last_reported) >= 1024 * 1024
+                    if downloaded.saturating_sub(last_reported.get()) >= 1024 * 1024
                         || total == Some(downloaded)
                     {
-                        last_reported = downloaded;
+                        last_reported.set(downloaded);
                         report("downloading".into(), downloaded, total, None);
                     }
                 })
@@ -182,8 +182,7 @@ fn start_model_install(engine: &RimvEngine, model_id: String) -> Result<(), Stri
                 Err(model_manager::ModelError::Cancelled) => ("cancelled", None),
                 Err(error) => ("failed", Some(error.to_string())),
             };
-            report(phase.into(), last_reported, None, error);
-            drop(report);
+            report(phase.into(), last_reported.get(), None, error);
             operations
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner)

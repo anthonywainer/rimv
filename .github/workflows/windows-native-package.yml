@@ -1,0 +1,120 @@
+name: RimV Native Windows Package
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'crates/**'
+      - 'apps/windows-native/**'
+      - 'apps/windows-native-application/**'
+      - 'apps/windows-native.tests/**'
+      - 'apps/windows-native.integration-tests/**'
+      - 'apps/windows-native.packaging-tests/**'
+      - 'scripts/windows/**'
+      - 'resources/specs/rimv-native-windows-v01/**'
+      - '.github/workflows/windows-native-package.yml'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: windows-native-package-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  package:
+    name: Build and inspect native x64 installer
+    runs-on: windows-2025
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up pinned Rust toolchain
+        uses: dtolnay/rust-toolchain@1.98.1
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Set up .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.105
+
+      - name: Set up MSVC build environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Install pinned NSIS compiler
+        shell: pwsh
+        run: choco install nsis --version=3.11.0 --yes --no-progress
+
+      - name: Check Rust formatting
+        run: cargo fmt --all -- --check
+
+      - name: Test shared Rust core and FFI
+        run: cargo test --locked -p model-manager -p engine-runtime -p rimv-ffi
+
+      - name: Test portable Windows application coordination
+        run: dotnet test apps/windows-native.tests/RimV.Windows.UnitTests.csproj --configuration Release -p:NuGetAudit=false
+
+      - name: Build the self-contained WinUI and shared Rust payload
+        shell: pwsh
+        run: ./scripts/windows/build-native-package.ps1
+
+      - name: Test the built Windows Rust ABI through C#
+        shell: pwsh
+        env:
+          RIMV_CORE_FFI_DLL: ${{ github.workspace }}\target\windows-native-package\cargo-target\x86_64-pc-windows-msvc\release\rimv_core_ffi.dll
+        run: dotnet test apps/windows-native.integration-tests/RimV.Windows.IntegrationTests.csproj --configuration Release -p:NuGetAudit=false
+
+      - name: Verify production payload and native dependencies
+        shell: pwsh
+        run: |
+          $manifest = Get-ChildItem target/windows-native-package/artifacts/*-manifest.json | Select-Object -First 1
+          if (-not $manifest) { throw 'The package manifest was not generated.' }
+          ./apps/windows-native.packaging-tests/Test-NativePackage.ps1 `
+            -Mode Payload `
+            -ManifestPath $manifest.FullName `
+            -PayloadDirectory (Join-Path $env:GITHUB_WORKSPACE 'target/windows-native-package/payload')
+
+      - name: Upload unsigned or signed installer artifacts for validation only
+        uses: actions/upload-artifact@v6
+        with:
+          name: rimv-native-windows-x64-${{ github.sha }}
+          path: target/windows-native-package/artifacts/*
+          if-no-files-found: error
+          retention-days: 14
+
+  installer-lifecycle:
+    name: Install, launch and uninstall exact installer artifact
+    needs: package
+    runs-on: windows-2025
+
+    steps:
+      - name: Checkout packaging validation harness
+        uses: actions/checkout@v5
+
+      - name: Download package job artifact
+        uses: actions/download-artifact@v6
+        with:
+          name: rimv-native-windows-x64-${{ github.sha }}
+          path: ${{ runner.temp }}\rimv-native-artifact
+
+      - name: Install to a path containing spaces, smoke launch, reinstall, and uninstall
+        shell: pwsh
+        run: |
+          $manifest = Get-ChildItem (Join-Path $env:RUNNER_TEMP 'rimv-native-artifact/*-manifest.json') | Select-Object -First 1
+          $installer = Get-ChildItem (Join-Path $env:RUNNER_TEMP 'rimv-native-artifact/*-setup.exe') | Select-Object -First 1
+          if (-not $manifest -or -not $installer) { throw 'The downloaded installer or manifest is missing.' }
+          ./apps/windows-native.packaging-tests/Test-NativePackage.ps1 `
+            -Mode Installer `
+            -ManifestPath $manifest.FullName `
+            -InstallerPath $installer.FullName `
+            -InstallDirectory (Join-Path $env:RUNNER_TEMP 'RimV Native Windows Install With Spaces')

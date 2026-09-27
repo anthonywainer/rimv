@@ -26,7 +26,7 @@
             </StackPanel>
         </Border>
         <StackPanel Grid.Row="3" VerticalAlignment="Bottom" Spacing="4">
-            <TextBlock Text="RimV Native Windows · v0.1" />
+            <TextBlock x:Name="AppVersionText" />
             <TextBlock Text="The existing browser-based Windows app remains available separately." FontSize="12" TextWrapping="Wrap" Foreground="{ThemeResource RimVSecondaryTextBrush}" />
         </StackPanel>
     </Grid>

@@ -9,6 +9,7 @@
     <WindowsAppSDKSelfContained>false</WindowsAppSDKSelfContained>
     <RootNamespace>RimV.Windows</RootNamespace>
     <AssemblyName>RimV.Windows</AssemblyName>
+    <Version>0.1.0-beta</Version>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <Platforms>x64;ARM64</Platforms>
