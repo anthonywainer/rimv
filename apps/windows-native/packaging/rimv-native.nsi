@@ -132,6 +132,7 @@ Function un.onInit
   ${If} $0 != 0
     System::Call 'kernel32::CloseHandle(p r0)'
     MessageBox MB_OK|MB_ICONEXCLAMATION "RimV is running. Quit RimV from its tray menu, then run uninstall again."
+    SetErrorLevel 2
     Abort
   ${EndIf}
 FunctionEnd

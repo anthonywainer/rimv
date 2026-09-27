@@ -109,6 +109,28 @@ function Invoke-Installer([string] $path, [string] $arguments, [string] $label) 
     Assert-Condition ($process.ExitCode -eq 0) "$label exited with code $($process.ExitCode)."
 }
 
+function Assert-AppStopped([string] $executablePath) {
+    $runningApps = @(Get-CimInstance Win32_Process -Filter "Name = 'RimV.Windows.exe'" | Where-Object {
+        $_.ExecutablePath -and [string]::Equals(
+            [IO.Path]::GetFullPath($_.ExecutablePath),
+            [IO.Path]::GetFullPath($executablePath),
+            [StringComparison]::OrdinalIgnoreCase)
+    })
+    Assert-Condition ($runningApps.Count -eq 0) "RimV is still running from the install directory (PID $($runningApps.ProcessId -join ', '))."
+
+    $mutex = $null
+    try {
+        $mutex = [Threading.Mutex]::OpenExisting('Local\RimV.Native.Windows.v01')
+        throw 'RimV still owns its single-instance mutex after the process exit.'
+    }
+    catch [Threading.WaitHandleCannotBeOpenedException] {
+        # No process holds the app mutex, so it no longer exists.
+    }
+    finally {
+        if ($mutex) { $mutex.Dispose() }
+    }
+}
+
 $manifest = Get-Content -LiteralPath $ManifestPath -Raw | ConvertFrom-Json
 if ($Mode -eq 'Payload') {
     if (-not $PayloadDirectory) { throw 'PayloadDirectory is required in Payload mode.' }
@@ -174,6 +196,7 @@ try {
     Assert-Condition $process.HasExited 'The installed WinUI process is still running; refusing to test uninstall.'
     $process.Dispose()
     $process = $null
+    Assert-AppStopped $appExe
 
     $recordingsDirectory = Join-Path $dataDirectory 'recordings'
     New-Item -ItemType Directory -Path $recordingsDirectory -Force | Out-Null
@@ -185,6 +208,9 @@ try {
 
     $uninstaller = Join-Path $InstallDirectory 'Uninstall.exe'
     Assert-Condition (Test-Path -LiteralPath $uninstaller -PathType Leaf) 'The uninstaller was not registered in the application directory.'
+    $registeredInstallDirectory = (Get-ItemProperty -LiteralPath 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\RimV.Native.Windows' -Name InstallLocation).InstallLocation
+    Assert-Condition ([string]::Equals([IO.Path]::GetFullPath($registeredInstallDirectory), [IO.Path]::GetFullPath($InstallDirectory), [StringComparison]::OrdinalIgnoreCase)) "Uninstall registry path '$registeredInstallDirectory' does not match '$InstallDirectory'."
+    Assert-AppStopped $appExe
     Invoke-Installer $uninstaller '/S' 'Uninstall'
     Assert-Condition (-not (Test-Path -LiteralPath $appExe)) 'Uninstall left the application executable installed.'
     Assert-Condition (-not (Test-Path -LiteralPath $startMenuLink)) 'Uninstall left the Start menu shortcut behind.'
