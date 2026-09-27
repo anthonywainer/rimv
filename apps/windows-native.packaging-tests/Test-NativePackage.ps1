@@ -57,7 +57,9 @@ function Assert-Payload([string] $root, $manifest) {
     foreach ($path in $actualFiles) {
         Assert-Condition $expected.ContainsKey($path) "Unexpected file is present in the production payload: $path"
         Assert-Condition ($path -notmatch '(?i)(^|/)(tests?|fixtures?|mock)s?(/|$)|\.pdb$|testhost|coverlet') "Test-only/debug file found in production payload: $path"
-        Assert-Condition ($path -notmatch '(?i)(^|/)(tauri|node_modules|vite)(/|$)|\.(html|js|css)$') "Legacy HTML/Tauri asset found in native payload: $path"
+        $knownWinUiRuntimeAsset = $path -ieq 'Microsoft.UI.Xaml/Assets/map.html'
+        $legacyFrontendAsset = $path -match '(?i)(^|/)(tauri|node_modules|vite)(/|$)|\.(html|js|css)$'
+        Assert-Condition (-not $legacyFrontendAsset -or $knownWinUiRuntimeAsset) "Legacy HTML/Tauri asset found in native payload: $path"
     }
 
     $appExe = Join-Path $root 'RimV.Windows.exe'
