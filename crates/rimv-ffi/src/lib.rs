@@ -17,7 +17,7 @@ use std::{
     sync::{
         Arc, Mutex,
         atomic::{AtomicBool, Ordering},
-        mpsc::{self, Receiver, SyncSender, TryRecvError},
+        mpsc::{self, Receiver, SyncSender},
     },
     thread::{self, JoinHandle},
     time::Duration,
@@ -241,15 +241,12 @@ fn stop_model_workers(engine: &RimvEngine) {
 }
 
 fn take_model_event(engine: &RimvEngine) -> Option<ModelProgress> {
-    match engine
+    engine
         .model_events
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
         .try_recv()
-    {
-        Ok(event) => Some(event),
-        Err(TryRecvError::Empty | TryRecvError::Disconnected) => None,
-    }
+        .ok()
 }
 
 unsafe fn read_utf8<'a>(value: *const c_char) -> Result<&'a str, String> {
@@ -269,6 +266,11 @@ pub extern "C" fn rimv_api_version() -> u32 {
 
 /// Creates the shared runtime and returns a JSON status envelope. On success,
 /// `out_engine` receives an opaque handle; the host owns it until destroy.
+///
+/// # Safety
+/// `config_json` must point to a valid NUL-terminated UTF-8 string for the
+/// duration of this call. `out_engine` must be null or point to a valid,
+/// writable, correctly aligned pointer slot for the duration of this call.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn rimv_engine_create(
     config_json: *const c_char,
@@ -326,6 +328,13 @@ pub unsafe extern "C" fn rimv_engine_create(
 
 /// Executes one bounded request and returns a caller-owned UTF-8 JSON result.
 /// Event polling blocks for at most 30 seconds and must run off the UI thread.
+///
+/// # Safety
+/// `engine` must be a live handle returned by `rimv_engine_create` and must
+/// not be destroyed while this call is running. `request_json` must point to
+/// a valid NUL-terminated UTF-8 string for the duration of this call. The host
+/// must serialize lifecycle and command calls as described by this module's
+/// ABI contract.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn rimv_engine_request(
     engine: *mut RimvEngine,
@@ -562,6 +571,10 @@ pub unsafe extern "C" fn rimv_engine_request(
 }
 
 /// Frees a string returned by this library. Null is accepted.
+///
+/// # Safety
+/// A non-null `value` must be a pointer returned by this library and must not
+/// have been freed previously.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn rimv_string_free(value: *mut c_char) {
     if !value.is_null() {
@@ -571,6 +584,11 @@ pub unsafe extern "C" fn rimv_string_free(value: *mut c_char) {
 }
 
 /// Shuts down the runtime and frees the opaque handle. Null is accepted.
+///
+/// # Safety
+/// A non-null `engine` must be a live handle returned by
+/// `rimv_engine_create`. It must be uniquely owned by the caller, and no other
+/// FFI call may be using it while it is destroyed.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn rimv_engine_destroy(engine: *mut RimvEngine) {
     if !engine.is_null() {
