@@ -4,7 +4,6 @@ on:
   workflow_call:
 
 permissions:
-  actions: read
   contents: read
 
 env:
@@ -90,8 +89,7 @@ jobs:
 
   package:
     name: Build and inspect native x64 installer
-    # Temporary uninstall-debug mode: reuse the previous run's exact installer.
-    if: false
+    if: github.event_name != 'pull_request'
     runs-on: windows-2025
     timeout-minutes: 150
     env:
@@ -200,42 +198,17 @@ jobs:
   installer-lifecycle:
     name: Install and uninstall the exact tested installer
     if: github.event_name != 'pull_request'
+    needs: package
     runs-on: windows-2025
     timeout-minutes: 30
 
     steps:
       - uses: actions/checkout@v5
 
-      - name: Find the previous main-run installer artifact
-        id: previous-artifact
-        shell: pwsh
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          $headers = @{
-            Authorization = "Bearer $env:GH_TOKEN"
-            Accept = 'application/vnd.github+json'
-            'X-GitHub-Api-Version' = '2022-11-28'
-          }
-          $artifactsUri = "$env:GITHUB_API_URL/repos/$env:GITHUB_REPOSITORY/actions/artifacts?per_page=100"
-          $artifactList = Invoke-RestMethod -Uri $artifactsUri -Headers $headers
-          $selectedArtifact = $artifactList.artifacts | Where-Object {
-            $_.name -like 'rimv-native-windows-x64-*' -and
-              -not $_.expired -and
-              $_.workflow_run.head_branch -eq 'main' -and
-              $_.workflow_run.id -ne [long]$env:GITHUB_RUN_ID
-          } | Sort-Object created_at -Descending | Select-Object -First 1
-          if (-not $selectedArtifact) { throw 'No unexpired native installer artifact was found in the repository artifact list.' }
-          "run_id=$($selectedArtifact.workflow_run.id)" >> $env:GITHUB_OUTPUT
-          "name=$($selectedArtifact.name)" >> $env:GITHUB_OUTPUT
-          Write-Host "Reusing $($selectedArtifact.name) from run $($selectedArtifact.workflow_run.id), source commit $($selectedArtifact.workflow_run.head_sha)."
-
       - name: Download the build job artifact
         uses: actions/download-artifact@v6
         with:
-          name: ${{ steps.previous-artifact.outputs.name }}
-          run-id: ${{ steps.previous-artifact.outputs.run_id }}
-          github-token: ${{ github.token }}
+          name: rimv-native-windows-x64-${{ github.sha }}
           path: ${{ runner.temp }}\rimv-native-artifact
 
       - name: Install to a path containing spaces, launch, reinstall and uninstall

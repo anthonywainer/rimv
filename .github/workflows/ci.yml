@@ -102,9 +102,6 @@ jobs:
     needs: changes
     if: needs.changes.outputs.native == 'true'
     uses: ./.github/workflows/windows-native-package.yml
-    permissions:
-      actions: read
-      contents: read
 
   rust:
     name: Rust (Linux x64)
