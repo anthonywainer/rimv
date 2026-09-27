@@ -48,6 +48,7 @@ jobs:
       web: ${{ steps.platform.outputs.web }}
       rust: ${{ steps.platform.outputs.rust }}
       macos: ${{ steps.platform.outputs.macos }}
+      native: ${{ steps.platform.outputs.native }}
 
     steps:
       - name: Checkout
@@ -66,6 +67,7 @@ jobs:
             echo 'web=false' >> "$GITHUB_OUTPUT"
             echo 'rust=true' >> "$GITHUB_OUTPUT"
             echo 'macos=true' >> "$GITHUB_OUTPUT"
+            echo 'native=true' >> "$GITHUB_OUTPUT"
             exit 0
           fi
           if [[ "$GITHUB_EVENT_NAME" == 'pull_request' ]]; then
@@ -93,6 +95,13 @@ jobs:
           changed web apps/web
           changed macos Cargo.toml Cargo.lock Makefile .cargo crates vendor resources/audio apps/menu-bar scripts/create-dmg.sh scripts/package-macos.sh .github/workflows/ci.yml
           changed rust Cargo.toml Cargo.lock Makefile .cargo crates vendor resources/audio apps/capture-cli apps/engine-cli apps/menu-bar apps/rimv-cli apps/transcribe-cli apps/windows scripts/stage-distribution.sh .github/workflows/ci.yml
+          changed native Cargo.toml Cargo.lock .cargo crates vendor resources/audio apps/windows-native apps/windows-native-application apps/windows-native.tests apps/windows-native.integration-tests apps/windows-native.packaging-tests scripts/windows/build-native-package.ps1 .github/workflows/ci.yml .github/workflows/release.yml .github/workflows/windows-native-package.yml
+
+  native-windows:
+    name: Native Windows validation
+    needs: changes
+    if: needs.changes.outputs.native == 'true'
+    uses: ./.github/workflows/windows-native-package.yml
 
   rust:
     name: Rust (Linux x64)

@@ -82,7 +82,7 @@ jobs:
           echo "publish=$publish" >> "$GITHUB_OUTPUT"
 
   prior-validation:
-    name: Require successful CI and native installer run for this commit
+    name: Require CI with native installer validation for this commit
     needs: validate
     runs-on: ubuntu-latest
     outputs:
@@ -104,13 +104,14 @@ jobs:
               | jq -r --arg commit "$COMMIT" '[.workflow_runs[] | select(.head_sha == $commit and .head_branch == "main" and (.event == "push" or .event == "workflow_dispatch"))] | first | .id // empty'
           }
           ci_run="$(find_run ci.yml)"
-          native_run="$(find_run windows-native-package.yml)"
           test -n "$ci_run" || { echo "No successful main-branch CI run exists for $COMMIT." >&2; exit 1; }
-          test -n "$native_run" || { echo "No successful native Windows package and fresh-runner test exists for $COMMIT." >&2; exit 1; }
-          echo "native_run_id=$native_run" >> "$GITHUB_OUTPUT"
-          echo "native_run_url=https://github.com/$GITHUB_REPOSITORY/actions/runs/$native_run" >> "$GITHUB_OUTPUT"
-          echo "CI run: https://github.com/$GITHUB_REPOSITORY/actions/runs/$ci_run" >> "$GITHUB_STEP_SUMMARY"
-          echo "Native package run: https://github.com/$GITHUB_REPOSITORY/actions/runs/$native_run" >> "$GITHUB_STEP_SUMMARY"
+          artifact="rimv-native-windows-x64-$COMMIT"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$ci_run/artifacts?per_page=100" \
+            | jq -e --arg name "$artifact" 'any(.artifacts[]; .name == $name and (.expired | not))' >/dev/null \
+            || { echo "CI run $ci_run has no retained native Windows installer artifact. Re-run CI manually for $COMMIT." >&2; exit 1; }
+          echo "native_run_id=$ci_run" >> "$GITHUB_OUTPUT"
+          echo "native_run_url=https://github.com/$GITHUB_REPOSITORY/actions/runs/$ci_run" >> "$GITHUB_OUTPUT"
+          echo "CI and native package run: https://github.com/$GITHUB_REPOSITORY/actions/runs/$ci_run" >> "$GITHUB_STEP_SUMMARY"
 
   macos-package:
     name: Preserve macOS arm64 release packages

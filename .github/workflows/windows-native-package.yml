@@ -1,50 +1,10 @@
 name: RimV Native Windows Package
 
 on:
-  pull_request:
-    branches: [main]
-    paths:
-      - 'Cargo.toml'
-      - 'Cargo.lock'
-      - '.cargo/**'
-      - 'crates/**'
-      - 'vendor/**'
-      - 'resources/audio/**'
-      - 'apps/windows-native/**'
-      - 'apps/windows-native-application/**'
-      - 'apps/windows-native.tests/**'
-      - 'apps/windows-native.integration-tests/**'
-      - 'apps/windows-native.packaging-tests/**'
-      - 'scripts/windows/build-native-package.ps1'
-      - '.github/workflows/ci.yml'
-      - '.github/workflows/release.yml'
-      - '.github/workflows/windows-native-package.yml'
-  push:
-    branches: [main]
-    paths:
-      - 'Cargo.toml'
-      - 'Cargo.lock'
-      - '.cargo/**'
-      - 'crates/**'
-      - 'vendor/**'
-      - 'resources/audio/**'
-      - 'apps/windows-native/**'
-      - 'apps/windows-native-application/**'
-      - 'apps/windows-native.tests/**'
-      - 'apps/windows-native.integration-tests/**'
-      - 'apps/windows-native.packaging-tests/**'
-      - 'scripts/windows/build-native-package.ps1'
-      - '.github/workflows/ci.yml'
-      - '.github/workflows/release.yml'
-      - '.github/workflows/windows-native-package.yml'
-  workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read
-
-concurrency:
-  group: native-windows-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   CARGO_TERM_COLOR: always
