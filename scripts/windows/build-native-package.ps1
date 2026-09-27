@@ -107,11 +107,30 @@ try {
     $visualStudio = & $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
     if ($LASTEXITCODE -ne 0 -or -not $visualStudio) { throw 'The x64 MSVC toolchain/redistributable is missing.' }
     $redistRoot = Join-Path $visualStudio 'VC\Redist\MSVC'
-    $redistVersion = Get-ChildItem -LiteralPath $redistRoot -Directory | Sort-Object Name -Descending | Select-Object -First 1
-    if (-not $redistVersion) { throw "No VC++ redistributable was found under $redistRoot." }
-    $crtDirectory = Get-ChildItem -LiteralPath (Join-Path $redistVersion.FullName 'x64') -Directory -Filter 'Microsoft.VC*.CRT' |
-        Sort-Object Name -Descending | Select-Object -First 1
-    if (-not $crtDirectory) { throw 'The x64 Microsoft Visual C++ runtime directory was not found.' }
+    $redistBases = [Collections.Generic.List[string]]::new()
+    if ($env:VCToolsRedistDir -and (Test-Path -LiteralPath $env:VCToolsRedistDir -PathType Container)) {
+        $redistBases.Add($env:VCToolsRedistDir)
+    }
+    if (Test-Path -LiteralPath $redistRoot -PathType Container) {
+        foreach ($versionDirectory in Get-ChildItem -LiteralPath $redistRoot -Directory | Sort-Object Name -Descending) {
+            $redistBases.Add($versionDirectory.FullName)
+        }
+    }
+    $crtCandidates = foreach ($redistBase in $redistBases) {
+        $x64Directory = Join-Path $redistBase 'x64'
+        if (Test-Path -LiteralPath $x64Directory -PathType Container) {
+            Get-ChildItem -LiteralPath $x64Directory -Directory -Filter 'Microsoft.VC*.CRT'
+        }
+    }
+    $crtDirectory = $null
+    foreach ($candidate in $crtCandidates | Sort-Object Name -Descending) {
+        $candidateDlls = @(Get-ChildItem -LiteralPath $candidate.FullName -Filter '*.dll' -File)
+        if (($candidateDlls.Name -contains 'vcruntime140.dll') -and ($candidateDlls.Name -contains 'msvcp140.dll')) {
+            $crtDirectory = $candidate
+            break
+        }
+    }
+    if (-not $crtDirectory) { throw "No x64 Microsoft Visual C++ runtime directory containing vcruntime140.dll and msvcp140.dll was found under $redistRoot or VCToolsRedistDir." }
     $crtDlls = @(Get-ChildItem -LiteralPath $crtDirectory.FullName -Filter '*.dll' -File)
     foreach ($requiredCrt in @('vcruntime140.dll', 'msvcp140.dll')) {
         if (-not ($crtDlls.Name -contains $requiredCrt)) { throw "The VC++ runtime is missing $requiredCrt." }
