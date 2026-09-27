@@ -85,13 +85,13 @@ Expand-Archive .\rimv-transcribe-<version>-windows-x64.zip
 Set-Location .\rimv-<version>-transcribe-windows-x64
 ```
 
-The Windows desktop installer is per-user and installs WebView2 with Microsoft's
-bootstrapper when the runtime is missing, so first installation may need an
-internet connection. Desktop models and recordings are stored under
-`%LOCALAPPDATA%\RimV`; uninstalling the app leaves this user data in place.
-Run a newer per-user installer to update the app; use **Settings → Apps →
-Installed apps** to uninstall it. Neither action removes the separate user-data
-folder.
+The Windows desktop installer is a per-user native WinUI 3 application package.
+It includes the self-contained Windows app and shared Rust runtime; speech
+models are downloaded separately. Models and recordings are stored under
+`%LOCALAPPDATA%\RimV`. Run a newer per-user installer to update the app; use
+**Settings → Apps → Installed apps** to uninstall it. Upgrades and uninstall
+preserve the separate user-data folder. See [Windows installation and
+validation](docs/windows-native-installation.md) for package details.
 Release installers are code-signed only when the `WINDOWS_SIGNING_CERTIFICATE`
 (base64 PFX) and `WINDOWS_SIGNING_PASSWORD` repository secrets are configured
 for the release workflow. Model weights are never bundled.
@@ -124,9 +124,10 @@ Privacy & Security**. Quit and reopen rimv after changing a permission.
 
 This beta publishes macOS arm64 artifacts and Windows x64 preview artifacts.
 Model weights are not included, transcription is VAD-segmented rather than
-true streaming ASR, and the Server and web UI remain experimental. Windows has
-not yet been runtime-tested on hardware; Linux binaries are not public beta
-downloads.
+true streaming ASR, and the Server and web UI remain experimental. Automated
+Windows installer lifecycle checks pass; interactive UI and audio-device
+validation on Windows hardware remain pending. Linux binaries are not public
+beta downloads.
 
 ## Architecture
 
@@ -171,7 +172,7 @@ All beta distributions come from the same repository, engine, and version.
 | rimv Capture | `rimv-capture`, capture runtime, no ASR/model manager/model weights | Staged locally on macOS arm64 |
 | rimv Transcribe | `rimv`, capture, VAD, ASR runtime, model manager, native ASR libraries | Staged locally on macOS arm64; model weights installed separately |
 | rimv Server | `rimv serve`, same runtime libraries as Transcribe | Experimental; binds to `127.0.0.1` by default |
-| RimV Desktop for Windows | Tauri desktop app with ASR runtime DLLs; model weights are installed separately | Per-user NSIS installer; Windows hardware runtime validation remains open |
+| RimV Desktop for Windows | Native WinUI 3 app using the shared Rust core and ASR runtime DLLs; model weights are installed separately | Per-user NSIS installer; automated install lifecycle passes, interactive Windows validation remains open |
 | rimv Full | Ready-to-use Transcribe with bundled model weights | Omitted from this beta until third-party model redistribution terms are verified |
 
 Model weights are not bundled in the beta staging output.
@@ -181,7 +182,7 @@ Model weights are not bundled in the beta staging output.
 | Platform | Build status | Runtime capture | Transcription | Release status |
 |---|---|---|---|---|
 | macOS arm64 | Verified locally | Microphone and ScreenCaptureKit system capture have been exercised on this host | Parakeet path has been exercised on this host | Primary beta target |
-| Windows x64 | CLI archives and a per-user Tauri installer are built by the release workflow | Microphone and WASAPI loopback adapter exist in code, but were not runtime-tested on Windows hardware | Not runtime-tested | Preview public beta artifacts; installer signature depends on release signing configuration |
+| Windows x64 | CLI archives and a per-user NSIS installer for the native WinUI 3 app are built by the release workflow | Installer startup/install/reinstall/uninstall and user-data preservation pass in automated CI; microphone and WASAPI loopback remain untested on Windows hardware | Not runtime-tested | Preview public beta artifacts; installer signature depends on release signing configuration |
 | Linux x64 | Scheduled/manual validation configured | Microphone uses CPAL/ALSA; system capture is explicitly unsupported pending PipeWire | Not runtime-tested | Experimental/partial; no public beta binary |
 
 Compilation alone does not mean runtime support. Hardware and permission-based
@@ -395,13 +396,14 @@ redistribution has not been verified.
 
 ## Release Pipeline
 
-`.github/workflows/release.yml` validates release tags, runs one locked Linux
-quality gate for the exact tagged commit, then builds macOS arm64 and Windows
-x64 CLI packages plus the Windows Tauri installer. It inspects package
-contents, generates `SHA256SUMS`, and publishes a GitHub Release only for tag
-pushes. Windows remains a preview release target pending hardware/runtime
-validation; Linux remains a scheduled/manual validation target and does not
-publish beta artifacts. Manual `workflow_dispatch` runs are dry runs: they
+`.github/workflows/release.yml` validates release tags, requires the exact
+main-branch CI run to pass its shared Rust, Windows application, native payload,
+and installer lifecycle checks, then builds macOS arm64 and Windows x64 CLI
+packages plus the native WinUI 3 NSIS installer. It inspects package contents,
+generates `SHA256SUMS`, and publishes a GitHub Release only for tag pushes.
+Windows remains a preview release target pending interactive UI and hardware
+audio validation; Linux remains a scheduled/manual validation target and does
+not publish beta artifacts. Manual `workflow_dispatch` runs are dry runs: they
 build and upload workflow artifacts but do not publish a GitHub Release.
 
 For `v0.1.0-beta`, the public release attaches:
@@ -492,7 +494,7 @@ beta release flow.
 
 ## Roadmap
 
-- Add CI coverage across macOS, Windows, and Linux.
+- Manually validate the native Windows tray, accessibility, and display scaling.
 - Runtime-test Windows microphone, WASAPI loopback, and transcription.
 - Add Linux PipeWire system capture.
 - Decide whether rimv Full can bundle model weights after verifying

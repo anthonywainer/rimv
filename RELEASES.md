@@ -24,10 +24,13 @@ Voice.
 | Platform | Interface in this beta |
 |---|---|
 | macOS | Native menu-bar popover for capture status and source selection, with native model/language selectors and recording/transcript windows. |
-| Windows | Tauri desktop window with Capture, Models, Recordings, and Settings sections, plus a notification-area menu. Capture offers microphone, system audio, or both; recordings include transcript viewing, audio playback when capture has stopped, rename/delete, and TXT/JSON export. |
+| Windows | Native WinUI 3 desktop application with a notification-area menu, independent language/model/recordings/transcription windows, and native settings. It uses the shared Rust core for model management, sessions, transcripts, and exports. The existing HTML/Tauri Windows app remains a separate implementation. |
 
-The Windows interface is a preview and still needs runtime validation on Windows
-hardware. macOS remains the reference UI for feature behavior and visual review.
+The native Windows installer has passed automated clean-install, first-launch,
+reinstall, uninstall, and user-data-preservation checks on GitHub Actions.
+Interactive tray behavior, accessibility/scaling, and physical microphone and
+WASAPI capture still need validation on Windows hardware. macOS remains the
+reference UI for feature behavior and visual review.
 
 ### Distributions
 
@@ -36,7 +39,7 @@ hardware. macOS remains the reference UI for feature behavior and visual review.
 | rimv Capture | Lightweight capture-only package | `rimv-capture`, `LICENSE`, distribution metadata |
 | rimv Transcribe | Capture plus local transcription runtime | `rimv`, native ASR runtime libraries, `LICENSE`, distribution metadata |
 | rimv Server | Experimental localhost API package | `rimv`, native ASR runtime libraries, `LICENSE`, distribution metadata |
-| RimV Desktop for Windows | Per-user Windows desktop app installer | Tauri app, WebView2 bootstrapper, Sherpa/ONNX runtime DLLs; model weights remain separate |
+| RimV Desktop for Windows | Per-user Windows desktop app installer | Native WinUI 3/.NET app, shared Rust core and native ASR runtime DLLs; model weights remain separate |
 | rimv Full | Ready-to-use transcription package with bundled model weights | Omitted from this beta |
 
 The macOS menu-bar application is distributed separately from these CLI
@@ -52,7 +55,7 @@ configured separately.
 | Platform | Status |
 |---|---|
 | macOS arm64 | Primary beta target. Workspace checks, staged Capture/Transcribe/Server outputs, and previous local microphone/system/transcription runs were exercised on this host. |
-| Windows x64 | Preview release. The release workflow produces CLI archives and a per-user Tauri installer, but the application has not been runtime-tested on Windows hardware. Installers are signed only when protected release signing credentials are configured. |
+| Windows x64 | Preview release. The release workflow produces CLI archives and a per-user NSIS installer for the native WinUI 3 app. Automated install, startup, reinstall, uninstall, and user-data-preservation checks pass; interactive UI and hardware audio validation remain pending. Installers are signed only when protected release signing credentials are configured. |
 | Linux x64 | Experimental/partial. Microphone capture uses CPAL/ALSA. System audio capture is unsupported pending a PipeWire backend; no public beta binary is published. |
 
 Compilation does not imply runtime support. Capture permissions, audio devices,
@@ -64,8 +67,8 @@ and model runtime behavior must be validated on real target machines.
   segments; it is not true streaming ASR.
 - Model weights are not bundled in beta artifacts.
 - Linux system audio capture is not implemented.
-- Windows capture and transcription need runtime validation on Windows hardware.
-- The Windows installer downloads WebView2 Bootstrapper when needed; first install then requires internet access. Uninstall preserves `%LOCALAPPDATA%\RimV` user data.
+- Windows tray/accessibility behavior and microphone/WASAPI capture need runtime validation on Windows hardware.
+- The native Windows installer is unsigned unless signing credentials are configured. Uninstall preserves `%LOCALAPPDATA%\RimV` user data.
 - The local server and web UI are experimental.
 - macOS community builds are unsigned or ad-hoc signed and not notarized.
 

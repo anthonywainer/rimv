@@ -141,43 +141,42 @@ jobs:
             if ($LASTEXITCODE -ne 0) { throw 'NSIS 3.11.0 installation failed.' }
           }
 
-      # Temporarily skip independent quality/test steps to shorten the uninstall-debug run.
-      # - name: Check Rust formatting
-      #   run: cargo fmt --all -- --check
-      #
-      # - name: Test shared Rust core and FFI
-      #   run: cargo test --locked -p app-paths -p audio-core -p audio-capture -p engine-protocol -p engine-runtime -p model-manager -p rimv-ffi -p speech-transcription
-      #
-      # - name: Restore locked .NET test projects
-      #   shell: pwsh
-      #   run: |
-      #     dotnet restore apps/windows-native.tests/RimV.Windows.UnitTests.csproj --locked-mode -p:NuGetAudit=false
-      #     if ($LASTEXITCODE -ne 0) { throw '.NET unit test restore failed.' }
-      #     dotnet restore apps/windows-native.integration-tests/RimV.Windows.IntegrationTests.csproj --locked-mode -p:NuGetAudit=false
-      #     if ($LASTEXITCODE -ne 0) { throw '.NET FFI integration restore failed.' }
-      #
-      # - name: Test portable Windows application coordination
-      #   run: dotnet test apps/windows-native.tests/RimV.Windows.UnitTests.csproj --configuration Release --no-restore -p:NuGetAudit=false
+      - name: Check Rust formatting
+        run: cargo fmt --all -- --check
+
+      - name: Test shared Rust core and FFI
+        run: cargo test --locked -p app-paths -p audio-core -p audio-capture -p engine-protocol -p engine-runtime -p model-manager -p rimv-ffi -p speech-transcription
+
+      - name: Restore locked .NET test projects
+        shell: pwsh
+        run: |
+          dotnet restore apps/windows-native.tests/RimV.Windows.UnitTests.csproj --locked-mode -p:NuGetAudit=false
+          if ($LASTEXITCODE -ne 0) { throw '.NET unit test restore failed.' }
+          dotnet restore apps/windows-native.integration-tests/RimV.Windows.IntegrationTests.csproj --locked-mode -p:NuGetAudit=false
+          if ($LASTEXITCODE -ne 0) { throw '.NET FFI integration restore failed.' }
+
+      - name: Test portable Windows application coordination
+        run: dotnet test apps/windows-native.tests/RimV.Windows.UnitTests.csproj --configuration Release --no-restore -p:NuGetAudit=false
 
       - name: Build the self-contained WinUI and shared Rust payload
         shell: pwsh
         run: ./scripts/windows/build-native-package.ps1
 
-      # - name: Test the built Windows Rust ABI through C#
-      #   shell: pwsh
-      #   env:
-      #     RIMV_CORE_FFI_DLL: ${{ github.workspace }}\target\windows-native-package\cargo-target\x86_64-pc-windows-msvc\release\rimv_core_ffi.dll
-      #   run: dotnet test apps/windows-native.integration-tests/RimV.Windows.IntegrationTests.csproj --configuration Release --no-restore -p:NuGetAudit=false
-      #
-      # - name: Verify production payload and native dependencies
-      #   shell: pwsh
-      #   run: |
-      #     $manifest = Get-ChildItem target/windows-native-package/artifacts/*-manifest.json | Select-Object -First 1
-      #     if (-not $manifest) { throw 'The package manifest was not generated.' }
-      #     ./apps/windows-native.packaging-tests/Test-NativePackage.ps1 `
-      #       -Mode Payload `
-      #       -ManifestPath $manifest.FullName `
-      #       -PayloadDirectory (Join-Path $env:GITHUB_WORKSPACE 'target/windows-native-package/payload')
+      - name: Test the built Windows Rust ABI through C#
+        shell: pwsh
+        env:
+          RIMV_CORE_FFI_DLL: ${{ github.workspace }}\target\windows-native-package\cargo-target\x86_64-pc-windows-msvc\release\rimv_core_ffi.dll
+        run: dotnet test apps/windows-native.integration-tests/RimV.Windows.IntegrationTests.csproj --configuration Release --no-restore -p:NuGetAudit=false
+
+      - name: Verify production payload and native dependencies
+        shell: pwsh
+        run: |
+          $manifest = Get-ChildItem target/windows-native-package/artifacts/*-manifest.json | Select-Object -First 1
+          if (-not $manifest) { throw 'The package manifest was not generated.' }
+          ./apps/windows-native.packaging-tests/Test-NativePackage.ps1 `
+            -Mode Payload `
+            -ManifestPath $manifest.FullName `
+            -PayloadDirectory (Join-Path $env:GITHUB_WORKSPACE 'target/windows-native-package/payload')
 
       - name: Report cache use and package identity
         if: always()
