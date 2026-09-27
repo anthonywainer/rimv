@@ -168,7 +168,7 @@ impl RecordingLibrary {
         if let Some(session) = snapshot
             .session
             .as_ref()
-            .filter(|s| Self::active(&snapshot, &s.id.0))
+            .filter(|s| Self::active(snapshot, &s.id.0))
             && let Ok(directory) = self.directory(&session.id.0)
             && Path::new(&session.recording_directory)
                 .canonicalize()
@@ -200,7 +200,7 @@ impl RecordingLibrary {
             };
             output.push(Self::summary(&directory, &id, &metadata, "completed"));
         }
-        output.sort_by(|a, b| b.started_at_unix_ms.cmp(&a.started_at_unix_ms));
+        output.sort_by_key(|summary| std::cmp::Reverse(summary.started_at_unix_ms));
         Ok(output)
     }
 
