@@ -10,6 +10,7 @@ public sealed partial class ShellWindow : Window
     private readonly AppCoordinator _coordinator;
     private readonly AppWindow _appWindow;
     private bool _isVisible;
+    private bool _isActive;
     private bool _changingSource;
     private LanguageWindow? _languageWindow;
     private ModelManagerWindow? _modelWindow;
@@ -30,7 +31,6 @@ public sealed partial class ShellWindow : Window
         presenter.IsResizable = false;
         presenter.IsMaximizable = false;
         presenter.IsMinimizable = false;
-        presenter.IsAlwaysOnTop = true;
         _appWindow.SetPresenter(presenter);
         _appWindow.Closing += AppWindow_Closing;
         Activated += ShellWindow_Activated;
@@ -52,20 +52,27 @@ public sealed partial class ShellWindow : Window
 
     private void ShellWindow_Activated(object sender, WindowActivatedEventArgs args)
     {
-        if (args.WindowActivationState == WindowActivationState.Deactivated && _isVisible)
-            HidePopup();
+        _isActive = args.WindowActivationState != WindowActivationState.Deactivated;
     }
 
     public void ToggleNearTray()
     {
-        if (_isVisible)
+        if (_isVisible && _isActive)
         {
             HidePopup();
             return;
         }
-        PositionNearTaskbar();
+        ShowFromActivation();
+    }
+
+    public void ShowFromActivation()
+    {
+        if (!_isVisible)
+        {
+            PositionNearTaskbar();
+            _isVisible = true;
+        }
         Activate();
-        _isVisible = true;
         Render();
     }
 
@@ -107,6 +114,7 @@ public sealed partial class ShellWindow : Window
     private void HidePopup()
     {
         _isVisible = false;
+        _isActive = false;
         _appWindow.Hide();
     }
 

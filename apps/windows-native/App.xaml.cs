@@ -7,7 +7,12 @@ namespace RimV.Windows;
 
 public partial class App : Microsoft.UI.Xaml.Application
 {
+    private const string InstanceMutexName = "Local\\RimV.Native.Windows.v01";
+    private const string ActivationEventName = "Local\\RimV.Native.Windows.v01.Activate";
     private Mutex? _instanceMutex;
+    private EventWaitHandle? _activationEvent;
+    private CancellationTokenSource? _activationCancellation;
+    private Task? _activationListener;
     private TrayIcon? _tray;
     private ShellWindow? _shell;
 
@@ -24,9 +29,20 @@ public partial class App : Microsoft.UI.Xaml.Application
 
     protected override async void OnLaunched(LaunchActivatedEventArgs args)
     {
-        _instanceMutex = new Mutex(initiallyOwned: true, "Local\\RimV.Native.Windows.v01", out bool firstInstance);
+        EventWaitHandle activationEvent = new(
+            initialState: false,
+            EventResetMode.AutoReset,
+            ActivationEventName);
+        _activationEvent = activationEvent;
+        Mutex instanceMutex = new(initiallyOwned: true, InstanceMutexName, out bool firstInstance);
+        _instanceMutex = instanceMutex;
         if (!firstInstance)
         {
+            activationEvent.Set();
+            activationEvent.Dispose();
+            _activationEvent = null;
+            instanceMutex.Dispose();
+            _instanceMutex = null;
             Exit();
             return;
         }
@@ -42,6 +58,10 @@ public partial class App : Microsoft.UI.Xaml.Application
         ThemeManager = new ThemeManager(Coordinator);
         _shell = new ShellWindow(Coordinator);
         _tray = new TrayIcon(_shell);
+        CancellationTokenSource activationCancellation = new();
+        _activationCancellation = activationCancellation;
+        CancellationToken activationToken = activationCancellation.Token;
+        _activationListener = Task.Run(() => ListenForActivation(activationToken));
         try
         {
             _tray.Initialize();
@@ -66,6 +86,27 @@ public partial class App : Microsoft.UI.Xaml.Application
         }
     }
 
+    private void ListenForActivation(CancellationToken cancellationToken)
+    {
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            try
+            {
+                _activationEvent?.WaitOne();
+            }
+            catch (ObjectDisposedException)
+            {
+                return;
+            }
+
+            if (cancellationToken.IsCancellationRequested) return;
+            UiQueue.TryEnqueue(() =>
+            {
+                if (!IsShuttingDown) _shell?.ShowFromActivation();
+            });
+        }
+    }
+
     public void TogglePopup()
     {
         _shell?.ToggleNearTray();
@@ -81,6 +122,12 @@ public partial class App : Microsoft.UI.Xaml.Application
     {
         if (IsShuttingDown) return;
         IsShuttingDown = true;
+        _activationCancellation?.Cancel();
+        _activationEvent?.Set();
+        if (_activationListener is not null) await _activationListener;
+        _activationEvent?.Dispose();
+        _activationEvent = null;
+        _activationCancellation?.Dispose();
         ThemeManager.Dispose();
         _tray?.Dispose();
         try
