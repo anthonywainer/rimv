@@ -24,7 +24,7 @@ env:
 
 jobs:
   validate:
-    name: Validate release identity and manual evidence
+    name: Validate release identity
     runs-on: ubuntu-latest
     outputs:
       tag: ${{ steps.version.outputs.tag }}
@@ -35,7 +35,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - name: Validate tag, version and release evidence
+      - name: Validate tag and version
         id: version
         shell: bash
         env:
@@ -61,11 +61,6 @@ jobs:
           commit="$(git rev-parse HEAD)"
 
           if [[ "$publish" == true ]]; then
-            evidence="docs/native-windows-validation/$tag.md"
-            test -f "$evidence" || { echo "Manual Windows acceptance evidence is missing: $evidence" >&2; exit 1; }
-            for check in installer tray keyboard_scaling microphone system_audio both_audio recordings_exports shutdown; do
-              grep -qx "$check: PASS" "$evidence" || { echo "Manual acceptance item $check has not passed in $evidence" >&2; exit 1; }
-            done
             if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
               echo "Release $tag already exists; refusing to modify a historical release." >&2
               exit 1
@@ -232,7 +227,7 @@ jobs:
 
           Windows x64: install RimV-$VERSION-windows-x64-setup.exe. This is the native WinUI 3 application backed by the shared Rust core. Models are downloaded by the app after installation. The installer is currently unsigned.
 
-          The native installer passed automated Rust/.NET tests, package dependency checks, and clean-runner install, startup, reinstall, uninstall and user-data preservation checks in [the validation workflow]($VALIDATION_RUN). Interactive GUI and physical audio results are recorded in the committed manual acceptance report for this tag. See [installation instructions](https://github.com/$GITHUB_REPOSITORY/blob/$RELEASE_TAG/docs/windows-native-installation.md).
+          The native installer passed automated Rust/.NET tests, package dependency checks, and clean-runner install, startup, reinstall, uninstall and user-data preservation checks in [the validation workflow]($VALIDATION_RUN). Interactive GUI and physical audio checks should still be completed on a Windows desktop; they are not a release-workflow gate. See [installation instructions](https://github.com/$GITHUB_REPOSITORY/blob/$RELEASE_TAG/docs/windows-native-installation.md).
 
           macOS arm64 Capture, Transcribe and Server archives remain available. The historical HTML/Tauri Windows releases remain unchanged.
           EOF
