@@ -345,11 +345,19 @@ impl RecordingLibrary {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExportFormat {
     Txt,
+    PlainText,
     Json,
 }
 
 fn format_transcript(transcript: &[TranscriptLine], format: ExportFormat) -> Result<Vec<u8>> {
     match format {
+        ExportFormat::PlainText => Ok(transcript
+            .iter()
+            .map(|line| line.text.trim())
+            .filter(|text| !text.is_empty())
+            .collect::<Vec<_>>()
+            .join("\n\n")
+            .into_bytes()),
         ExportFormat::Json => {
             serde_json::to_vec_pretty(transcript).map_err(RecordingLibrary::error)
         }
@@ -444,6 +452,12 @@ mod tests {
         assert_eq!(
             library.export(&engine, &id, ExportFormat::Txt).unwrap(),
             "[10–40 ms] Microphone: hello\n".as_bytes()
+        );
+        assert_eq!(
+            library
+                .export(&engine, &id, ExportFormat::PlainText)
+                .unwrap(),
+            b"hello"
         );
         let json: Vec<TranscriptLine> =
             serde_json::from_slice(&library.export(&engine, &id, ExportFormat::Json).unwrap())

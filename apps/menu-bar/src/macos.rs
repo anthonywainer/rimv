@@ -165,7 +165,7 @@ pub unsafe extern "C" fn rimv_recording_export(
             return Err("export arguments must be UTF-8".to_owned());
         };
         let format = match format {
-            "txt" => engine_runtime::ExportFormat::Txt,
+            "txt" => engine_runtime::ExportFormat::PlainText,
             "json" => engine_runtime::ExportFormat::Json,
             _ => return Err("unsupported transcript export format".into()),
         };
