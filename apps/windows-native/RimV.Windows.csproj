@@ -6,6 +6,7 @@
     <UseWinUI>true</UseWinUI>
     <WindowsPackageType>None</WindowsPackageType>
     <AppxPackage>false</AppxPackage>
+    <EnableMsixTooling>true</EnableMsixTooling>
     <WindowsAppSDKSelfContained>false</WindowsAppSDKSelfContained>
     <RootNamespace>RimV.Windows</RootNamespace>
     <AssemblyName>RimV.Windows</AssemblyName>

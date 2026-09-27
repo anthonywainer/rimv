@@ -76,6 +76,7 @@ try {
         -p:Platform=x64 `
         -p:SelfContained=true `
         -p:WindowsAppSDKSelfContained=true `
+        -p:EnableMsixTooling=true `
         -p:BuildRimvCore=false `
         -p:NuGetAudit=false
     if ($LASTEXITCODE -ne 0) { throw 'The locked native WinUI restore failed.' }
@@ -90,6 +91,10 @@ try {
         -p:Platform=x64 `
         -p:BuildRimvCore=false `
         -p:WindowsAppSDKSelfContained=true `
+        -p:EnableMsixTooling=true `
+        -p:PublishTrimmed=false `
+        -p:PublishSingleFile=false `
+        -p:PublishReadyToRun=false `
         -p:Version=$appVersion `
         -p:InformationalVersion=$appVersion `
         -p:IncludeSourceRevisionInInformationalVersion=false `
