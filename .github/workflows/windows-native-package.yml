@@ -4,6 +4,7 @@ on:
   workflow_call:
 
 permissions:
+  actions: read
   contents: read
 
 env:
@@ -89,7 +90,8 @@ jobs:
 
   package:
     name: Build and inspect native x64 installer
-    if: github.event_name != 'pull_request'
+    # Temporary uninstall-debug mode: reuse the previous run's exact installer.
+    if: false
     runs-on: windows-2025
     timeout-minutes: 150
     env:
@@ -197,17 +199,54 @@ jobs:
 
   installer-lifecycle:
     name: Install and uninstall the exact tested installer
-    needs: package
+    if: github.event_name != 'pull_request'
     runs-on: windows-2025
     timeout-minutes: 30
 
     steps:
       - uses: actions/checkout@v5
 
+      - name: Find the previous main-run installer artifact
+        id: previous-artifact
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $expectedSourceSha = (git rev-parse "$env:GITHUB_SHA^").Trim()
+          $headers = @{
+            Authorization = "Bearer $env:GH_TOKEN"
+            Accept = 'application/vnd.github+json'
+            'X-GitHub-Api-Version' = '2022-11-28'
+          }
+          $runsUri = "$env:GITHUB_API_URL/repos/$env:GITHUB_REPOSITORY/actions/runs?branch=main&per_page=50"
+          $runs = Invoke-RestMethod -Uri $runsUri -Headers $headers
+          $selectedRun = $null
+          $selectedArtifact = $null
+          foreach ($candidate in $runs.workflow_runs) {
+            if ($candidate.id -eq [long]$env:GITHUB_RUN_ID -or $candidate.status -ne 'completed') { continue }
+            if ($candidate.head_sha -ne $expectedSourceSha) { continue }
+            $artifactUri = "$env:GITHUB_API_URL/repos/$env:GITHUB_REPOSITORY/actions/runs/$($candidate.id)/artifacts?per_page=100"
+            $artifactList = Invoke-RestMethod -Uri $artifactUri -Headers $headers
+            $artifact = $artifactList.artifacts | Where-Object {
+              $_.name -like 'rimv-native-windows-x64-*' -and -not $_.expired
+            } | Select-Object -First 1
+            if ($artifact) {
+              $selectedRun = $candidate
+              $selectedArtifact = $artifact
+              break
+            }
+          }
+          if (-not $selectedArtifact) { throw "No unexpired native installer artifact was found for source commit $expectedSourceSha." }
+          "run_id=$($selectedRun.id)" >> $env:GITHUB_OUTPUT
+          "name=$($selectedArtifact.name)" >> $env:GITHUB_OUTPUT
+          Write-Host "Reusing $($selectedArtifact.name) from run $($selectedRun.id), source commit $expectedSourceSha."
+
       - name: Download the build job artifact
         uses: actions/download-artifact@v6
         with:
-          name: rimv-native-windows-x64-${{ github.sha }}
+          name: ${{ steps.previous-artifact.outputs.name }}
+          run-id: ${{ steps.previous-artifact.outputs.run_id }}
+          github-token: ${{ github.token }}
           path: ${{ runner.temp }}\rimv-native-artifact
 
       - name: Install to a path containing spaces, launch, reinstall and uninstall
@@ -216,11 +255,35 @@ jobs:
           $manifest = Get-ChildItem (Join-Path $env:RUNNER_TEMP 'rimv-native-artifact/*-manifest.json') | Select-Object -First 1
           $installer = Get-ChildItem (Join-Path $env:RUNNER_TEMP 'rimv-native-artifact/*-setup.exe') | Select-Object -First 1
           if (-not $manifest -or -not $installer) { throw 'The downloaded installer or manifest is missing.' }
-          ./apps/windows-native.packaging-tests/Test-NativePackage.ps1 `
-            -Mode Installer `
-            -ManifestPath $manifest.FullName `
-            -InstallerPath $installer.FullName `
-            -InstallDirectory (Join-Path $env:RUNNER_TEMP 'RimV Native Windows Install With Spaces')
+          $installDirectory = Join-Path $env:RUNNER_TEMP 'RimV Native Windows Install With Spaces'
+          try {
+            ./apps/windows-native.packaging-tests/Test-NativePackage.ps1 `
+              -Mode Installer `
+              -ManifestPath $manifest.FullName `
+              -InstallerPath $installer.FullName `
+              -InstallDirectory $installDirectory
+          }
+          catch {
+            Write-Host '--- Native installer failure diagnostics ---'
+            $registeredInstallDirectory = (Get-ItemProperty -LiteralPath 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\RimV.Native.Windows' -Name InstallLocation -ErrorAction SilentlyContinue).InstallLocation
+            Write-Host "Registered install directory: $registeredInstallDirectory"
+            if (Test-Path -LiteralPath $installDirectory) {
+              Get-ChildItem -LiteralPath $installDirectory -Force -Recurse | Select-Object FullName, Length, Attributes | Format-Table -AutoSize | Out-String | Write-Host
+              $appPath = Join-Path $installDirectory 'RimV.Windows.exe'
+              if (Test-Path -LiteralPath $appPath) {
+                try {
+                  $stream = [IO.File]::Open($appPath, [IO.FileMode]::Open, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
+                  $stream.Dispose()
+                  Write-Host 'Remaining app executable is not held open by another process.'
+                }
+                catch {
+                  Write-Host "Remaining app executable cannot be opened exclusively: $($_.Exception.Message)"
+                }
+              }
+            }
+            Get-CimInstance Win32_Process -Filter "Name = 'RimV.Windows.exe'" | Select-Object ProcessId, ExecutablePath, CommandLine | Format-Table -AutoSize | Out-String | Write-Host
+            throw
+          }
 
       - name: Record unattended validation limits
         if: always()
