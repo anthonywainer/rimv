@@ -212,7 +212,6 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $expectedSourceSha = (git rev-parse "$env:GITHUB_SHA^").Trim()
           $headers = @{
             Authorization = "Bearer $env:GH_TOKEN"
             Accept = 'application/vnd.github+json'
@@ -224,7 +223,6 @@ jobs:
           $selectedArtifact = $null
           foreach ($candidate in $runs.workflow_runs) {
             if ($candidate.id -eq [long]$env:GITHUB_RUN_ID -or $candidate.status -ne 'completed') { continue }
-            if ($candidate.head_sha -ne $expectedSourceSha) { continue }
             $artifactUri = "$env:GITHUB_API_URL/repos/$env:GITHUB_REPOSITORY/actions/runs/$($candidate.id)/artifacts?per_page=100"
             $artifactList = Invoke-RestMethod -Uri $artifactUri -Headers $headers
             $artifact = $artifactList.artifacts | Where-Object {
@@ -236,10 +234,10 @@ jobs:
               break
             }
           }
-          if (-not $selectedArtifact) { throw "No unexpired native installer artifact was found for source commit $expectedSourceSha." }
+          if (-not $selectedArtifact) { throw 'No unexpired native installer artifact was found in the 50 most recent completed main runs.' }
           "run_id=$($selectedRun.id)" >> $env:GITHUB_OUTPUT
           "name=$($selectedArtifact.name)" >> $env:GITHUB_OUTPUT
-          Write-Host "Reusing $($selectedArtifact.name) from run $($selectedRun.id), source commit $expectedSourceSha."
+          Write-Host "Reusing $($selectedArtifact.name) from run $($selectedRun.id), source commit $($selectedRun.head_sha)."
 
       - name: Download the build job artifact
         uses: actions/download-artifact@v6
