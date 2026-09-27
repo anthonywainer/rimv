@@ -167,7 +167,12 @@ try {
     # Hosted Windows runners have no reliable interactive tray session to exercise Quit.
     # Stop the smoke process so the installer/uninstaller lifecycle can continue.
     $process.Kill($true)
-    $process.WaitForExit(10000) | Out-Null
+    if (-not $process.WaitForExit(30000)) {
+        throw 'The installed WinUI process did not exit after termination; refusing to test uninstall against a running app.'
+    }
+    $process.Refresh()
+    Assert-Condition $process.HasExited 'The installed WinUI process is still running; refusing to test uninstall.'
+    $process.Dispose()
     $process = $null
 
     $recordingsDirectory = Join-Path $dataDirectory 'recordings'

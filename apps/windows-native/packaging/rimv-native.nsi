@@ -119,6 +119,15 @@ Function LaunchRimV
 FunctionEnd
 
 Function un.onInit
+  ; Silent uninstaller launches may run from a temporary copy and do not
+  ; reliably initialize $INSTDIR. Restore the recorded install location.
+  ReadRegStr $INSTDIR HKCU "${PRODUCT_KEY}" "InstallLocation"
+  ${If} $INSTDIR == ""
+    MessageBox MB_OK|MB_ICONSTOP "RimV's install location could not be found. The application files were not removed."
+    SetErrorLevel 1
+    Abort
+  ${EndIf}
+
   System::Call 'kernel32::OpenMutexW(i 0x00100000, i 0, w "${APP_MUTEX}") p.r0'
   ${If} $0 != 0
     System::Call 'kernel32::CloseHandle(p r0)'
@@ -132,7 +141,16 @@ Section "Uninstall"
   Delete "$SMPROGRAMS\RimV\RimV Native Windows.lnk"
   RMDir "$SMPROGRAMS\RimV"
   Delete "$DESKTOP\RimV Native Windows.lnk"
-  DeleteRegKey HKCU "${PRODUCT_KEY}"
+  ; RMDir cannot remove the current working directory. Keep it outside $INSTDIR.
+  SetOutPath "$TEMP"
+  ClearErrors
   RMDir /r "$INSTDIR"
+  IfErrors uninstall_failed
   ; User data lives under %LOCALAPPDATA%\RimV, outside $INSTDIR, and is preserved.
+  DeleteRegKey HKCU "${PRODUCT_KEY}"
+  Goto uninstall_done
+
+  uninstall_failed:
+    SetErrorLevel 1
+  uninstall_done:
 SectionEnd
