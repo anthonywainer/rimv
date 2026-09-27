@@ -217,27 +217,18 @@ jobs:
             Accept = 'application/vnd.github+json'
             'X-GitHub-Api-Version' = '2022-11-28'
           }
-          $runsUri = "$env:GITHUB_API_URL/repos/$env:GITHUB_REPOSITORY/actions/runs?branch=main&per_page=50"
-          $runs = Invoke-RestMethod -Uri $runsUri -Headers $headers
-          $selectedRun = $null
-          $selectedArtifact = $null
-          foreach ($candidate in $runs.workflow_runs) {
-            if ($candidate.id -eq [long]$env:GITHUB_RUN_ID -or $candidate.status -ne 'completed') { continue }
-            $artifactUri = "$env:GITHUB_API_URL/repos/$env:GITHUB_REPOSITORY/actions/runs/$($candidate.id)/artifacts?per_page=100"
-            $artifactList = Invoke-RestMethod -Uri $artifactUri -Headers $headers
-            $artifact = $artifactList.artifacts | Where-Object {
-              $_.name -like 'rimv-native-windows-x64-*' -and -not $_.expired
-            } | Select-Object -First 1
-            if ($artifact) {
-              $selectedRun = $candidate
-              $selectedArtifact = $artifact
-              break
-            }
-          }
-          if (-not $selectedArtifact) { throw 'No unexpired native installer artifact was found in the 50 most recent completed main runs.' }
-          "run_id=$($selectedRun.id)" >> $env:GITHUB_OUTPUT
+          $artifactsUri = "$env:GITHUB_API_URL/repos/$env:GITHUB_REPOSITORY/actions/artifacts?per_page=100"
+          $artifactList = Invoke-RestMethod -Uri $artifactsUri -Headers $headers
+          $selectedArtifact = $artifactList.artifacts | Where-Object {
+            $_.name -like 'rimv-native-windows-x64-*' -and
+              -not $_.expired -and
+              $_.workflow_run.head_branch -eq 'main' -and
+              $_.workflow_run.id -ne [long]$env:GITHUB_RUN_ID
+          } | Sort-Object created_at -Descending | Select-Object -First 1
+          if (-not $selectedArtifact) { throw 'No unexpired native installer artifact was found in the repository artifact list.' }
+          "run_id=$($selectedArtifact.workflow_run.id)" >> $env:GITHUB_OUTPUT
           "name=$($selectedArtifact.name)" >> $env:GITHUB_OUTPUT
-          Write-Host "Reusing $($selectedArtifact.name) from run $($selectedRun.id), source commit $($selectedRun.head_sha)."
+          Write-Host "Reusing $($selectedArtifact.name) from run $($selectedArtifact.workflow_run.id), source commit $($selectedArtifact.workflow_run.head_sha)."
 
       - name: Download the build job artifact
         uses: actions/download-artifact@v6
