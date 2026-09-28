@@ -70,8 +70,49 @@ public sealed class PopupAndSelectorPolicyTests
 
         Assert.Equal(["en", "es", "fr", "ja"], LanguageSelectorPolicy.OrderSupported(supported));
         Assert.Equal("Spanish", Assert.Single(LanguageSelectorPolicy.Search(supported, "span")).Name);
-        Assert.Equal("🇯🇵", LanguageSelectorPolicy.GetFlag("ja"));
+        Assert.Equal("jp", LanguageSelectorPolicy.GetFlagRegion("ja"));
+        Assert.Equal("gb", LanguageSelectorPolicy.GetFlagRegion("en-GB"));
+        Assert.Equal("mx", LanguageSelectorPolicy.GetFlagRegion("es-MX"));
+        Assert.Equal("br", LanguageSelectorPolicy.GetFlagRegion("pt-BR"));
+        Assert.Null(LanguageSelectorPolicy.GetFlagRegion("unknown"));
     }
+
+    [Fact]
+    public void SharedParakeetLanguageOptionsHaveBundledWindowsFlagAssets()
+    {
+        string[] supported = [
+            "bg", "hr", "cs", "da", "nl", "en", "et", "fi", "fr", "de", "el", "hu", "it",
+            "lv", "lt", "mt", "pl", "pt", "ro", "sk", "sl", "es", "sv", "ru", "uk",
+        ];
+
+        foreach (LanguageOption option in LanguageSelectorPolicy.Search(supported, null))
+        {
+            Assert.NotNull(option.FlagRegion);
+            Assert.True(File.Exists(Path.Combine(AppContext.BaseDirectory, "Assets", "Flags", $"{option.FlagRegion}.svg")),
+                $"Missing bundled flag for {option.Code} mapped to {option.FlagRegion}.");
+        }
+    }
+
+    [Fact]
+    public void CompactModelSelectorOnlyShowsCoreReadyModelsAndRefreshesAfterInstallation()
+    {
+        ModelRecord installed = TestModel("installed", "ready");
+        ModelRecord downloading = TestModel("downloading", "new");
+        ModelRecord incomplete = TestModel("incomplete", "partial");
+        ModelRecord[] catalog = [installed, downloading, incomplete];
+
+        Assert.Equal("ready", Assert.Single(ModelSelectorPolicy.InstalledReady(catalog)).Descriptor.Id);
+
+        downloading.State = "installed";
+        Assert.Equal(["ready", "new"], ModelSelectorPolicy.InstalledReady(catalog).Select(model => model.Descriptor.Id));
+        Assert.Empty(ModelSelectorPolicy.InstalledReady([TestModel("available", "missing")]));
+    }
+
+    private static ModelRecord TestModel(string state, string id) => new()
+    {
+        State = state,
+        Descriptor = new ModelDescriptor { Id = id, DisplayName = id },
+    };
 
     [Fact]
     public void RecordingsFilterByQueryAndStatusWithActiveSessionsFirst()

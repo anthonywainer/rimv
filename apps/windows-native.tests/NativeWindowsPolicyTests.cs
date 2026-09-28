@@ -62,4 +62,65 @@ public sealed class NativeWindowsPolicyTests
     [InlineData("starting", false)]
     public void OnlyCompletedRecordingsCanBeDeleted(string state, bool expected) =>
         Assert.Equal(expected, NativeWindowsPolicy.CanDeleteRecording(state));
+
+    [Theory]
+    [InlineData(true, true, false, true)]
+    [InlineData(true, true, true, false)]
+    [InlineData(false, true, false, false)]
+    [InlineData(true, false, false, false)]
+    public void CtrlQQuitsOnlyOutsideTextEntry(bool isQ, bool controlDown, bool textInputFocused, bool expected) =>
+        Assert.Equal(expected, MenuInteractionPolicy.ShouldQuit(isQ, controlDown, textInputFocused));
+
+    [Theory]
+    [InlineData(590, 800, 500, 680, 590, false)]
+    [InlineData(900, 800, 500, 680, 680, true)]
+    [InlineData(590, 420, 500, 680, 420, true)]
+    public void PopupUsesContentHeightAndScrollsOnlyWhenConstrained(
+        int desired, int available, int minimum, int maximum, int expectedHeight, bool expectedScroll)
+    {
+        PopupSizingPolicy.Result result = PopupSizingPolicy.FitContent(desired, available, minimum, maximum);
+
+        Assert.Equal(expectedHeight, result.Height);
+        Assert.Equal(expectedScroll, result.RequiresScrolling);
+    }
+
+    [Fact]
+    public void MenuThemeTokensMaintainReadableTextAndExplicitActionForeground()
+    {
+        string themePath = Path.Combine(AppContext.BaseDirectory, "Themes", "RimV.xaml");
+        System.Xml.Linq.XDocument document = System.Xml.Linq.XDocument.Load(themePath);
+        System.Xml.Linq.XNamespace x = "http://schemas.microsoft.com/winfx/2006/xaml";
+
+        foreach (string themeName in new[] { "Light", "Dark" })
+        {
+            System.Xml.Linq.XElement theme = document.Descendants()
+                .Single(element => (string?)element.Attribute(x + "Key") == themeName);
+            uint Color(string key) => ParseColor((string)theme.Elements()
+                .Single(element => (string?)element.Attribute(x + "Key") == key)
+                .Attribute("Color")!);
+
+            Assert.True(MenuContrastPolicy.ContrastRatio(Color("RimVMenuTextBrush"), Color("RimVMenuSurfaceBrush")) >= 4.5);
+            Assert.True(MenuContrastPolicy.ContrastRatio(Color("RimVMenuSecondaryTextBrush"), Color("RimVMenuSurfaceBrush")) >= 4.5);
+            Assert.True(MenuContrastPolicy.ContrastRatio(Color("RimVMenuDisabledTextBrush"), Color("RimVMenuDisabledBackgroundBrush")) >= 4.5);
+            Assert.True(MenuContrastPolicy.ContrastRatio(Color("RimVMenuActionForegroundBrush"), Color("RimVMenuAccentBrush")) >= 4.5);
+            Assert.True(MenuContrastPolicy.ContrastRatio(Color("RimVMenuSelectionTextBrush"), Color("RimVMenuSelectedBackgroundBrush")) >= 4.5);
+        }
+
+        System.Xml.Linq.XElement listenStyle = document.Descendants()
+            .Single(element => (string?)element.Attribute(x + "Key") == "RimVMenuListenButtonStyle");
+        Assert.Contains(listenStyle.Descendants(), element =>
+            element.Name.LocalName == "Setter"
+            && (string?)element.Attribute("Property") == "Foreground"
+            && ((string?)element.Attribute("Value"))?.Contains("RimVMenuActionForegroundBrush", StringComparison.Ordinal) == true);
+        System.Xml.Linq.XDocument shell = System.Xml.Linq.XDocument.Load(
+            Path.Combine(AppContext.BaseDirectory, "Themes", "ShellWindow.xaml"));
+        foreach (string elementName in new[] { "ListenIcon", "ListenLabel" })
+        {
+            Assert.Contains(shell.Descendants(), element =>
+                (string?)element.Attribute(x + "Name") == elementName
+                && ((string?)element.Attribute("Foreground"))?.Contains("RimVMenuActionForegroundBrush", StringComparison.Ordinal) == true);
+        }
+    }
+
+    private static uint ParseColor(string value) => Convert.ToUInt32(value.TrimStart('#'), 16);
 }

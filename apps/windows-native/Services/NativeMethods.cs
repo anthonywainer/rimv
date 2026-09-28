@@ -53,6 +53,11 @@ internal static class NativeMethods
     [DllImport("user32.dll")]
     internal static extern uint GetDpiForWindow(nint window);
 
+    [DllImport("user32.dll")]
+    private static extern short GetKeyState(int virtualKey);
+
+    internal static bool IsControlDown() => (GetKeyState(0x11) & 0x8000) != 0;
+
     internal static void SetOwner(nint window, nint owner) => SetWindowLongPtr(window, GWLP_HWNDPARENT, owner);
 
     [DllImport("user32.dll")]

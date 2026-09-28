@@ -19,7 +19,11 @@
             <SolidColorBrush x:Key="RimVMenuTextBrush" Color="#17191A" />
             <SolidColorBrush x:Key="RimVMenuSecondaryTextBrush" Color="#656B6D" />
             <SolidColorBrush x:Key="RimVMenuAccentBrush" Color="#0F817C" />
-            <SolidColorBrush x:Key="RimVMenuSelectionTextBrush" Color="#0F817C" />
+            <SolidColorBrush x:Key="RimVMenuSelectionTextBrush" Color="#0B6E69" />
+            <SolidColorBrush x:Key="RimVMenuDisabledTextBrush" Color="#596365" />
+            <SolidColorBrush x:Key="RimVMenuDisabledBackgroundBrush" Color="#E7EBEB" />
+            <SolidColorBrush x:Key="RimVMenuActionForegroundBrush" Color="#FFFFFF" />
+            <SolidColorBrush x:Key="RimVMenuSelectedBackgroundBrush" Color="#E5F5F3" />
             <SolidColorBrush x:Key="RimVMenuReadyBackgroundBrush" Color="#DDF2E6" />
             <SolidColorBrush x:Key="RimVMenuReadyTextBrush" Color="#087D3C" />
         </ResourceDictionary>
@@ -41,6 +45,10 @@
             <SolidColorBrush x:Key="RimVMenuSecondaryTextBrush" Color="#C3CCCE" />
             <SolidColorBrush x:Key="RimVMenuAccentBrush" Color="#0F817C" />
             <SolidColorBrush x:Key="RimVMenuSelectionTextBrush" Color="#72D7D0" />
+            <SolidColorBrush x:Key="RimVMenuDisabledTextBrush" Color="#C3CCCE" />
+            <SolidColorBrush x:Key="RimVMenuDisabledBackgroundBrush" Color="#3A4649" />
+            <SolidColorBrush x:Key="RimVMenuActionForegroundBrush" Color="#FFFFFF" />
+            <SolidColorBrush x:Key="RimVMenuSelectedBackgroundBrush" Color="#173B39" />
             <SolidColorBrush x:Key="RimVMenuReadyBackgroundBrush" Color="#174B34" />
             <SolidColorBrush x:Key="RimVMenuReadyTextBrush" Color="#84E1A7" />
         </ResourceDictionary>
@@ -62,6 +70,10 @@
             <SolidColorBrush x:Key="RimVMenuSecondaryTextBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
             <SolidColorBrush x:Key="RimVMenuAccentBrush" Color="{ThemeResource SystemColorHighlightColor}" />
             <SolidColorBrush x:Key="RimVMenuSelectionTextBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
+            <SolidColorBrush x:Key="RimVMenuDisabledTextBrush" Color="{ThemeResource SystemColorGrayTextColor}" />
+            <SolidColorBrush x:Key="RimVMenuDisabledBackgroundBrush" Color="{ThemeResource SystemColorWindowColor}" />
+            <SolidColorBrush x:Key="RimVMenuActionForegroundBrush" Color="{ThemeResource SystemColorHighlightTextColor}" />
+            <SolidColorBrush x:Key="RimVMenuSelectedBackgroundBrush" Color="{ThemeResource SystemColorWindowColor}" />
             <SolidColorBrush x:Key="RimVMenuReadyBackgroundBrush" Color="{ThemeResource SystemColorWindowColor}" />
             <SolidColorBrush x:Key="RimVMenuReadyTextBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
         </ResourceDictionary>
@@ -81,21 +93,10 @@
         <Setter Property="HorizontalContentAlignment" Value="Center" />
         <Setter Property="VerticalContentAlignment" Value="Center" />
         <Setter Property="UseSystemFocusVisuals" Value="True" />
-        <Setter Property="Template">
-            <Setter.Value>
-                <ControlTemplate TargetType="ToggleButton">
-                    <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
-                            BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="{TemplateBinding CornerRadius}">
-                        <ContentPresenter Content="{TemplateBinding Content}"
-                                          HorizontalAlignment="Center" VerticalAlignment="Center" />
-                    </Border>
-                </ControlTemplate>
-            </Setter.Value>
-        </Setter>
     </Style>
     <Style x:Key="RimVMenuListenButtonStyle" TargetType="Button">
         <Setter Property="Background" Value="{ThemeResource RimVMenuAccentBrush}" />
-        <Setter Property="Foreground" Value="White" />
+        <Setter Property="Foreground" Value="{ThemeResource RimVMenuActionForegroundBrush}" />
         <Setter Property="BorderThickness" Value="0" />
         <Setter Property="CornerRadius" Value="9" />
         <Setter Property="HorizontalContentAlignment" Value="Center" />

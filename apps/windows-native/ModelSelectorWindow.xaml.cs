@@ -32,6 +32,7 @@ public sealed partial class ModelSelectorWindow : Window
             App.CurrentApp.ThemeManager.UnregisterRoot(RootGrid);
         };
         Render();
+        _ = _coordinator.RefreshModelsAsync();
     }
 
     internal void ApplyPopupPlacement(SelectorPopupPlacement placement, double scale) =>
@@ -47,28 +48,26 @@ public sealed partial class ModelSelectorWindow : Window
     {
         string current = _coordinator.SelectedModelId ?? "";
         bool idle = _coordinator.Snapshot.Status == "idle";
-        ModelSelectorRow[] rows = _coordinator.Models.Select(model =>
+        ModelRecord[] installed = ModelSelectorPolicy.InstalledReady(_coordinator.Models).ToArray();
+        ModelSelectorRow[] rows = installed.Select(model =>
         {
             bool selected = model.Descriptor.Id == current;
-            string status = model.State switch
-            {
-                "installed" => selected ? "Installed · Selected" : "Installed",
-                "downloading" => "Downloading…",
-                "unsupported" => "Unsupported in this build",
-                _ => "Available · Manage Models to install",
-            };
+            string status = selected ? "Installed · Selected" : "Installed and ready";
             return new ModelSelectorRow
             {
                 Id = model.Descriptor.Id,
                 Name = model.Descriptor.DisplayName,
                 Status = status,
                 Checkmark = selected ? "✓" : "",
-                CanSelect = idle && model.State == "installed",
+                CanSelect = idle,
                 AccessibleName = $"{model.Descriptor.DisplayName}, {status}",
             };
         }).ToArray();
         ModelList.ItemsSource = rows;
         EmptyText.Visibility = rows.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
+        EmptyText.Text = rows.Length == 0
+            ? "No models are installed yet. Manage Models to download one."
+            : "";
     }
 
     private async void ModelOption_Click(object sender, RoutedEventArgs e)

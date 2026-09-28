@@ -33,8 +33,8 @@
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
-                        <TextBlock x:Name="EmptyText" Text="No models are available in the shared core."
-                                   FontSize="12" Foreground="{ThemeResource RimVMenuSecondaryTextBrush}" Padding="2,8" Visibility="Collapsed" />
+                        <TextBlock x:Name="EmptyText" Text="No models are installed yet. Manage Models to download one."
+                                   FontSize="12" Foreground="{ThemeResource RimVMenuSecondaryTextBrush}" Padding="2,8" TextWrapping="Wrap" Visibility="Collapsed" />
                     </StackPanel>
                 </ScrollViewer>
                 <StackPanel Grid.Row="2">

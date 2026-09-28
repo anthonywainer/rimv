@@ -3,6 +3,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Media.Imaging;
 using Microsoft.UI.Xaml.Shapes;
 
 namespace RimV.Windows;
@@ -11,7 +12,9 @@ public sealed class LanguageSelectorRow
 {
     public string Code { get; init; } = "";
     public string Name { get; init; } = "";
-    public string Flag { get; init; } = "";
+    public ImageSource? Flag { get; init; }
+    public Visibility FlagVisibility { get; init; }
+    public Visibility AutoDetectVisibility { get; init; }
     public string Checkmark { get; init; } = "";
     public string AccessibleName { get; init; } = "";
     public Brush Background { get; init; } = new SolidColorBrush(Colors.Transparent);
@@ -19,6 +22,7 @@ public sealed class LanguageSelectorRow
 
 public sealed partial class LanguageWindow : Window
 {
+    private static readonly Dictionary<string, ImageSource> FlagSources = new(StringComparer.OrdinalIgnoreCase);
     private readonly AppCoordinator _coordinator;
     private List<string> _languages = [];
     private bool _supportsDetection;
@@ -36,7 +40,11 @@ public sealed partial class LanguageWindow : Window
             _coordinator.Changed -= Coordinator_Changed;
             App.CurrentApp.ThemeManager.UnregisterRoot(RootGrid);
         };
-        RootGrid.Loaded += (_, _) => SearchBox.Focus(FocusState.Programmatic);
+        RootGrid.Loaded += (_, _) =>
+        {
+            Render();
+            SearchBox.Focus(FocusState.Programmatic);
+        };
         Render();
     }
 
@@ -72,14 +80,14 @@ public sealed partial class LanguageWindow : Window
         List<LanguageOption> popular = [];
         bool searching = !string.IsNullOrWhiteSpace(query);
         bool autoMatches = !searching || "auto detect".Contains(query.Trim(), StringComparison.CurrentCultureIgnoreCase);
-        if (_supportsDetection && autoMatches) popular.Add(new LanguageOption("auto", "Auto Detect", "✨"));
+        if (_supportsDetection && autoMatches) popular.Add(new LanguageOption("auto", "Auto Detect", null));
         popular.AddRange(all.Take(10));
         List<LanguageOption> remaining = all.Skip(10).ToList();
         bool showAll = searching || _showAll;
         if (searching)
         {
             popular.Clear();
-            if (_supportsDetection && autoMatches) popular.Add(new LanguageOption("auto", "Auto Detect", "✨"));
+            if (_supportsDetection && autoMatches) popular.Add(new LanguageOption("auto", "Auto Detect", null));
             popular.AddRange(all);
         }
 
@@ -99,18 +107,35 @@ public sealed partial class LanguageWindow : Window
         else EmptyText.Text = "No supported languages match this search.";
     }
 
-    private static LanguageSelectorRow ToRow(LanguageOption option, string selectedCode)
+    private LanguageSelectorRow ToRow(LanguageOption option, string selectedCode)
     {
         bool selected = string.Equals(option.Code, selectedCode, StringComparison.OrdinalIgnoreCase);
-        global::Windows.UI.Color fill = selected
-            ? global::Windows.UI.Color.FromArgb(255, 229, 245, 243)
+        bool darkTheme = RootGrid.ActualTheme == ElementTheme.Dark;
+        global::Windows.UI.Color fill = selected && !ThemeManager.IsHighContrastEnabled()
+            ? darkTheme
+                ? global::Windows.UI.Color.FromArgb(255, 23, 59, 57)
+                : global::Windows.UI.Color.FromArgb(255, 229, 245, 243)
             : Colors.Transparent;
         string accessibleName = selected ? $"{option.Name}, selected" : option.Name;
+        string? flagRegion = option.FlagRegion;
+        ImageSource? flag = null;
+        if (flagRegion is not null)
+        {
+            if (!FlagSources.TryGetValue(flagRegion, out flag))
+            {
+                string flagPath = Path.Combine(AppContext.BaseDirectory, "Assets", "Flags", $"{flagRegion}.svg");
+                flag = new SvgImageSource(new Uri(Path.GetFullPath(flagPath)));
+                FlagSources.Add(flagRegion, flag);
+            }
+        }
+        bool autoDetect = option.Code == "auto";
         return new LanguageSelectorRow
         {
             Code = option.Code,
             Name = option.Name,
-            Flag = option.Flag,
+            Flag = flag,
+            FlagVisibility = flag is null ? Visibility.Collapsed : Visibility.Visible,
+            AutoDetectVisibility = autoDetect ? Visibility.Visible : Visibility.Collapsed,
             Checkmark = selected ? "✓" : "",
             AccessibleName = accessibleName,
             Background = new SolidColorBrush(fill),

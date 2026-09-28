@@ -73,11 +73,17 @@ public static class SelectorPopupPositioner
     }
 }
 
-public sealed record LanguageOption(string Code, string Name, string Flag);
+public sealed record LanguageOption(string Code, string Name, string? FlagRegion);
 
 public static class LanguageSelectorPolicy
 {
     private static readonly string[] PopularCodes = ["en", "es", "fr", "de", "pt", "it", "nl", "pl", "ru", "uk"];
+    private static readonly HashSet<string> FlagRegions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "bg", "hr", "cz", "dk", "nl", "us", "gb", "mx", "br", "ca", "au", "ee", "fi", "fr", "de",
+        "gr", "hu", "it", "lv", "lt", "mt", "pl", "pt", "ro", "sk", "si", "es", "se", "ru", "ua",
+        "jp", "cn", "tw", "kr", "sa", "in", "tr", "no", "il", "th", "vn", "id", "my",
+    };
 
     public static IReadOnlyList<string> OrderSupported(IEnumerable<string> supported) =>
         supported.Distinct(StringComparer.OrdinalIgnoreCase)
@@ -100,7 +106,7 @@ public static class LanguageSelectorPolicy
             string name = GetName(code);
             if (normalized.Length == 0 || code.Contains(normalized, StringComparison.CurrentCultureIgnoreCase)
                 || name.Contains(normalized, StringComparison.CurrentCultureIgnoreCase))
-                yield return new LanguageOption(code, name, GetFlag(code));
+                yield return new LanguageOption(code, name, GetFlagRegion(code));
         }
     }
 
@@ -111,19 +117,76 @@ public static class LanguageSelectorPolicy
         catch (System.Globalization.CultureNotFoundException) { return code; }
     }
 
-    public static string GetFlag(string code)
+    /// <summary>Maps a language tag to its display flag region; language and country codes are distinct.</summary>
+    public static string? GetFlagRegion(string code)
     {
-        string language = code.Split('-', 2)[0].ToLowerInvariant();
+        string[] subtags = code.Split('-', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        string language = subtags.FirstOrDefault()?.ToLowerInvariant() ?? "";
+        if (language == "zh" && subtags.Skip(1).Any(tag => tag.Equals("Hant", StringComparison.OrdinalIgnoreCase)))
+            return "tw";
+        string? explicitRegion = subtags.Skip(1).FirstOrDefault(tag => tag.Length == 2 && tag.All(char.IsAsciiLetter));
+        if (explicitRegion is not null && FlagRegions.Contains(explicitRegion)) return explicitRegion.ToLowerInvariant();
+
         return language switch
         {
-        "en" => "🇺🇸", "es" => "🇪🇸", "fr" => "🇫🇷", "de" => "🇩🇪", "pt" => "🇵🇹",
-        "it" => "🇮🇹", "nl" => "🇳🇱", "pl" => "🇵🇱", "ru" => "🇷🇺", "uk" => "🇺🇦",
-        "ja" => "🇯🇵", "zh" => "🇨🇳", "ko" => "🇰🇷", "ar" => "🇸🇦", "hi" => "🇮🇳",
-        "tr" => "🇹🇷", "sv" => "🇸🇪", "da" => "🇩🇰", "no" => "🇳🇴", "fi" => "🇫🇮",
-        "he" => "🇮🇱", "cs" => "🇨🇿", "el" => "🇬🇷", "hu" => "🇭🇺", "ro" => "🇷🇴",
-        "th" => "🇹🇭", "vi" => "🇻🇳", "id" => "🇮🇩", "ms" => "🇲🇾",
-            _ => "🌐",
+            "bg" => "bg", "hr" => "hr", "cs" => "cz", "da" => "dk", "nl" => "nl",
+            "en" => "us", "et" => "ee", "fi" => "fi", "fr" => "fr", "de" => "de",
+            "el" => "gr", "hu" => "hu", "it" => "it", "lv" => "lv", "lt" => "lt",
+            "mt" => "mt", "pl" => "pl", "pt" => "pt", "ro" => "ro", "sk" => "sk",
+            "sl" => "si", "es" => "es", "sv" => "se", "ru" => "ru", "uk" => "ua",
+            "ja" => "jp", "zh" => "cn", "ko" => "kr", "ar" => "sa", "hi" => "in",
+            "tr" => "tr", "no" => "no", "he" => "il", "th" => "th", "vi" => "vn",
+            "id" => "id", "ms" => "my", _ => null,
         };
+    }
+}
+
+public static class ModelSelectorPolicy
+{
+    /// <summary>Only the shared core's Ready state is selectable in the compact selector.</summary>
+    public static IReadOnlyList<ModelRecord> InstalledReady(IEnumerable<ModelRecord> models) =>
+        models.Where(model => model.State == "installed").ToArray();
+}
+
+public static class PopupSizingPolicy
+{
+    public readonly record struct Result(int Height, bool RequiresScrolling);
+
+    public static Result FitContent(int desiredHeight, int availableHeight, int minimumHeight, int maximumHeight)
+    {
+        int maximum = Math.Max(1, Math.Min(availableHeight, maximumHeight));
+        int minimum = Math.Clamp(minimumHeight, 1, maximum);
+        int height = Math.Clamp(Math.Max(1, desiredHeight), minimum, maximum);
+        return new Result(height, desiredHeight > height);
+    }
+}
+
+public static class MenuInteractionPolicy
+{
+    public static bool ShouldQuit(bool isQ, bool controlDown, bool textInputFocused) =>
+        isQ && controlDown && !textInputFocused;
+}
+
+public static class MenuContrastPolicy
+{
+    public static double ContrastRatio(uint foregroundRgb, uint backgroundRgb)
+    {
+        static double Linear(byte component)
+        {
+            double value = component / 255d;
+            return value <= 0.04045 ? value / 12.92 : Math.Pow((value + 0.055) / 1.055, 2.4);
+        }
+
+        static double Luminance(uint color) =>
+            0.2126 * Linear((byte)(color >> 16)) +
+            0.7152 * Linear((byte)(color >> 8)) +
+            0.0722 * Linear((byte)color);
+
+        double first = Luminance(foregroundRgb);
+        double second = Luminance(backgroundRgb);
+        double lighter = Math.Max(first, second);
+        double darker = Math.Min(first, second);
+        return (lighter + 0.05) / (darker + 0.05);
     }
 }
 

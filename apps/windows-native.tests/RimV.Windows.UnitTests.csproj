@@ -14,6 +14,9 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\windows-native-application\RimV.Windows.Application.csproj" />
+    <Content Include="..\windows-native\Themes\RimV.xaml" Link="Themes\RimV.xaml" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\windows-native\ShellWindow.xaml" Link="Themes\ShellWindow.xaml" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\windows-native\Assets\Flags\*.svg" Link="Assets\Flags\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
   <ItemGroup>
     <Using Include="Xunit" />

@@ -5,6 +5,7 @@ using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using System.Globalization;
+using Windows.System;
 using WinRT.Interop;
 
 namespace RimV.Windows;
@@ -72,11 +73,11 @@ public sealed partial class ShellWindow : Window
     public void ShowFromActivation()
     {
         _popups.ShowMenu();
+        Render();
         PositionNearTray();
         _appWindow.Show();
         Activate();
         App.CurrentApp.Log.Info("shell.show_completed", $"native_window_visible={NativeMethods.IsWindowVisible(WindowHandle)}");
-        Render();
     }
 
     private void PositionNearTray()
@@ -93,8 +94,22 @@ public sealed partial class ShellWindow : Window
             dpiX = 96;
         double scale = dpiX / 96d;
         PixelRect work = new(info.Work.Left, info.Work.Top, info.Work.Right, info.Work.Bottom);
-        int width = Math.Min((int)Math.Round(420d * scale), Math.Max(1, work.Width - 16));
-        int height = Math.Min((int)Math.Round(580d * scale), Math.Max(1, work.Height - 16));
+        int margin = (int)Math.Round(8 * scale);
+        int width = Math.Min((int)Math.Round(420d * scale), Math.Max(1, work.Width - margin * 2));
+        MenuScrollViewer.Measure(new global::Windows.Foundation.Size(width / scale - 34, double.PositiveInfinity));
+        MenuScrollViewer.UpdateLayout();
+        double contentHeightDip = MenuScrollViewer.ExtentHeight > 0
+            ? MenuScrollViewer.ExtentHeight
+            : MenuScrollViewer.DesiredSize.Height;
+        if (!double.IsFinite(contentHeightDip) || contentHeightDip <= 0) contentHeightDip = 560;
+        int desiredHeight = (int)Math.Ceiling((contentHeightDip + MenuSurface.Padding.Top + MenuSurface.Padding.Bottom + 14) * scale);
+        int availableHeight = Math.Max(1, work.Height - margin * 2);
+        PopupSizingPolicy.Result size = PopupSizingPolicy.FitContent(desiredHeight, availableHeight,
+            (int)Math.Round(500 * scale), (int)Math.Round(680 * scale));
+        int height = size.Height;
+        MenuScrollViewer.VerticalScrollBarVisibility = size.RequiresScrolling
+            ? ScrollBarVisibility.Auto
+            : ScrollBarVisibility.Disabled;
         TrayPopupPlacement placement = TrayPopupPositioner.Place(icon, work, width, height, (int)Math.Round(32 * scale));
         _appWindow.MoveAndResize(new global::Windows.Graphics.RectInt32(placement.X, placement.Y, width, height));
         ShowPointer(placement, scale);
@@ -193,7 +208,15 @@ public sealed partial class ShellWindow : Window
         StatusBadge.Background = (Brush)Microsoft.UI.Xaml.Application.Current.Resources[
             unavailable ? "RimVMenuPanelBrush" : "RimVMenuReadyBackgroundBrush"];
         bool transition = state.Status is "starting" or "stopping";
-        ListenButton.IsEnabled = _coordinator.IsCoreAvailable && !transition;
+        bool canListen = _coordinator.IsCoreAvailable && !transition;
+        ListenButton.IsEnabled = canListen;
+        ListenButton.Background = (Brush)Microsoft.UI.Xaml.Application.Current.Resources[
+            canListen ? "RimVMenuAccentBrush" : "RimVMenuDisabledBackgroundBrush"];
+        Brush listenForeground = (Brush)Microsoft.UI.Xaml.Application.Current.Resources[
+            canListen ? "RimVMenuActionForegroundBrush" : "RimVMenuDisabledTextBrush"];
+        ListenButton.Foreground = listenForeground;
+        ListenIcon.Foreground = listenForeground;
+        ListenLabel.Foreground = listenForeground;
         bool listening = state.Status is "recording" or "starting";
         ListenLabel.Text = listening ? "Stop Listening" : "Start Listening";
         ListenIcon.Glyph = listening ? "\uE71A" : "\uE768";
@@ -208,14 +231,24 @@ public sealed partial class ShellWindow : Window
                 _ => state.Capabilities.MicrophoneCapture,
             };
             sourceButton.IsEnabled = _coordinator.IsCoreAvailable && state.Status == "idle" && available;
-            sourceButton.Opacity = sourceButton.IsEnabled ? 1 : 0.55;
+            sourceButton.Background = (Brush)Microsoft.UI.Xaml.Application.Current.Resources[
+                sourceButton.IsEnabled ? "RimVMenuSurfaceBrush" : "RimVMenuDisabledBackgroundBrush"];
             bool selected = source == _coordinator.SelectedSource;
             sourceButton.IsChecked = selected;
             sourceButton.BorderThickness = new Thickness(selected ? 2 : 1);
             sourceButton.BorderBrush = (Brush)Microsoft.UI.Xaml.Application.Current.Resources[
                 selected ? "RimVMenuAccentBrush" : "RimVMenuBorderBrush"];
             sourceButton.Foreground = (Brush)Microsoft.UI.Xaml.Application.Current.Resources[
-                selected ? "RimVMenuSelectionTextBrush" : "RimVMenuTextBrush"];
+                !sourceButton.IsEnabled ? "RimVMenuDisabledTextBrush"
+                    : selected ? "RimVMenuSelectionTextBrush" : "RimVMenuTextBrush"];
+            if (sourceButton.Content is StackPanel content)
+            {
+                foreach (FrameworkElement child in content.Children)
+                {
+                    if (child is TextBlock text) text.Foreground = sourceButton.Foreground;
+                    else if (child is FontIcon icon) icon.Foreground = sourceButton.Foreground;
+                }
+            }
         }
 
         ModelRecord? model = _coordinator.Models.FirstOrDefault(item => item.Descriptor.Id == _coordinator.SelectedModelId);
@@ -248,8 +281,17 @@ public sealed partial class ShellWindow : Window
 
     private void RootGrid_KeyDown(object sender, KeyRoutedEventArgs e)
     {
-        if (e.Key != global::Windows.System.VirtualKey.Escape) return;
-        _popups.HandleEscape();
+        if (e.Key == VirtualKey.Escape)
+        {
+            _popups.HandleEscape();
+            e.Handled = true;
+            return;
+        }
+
+        object? focused = FocusManager.GetFocusedElement(RootGrid.XamlRoot);
+        bool textInputFocused = focused is TextBox or PasswordBox or RichEditBox or AutoSuggestBox;
+        if (!MenuInteractionPolicy.ShouldQuit(e.Key == VirtualKey.Q, NativeMethods.IsControlDown(), textInputFocused)) return;
+        App.CurrentApp.Quit();
         e.Handled = true;
     }
 

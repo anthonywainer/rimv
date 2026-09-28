@@ -27,6 +27,7 @@
   </ItemGroup>
   <ItemGroup>
     <Content Include="..\windows\icons\icon.ico" Link="Assets\rimv.ico" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Assets\Flags\*.svg" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
   <Target Name="BuildSharedRustCore" BeforeTargets="Build" Condition="'$(BuildRimvCore)' == 'true'">
     <PropertyGroup>

@@ -5,7 +5,7 @@
         <Border x:Name="MenuSurface" Background="{ThemeResource RimVMenuSurfaceBrush}"
                 BorderBrush="{ThemeResource RimVMenuBorderBrush}" BorderThickness="1"
                 CornerRadius="16" Padding="16,16,16,10">
-            <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+            <ScrollViewer x:Name="MenuScrollViewer" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                 <StackPanel>
                     <Grid ColumnSpacing="12" Margin="0,0,0,15">
                         <Grid.ColumnDefinitions>
@@ -78,8 +78,10 @@
                                     Style="{StaticResource RimVMenuListenButtonStyle}" Click="ListenButton_Click"
                                     AutomationProperties.Name="Start listening">
                                 <StackPanel Orientation="Horizontal" Spacing="10" HorizontalAlignment="Center">
-                                    <FontIcon x:Name="ListenIcon" Glyph="&#xE768;" FontFamily="Segoe Fluent Icons" FontSize="17"/>
-                                    <TextBlock x:Name="ListenLabel" Text="Start Listening" FontSize="16" FontWeight="SemiBold"/>
+                                    <FontIcon x:Name="ListenIcon" Glyph="&#xE768;" FontFamily="Segoe Fluent Icons" FontSize="17"
+                                              Foreground="{ThemeResource RimVMenuActionForegroundBrush}"/>
+                                    <TextBlock x:Name="ListenLabel" Text="Start Listening" FontSize="16" FontWeight="SemiBold"
+                                               Foreground="{ThemeResource RimVMenuActionForegroundBrush}"/>
                                 </StackPanel>
                             </Button>
                         </StackPanel>
@@ -128,11 +130,13 @@
                     </Button>
                     <Border Height="1" Background="{ThemeResource RimVMenuBorderBrush}" Margin="0,3"/>
                     <Button Style="{StaticResource RimVMenuRowButtonStyle}" Click="QuitButton_Click"
-                            AutomationProperties.Name="Quit RimV">
+                            AutomationProperties.Name="Quit RimV, Ctrl+Q">
                         <Grid ColumnSpacing="9">
-                            <Grid.ColumnDefinitions><ColumnDefinition Width="22"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="22"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                             <FontIcon Glyph="&#xE7E8;" FontFamily="Segoe Fluent Icons" FontSize="17"/>
                             <TextBlock Grid.Column="1" Text="Quit RimV" FontSize="15"/>
+                            <TextBlock Grid.Column="2" Text="Ctrl+Q" FontSize="12"
+                                       Foreground="{ThemeResource RimVMenuSecondaryTextBrush}" VerticalAlignment="Center" />
                         </Grid>
                     </Button>
                 </StackPanel>

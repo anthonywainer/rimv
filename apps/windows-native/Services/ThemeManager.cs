@@ -40,7 +40,7 @@ internal sealed class ThemeManager : IDisposable
         _roots.RemoveAll(item => !item.TryGetTarget(out FrameworkElement? current) || ReferenceEquals(current, root));
 
     private void Coordinator_Changed(object? sender, EventArgs args) => ApplyAll();
-    private static bool IsHighContrastEnabled()
+    internal static bool IsHighContrastEnabled()
     {
         HighContrast settings = new() { Size = (uint)Marshal.SizeOf<HighContrast>() };
         return SystemParametersInfo(0x0042, settings.Size, ref settings, 0)
