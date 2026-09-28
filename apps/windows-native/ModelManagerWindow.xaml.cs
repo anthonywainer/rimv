@@ -112,7 +112,7 @@ public sealed partial class ModelManagerWindow : Window
         bool downloading = model.State == "downloading";
         bool unsupported = model.State == "unsupported";
         _progressByModel.TryGetValue(descriptor.Id, out ModelProgress? progress);
-        double? totalBytes = descriptor.Files
+        ulong? totalBytes = descriptor.Files
             .Where(file => file.ExpectedSizeBytes.HasValue)
             .Select(file => file.ExpectedSizeBytes!.Value)
             .Aggregate<ulong, ulong?>(0, (total, next) => total + next);

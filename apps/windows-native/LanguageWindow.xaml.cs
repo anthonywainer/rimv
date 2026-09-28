@@ -123,8 +123,8 @@ public sealed partial class LanguageWindow : Window
         {
             if (!FlagSources.TryGetValue(flagRegion, out flag))
             {
-                string flagPath = Path.Combine(AppContext.BaseDirectory, "Assets", "Flags", $"{flagRegion}.svg");
-                flag = new SvgImageSource(new Uri(Path.GetFullPath(flagPath)));
+                string flagPath = global::System.IO.Path.Combine(AppContext.BaseDirectory, "Assets", "Flags", $"{flagRegion}.svg");
+                flag = new SvgImageSource(new Uri(global::System.IO.Path.GetFullPath(flagPath)));
                 FlagSources.Add(flagRegion, flag);
             }
         }
