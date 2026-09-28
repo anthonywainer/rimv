@@ -131,7 +131,7 @@ internal sealed class PopupCoordinator : IDisposable
         _transition++;
     }
 
-    internal void Dispose()
+    public void Dispose()
     {
         if (_disposed) return;
         _disposed = true;
