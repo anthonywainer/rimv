@@ -1,5 +1,6 @@
 using Microsoft.UI.Xaml;
 using RimV.Windows.Application;
+using System.Runtime.InteropServices;
 using Windows.UI.ViewManagement;
 
 namespace RimV.Windows;
@@ -9,12 +10,24 @@ internal sealed class ThemeManager : IDisposable
     private readonly AppCoordinator _coordinator;
     private readonly AccessibilitySettings _accessibility = new();
     private readonly List<WeakReference<FrameworkElement>> _roots = [];
+    private bool _highContrastListenerRegistered;
 
     public ThemeManager(AppCoordinator coordinator)
     {
         _coordinator = coordinator;
         _coordinator.Changed += Coordinator_Changed;
-        _accessibility.HighContrastChanged += Accessibility_HighContrastChanged;
+        try
+        {
+            _accessibility.HighContrastChanged += Accessibility_HighContrastChanged;
+            _highContrastListenerRegistered = true;
+        }
+        catch (COMException error)
+        {
+            // This view-management event is unavailable in some unpackaged
+            // desktop sessions. Keep the system theme fallback and let RimV
+            // continue starting rather than failing before its shell appears.
+            App.CurrentApp.Log.Error("theme.high_contrast_listener_unavailable", error);
+        }
     }
 
     public void RegisterRoot(FrameworkElement root)
@@ -53,7 +66,8 @@ internal sealed class ThemeManager : IDisposable
     public void Dispose()
     {
         _coordinator.Changed -= Coordinator_Changed;
-        _accessibility.HighContrastChanged -= Accessibility_HighContrastChanged;
+        if (_highContrastListenerRegistered)
+            _accessibility.HighContrastChanged -= Accessibility_HighContrastChanged;
         _roots.Clear();
     }
 }
