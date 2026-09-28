@@ -93,7 +93,13 @@ public partial class App : Microsoft.UI.Xaml.Application
         _log.Info("shell_window.initializing");
         _shell = new ShellWindow(Coordinator);
         _log.Info("shell_window.initialized");
-        _tray = new TrayIcon(_shell);
+        TrayIcon tray = new(_shell);
+        _tray = tray;
+        _shell.SetTrayBoundsProvider(() =>
+        {
+            if (!tray.TryGetBounds(out NativeMethods.Rect bounds)) return null;
+            return new PixelRect(bounds.Left, bounds.Top, bounds.Right, bounds.Bottom);
+        });
         CancellationTokenSource activationCancellation = new();
         _activationCancellation = activationCancellation;
         CancellationToken activationToken = activationCancellation.Token;

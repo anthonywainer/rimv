@@ -1,6 +1,8 @@
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml.Media;
 using WinRT.Interop;
 
 namespace RimV.Windows;
@@ -9,9 +11,8 @@ public sealed partial class ShellWindow : Window
 {
     private readonly AppCoordinator _coordinator;
     private readonly AppWindow _appWindow;
+    private Func<PixelRect?>? _trayBounds;
     private bool _isVisible;
-    private bool _isActive;
-    private bool _changingSource;
     private LanguageWindow? _languageWindow;
     private ModelManagerWindow? _modelWindow;
     private RecordingsWindow? _recordingsWindow;
@@ -26,12 +27,13 @@ public sealed partial class ShellWindow : Window
         WindowHandle = WindowNative.GetWindowHandle(this);
         var id = Microsoft.UI.Win32Interop.GetWindowIdFromWindow(WindowHandle);
         _appWindow = AppWindow.GetFromWindowId(id);
-        _appWindow.Resize(new global::Windows.Graphics.SizeInt32(420, 640));
         var presenter = OverlappedPresenter.Create();
         presenter.IsResizable = false;
         presenter.IsMaximizable = false;
         presenter.IsMinimizable = false;
+        presenter.SetBorderAndTitleBar(false, false);
         _appWindow.SetPresenter(presenter);
+        NativeMethods.MakeToolWindow(WindowHandle);
         _appWindow.Closing += AppWindow_Closing;
         Activated += ShellWindow_Activated;
         RootGrid.Loaded += (_, _) => App.CurrentApp.ThemeManager.RegisterRoot(RootGrid);
@@ -43,6 +45,8 @@ public sealed partial class ShellWindow : Window
     internal AppWindow NativeAppWindow => _appWindow;
     internal AppCoordinator Coordinator => _coordinator;
 
+    internal void SetTrayBoundsProvider(Func<PixelRect?> provider) => _trayBounds = provider;
+
     private void AppWindow_Closing(AppWindow sender, AppWindowClosingEventArgs args)
     {
         if (App.CurrentApp.IsShuttingDown) return;
@@ -53,12 +57,13 @@ public sealed partial class ShellWindow : Window
 
     private void ShellWindow_Activated(object sender, WindowActivatedEventArgs args)
     {
-        _isActive = args.WindowActivationState != WindowActivationState.Deactivated;
+        if (args.WindowActivationState == WindowActivationState.Deactivated && _isVisible && !PointerIsOverTrayIcon())
+            HidePopup();
     }
 
     public void ToggleNearTray()
     {
-        if (_isVisible && _isActive)
+        if (_isVisible)
         {
             HidePopup();
             return;
@@ -68,56 +73,89 @@ public sealed partial class ShellWindow : Window
 
     public void ShowFromActivation()
     {
-        if (!_isVisible)
-        {
-            PositionNearTaskbar();
-            _isVisible = true;
-        }
+        PositionNearTray();
+        _isVisible = true;
         _appWindow.Show();
         Activate();
         App.CurrentApp.Log.Info("shell.show_completed", $"native_window_visible={NativeMethods.IsWindowVisible(WindowHandle)}");
         Render();
     }
 
-    private void PositionNearTaskbar()
+    private void PositionNearTray()
     {
+        PixelRect? iconBounds = _trayBounds?.Invoke();
         NativeMethods.GetCursorPos(out NativeMethods.Point cursor);
-        nint monitor = NativeMethods.MonitorFromPoint(cursor, NativeMethods.MONITOR_DEFAULTTONEAREST);
+        PixelRect icon = iconBounds ?? new PixelRect(cursor.X, cursor.Y, cursor.X + 1, cursor.Y + 1);
+        NativeMethods.Point iconCenter = new() { X = icon.CenterX, Y = icon.CenterY };
+        nint monitor = NativeMethods.MonitorFromPoint(iconCenter, NativeMethods.MONITOR_DEFAULTTONEAREST);
         NativeMethods.MonitorInfo info = new() { Size = (uint)System.Runtime.InteropServices.Marshal.SizeOf<NativeMethods.MonitorInfo>() };
         if (!NativeMethods.GetMonitorInfo(monitor, ref info)) return;
 
         if (NativeMethods.GetDpiForMonitor(monitor, NativeMethods.MDT_EFFECTIVE_DPI, out uint dpiX, out _) != 0 || dpiX == 0)
             dpiX = 96;
-        int width = (int)Math.Round(420d * dpiX / 96d);
-        int height = (int)Math.Round(640d * dpiX / 96d);
-        NativeMethods.Rect work = info.Work;
-        int x = Math.Clamp(cursor.X - width / 2, work.Left + 8, Math.Max(work.Left + 8, work.Right - width - 8));
-        int y;
-        if (cursor.Y >= work.Bottom)
-            y = work.Bottom - height - 8;
-        else if (cursor.Y <= work.Top)
-            y = work.Top + 8;
-        else if (cursor.X <= work.Left)
+        double scale = dpiX / 96d;
+        PixelRect work = new(info.Work.Left, info.Work.Top, info.Work.Right, info.Work.Bottom);
+        int width = Math.Min((int)Math.Round(420d * scale), Math.Max(1, work.Width - 16));
+        int height = Math.Min((int)Math.Round(580d * scale), Math.Max(1, work.Height - 16));
+        TrayPopupPlacement placement = TrayPopupPositioner.Place(icon, work, width, height, (int)Math.Round(32 * scale));
+        _appWindow.MoveAndResize(new global::Windows.Graphics.RectInt32(placement.X, placement.Y, width, height));
+        ShowPointer(placement, scale);
+        NativeMethods.ClipTrayPopup(WindowHandle, width, height, (int)Math.Round(32 * scale),
+            (int)Math.Round(14 * scale), placement.PointerOffset, placement.Edge);
+    }
+
+    private bool PointerIsOverTrayIcon()
+    {
+        PixelRect? bounds = _trayBounds?.Invoke();
+        if (bounds is null || !NativeMethods.GetCursorPos(out NativeMethods.Point point)) return false;
+        return point.X >= bounds.Value.Left && point.X < bounds.Value.Right
+            && point.Y >= bounds.Value.Top && point.Y < bounds.Value.Bottom;
+    }
+
+    private void ShowPointer(TrayPopupPlacement placement, double scale)
+    {
+        const double size = 14;
+        BottomPointer.Visibility = Visibility.Collapsed;
+        TopPointer.Visibility = Visibility.Collapsed;
+        LeftPointer.Visibility = Visibility.Collapsed;
+        RightPointer.Visibility = Visibility.Collapsed;
+        MenuSurface.Margin = placement.Edge switch
         {
-            x = work.Left + 8;
-            y = Math.Clamp(cursor.Y - height / 2, work.Top + 8, Math.Max(work.Top + 8, work.Bottom - height - 8));
+            PopupPointerEdge.Top => new Thickness(0, size, 0, 0),
+            PopupPointerEdge.Bottom => new Thickness(0, 0, 0, size),
+            PopupPointerEdge.Left => new Thickness(size, 0, 0, 0),
+            _ => new Thickness(0, 0, size, 0),
+        };
+        double offset = placement.PointerOffset / scale - 12;
+        if (placement.Edge == PopupPointerEdge.Bottom)
+        {
+            BottomPointer.Visibility = Visibility.Visible;
+            Canvas.SetLeft(BottomPointerBorder, offset);
+            Canvas.SetLeft(BottomPointerFill, offset);
         }
-        else if (cursor.X >= work.Right)
+        else if (placement.Edge == PopupPointerEdge.Top)
         {
-            x = work.Right - width - 8;
-            y = Math.Clamp(cursor.Y - height / 2, work.Top + 8, Math.Max(work.Top + 8, work.Bottom - height - 8));
+            TopPointer.Visibility = Visibility.Visible;
+            Canvas.SetLeft(TopPointerBorder, offset);
+            Canvas.SetLeft(TopPointerFill, offset);
+        }
+        else if (placement.Edge == PopupPointerEdge.Left)
+        {
+            LeftPointer.Visibility = Visibility.Visible;
+            Canvas.SetTop(LeftPointerBorder, offset);
+            Canvas.SetTop(LeftPointerFill, offset);
         }
         else
-            y = work.Bottom - height - 8;
-
-        y = Math.Clamp(y, work.Top + 8, Math.Max(work.Top + 8, work.Bottom - height - 8));
-        _appWindow.MoveAndResize(new global::Windows.Graphics.RectInt32(x, y, width, height));
+        {
+            RightPointer.Visibility = Visibility.Visible;
+            Canvas.SetTop(RightPointerBorder, offset);
+            Canvas.SetTop(RightPointerFill, offset);
+        }
     }
 
     private void HidePopup()
     {
         _isVisible = false;
-        _isActive = false;
         _appWindow.Hide();
         App.CurrentApp.Log.Info("shell.hidden_to_tray");
     }
@@ -141,33 +179,45 @@ public sealed partial class ShellWindow : Window
         string status = state.Status switch
         {
             "idle" => "Ready",
-            "starting" => "Starting listening…",
+            "starting" => "Starting",
             "recording" => "Listening",
-            "stopping" => "Finishing recording…",
-            "error" => "Audio stopped with an error",
+            "stopping" => "Stopping",
+            "error" => "Error",
             _ => state.Status,
         };
-        StatusText.Text = _coordinator.IsCoreAvailable ? status : "Shared engine unavailable";
-        StatusText.Foreground = state.Status == "recording"
-            ? (Microsoft.UI.Xaml.Media.Brush)Microsoft.UI.Xaml.Application.Current.Resources["RimVLiveBrush"]
-            : (Microsoft.UI.Xaml.Media.Brush)Microsoft.UI.Xaml.Application.Current.Resources["RimVSecondaryTextBrush"];
+        StatusText.Text = _coordinator.IsCoreAvailable ? status : "Unavailable";
+        bool unavailable = !_coordinator.IsCoreAvailable || state.Status == "error";
+        Brush statusBrush = (Brush)Microsoft.UI.Xaml.Application.Current.Resources[
+            unavailable ? "RimVErrorBrush" : "RimVMenuReadyTextBrush"];
+        StatusText.Foreground = statusBrush;
+        StatusDot.Fill = statusBrush;
+        StatusBadge.Background = (Brush)Microsoft.UI.Xaml.Application.Current.Resources[
+            unavailable ? "RimVMenuPanelBrush" : "RimVMenuReadyBackgroundBrush"];
         bool transition = state.Status is "starting" or "stopping";
         ListenButton.IsEnabled = _coordinator.IsCoreAvailable && !transition;
-        ListenButton.Content = state.Status is "recording" or "starting" ? "Stop listening" : "Start listening";
-        SourceCombo.IsEnabled = _coordinator.IsCoreAvailable && state.Status == "idle";
-        _changingSource = true;
-        foreach (ComboBoxItem item in SourceCombo.Items)
+        bool listening = state.Status is "recording" or "starting";
+        ListenLabel.Text = listening ? "Stop Listening" : "Start Listening";
+        ListenIcon.Glyph = listening ? "\uE71A" : "\uE768";
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(ListenButton, ListenLabel.Text);
+        foreach (ToggleButton sourceButton in new[] { SystemSource, MicrophoneSource, BothSource })
         {
-            string source = (string)item.Tag;
-            item.IsEnabled = source switch
+            string source = (string)sourceButton.Tag;
+            bool available = source switch
             {
                 "system" => state.Capabilities.SystemAudioCapture,
                 "both" => state.Capabilities.SystemAudioCapture && state.Capabilities.MicrophoneCapture,
                 _ => state.Capabilities.MicrophoneCapture,
             };
-            if (source == _coordinator.SelectedSource) SourceCombo.SelectedItem = item;
+            sourceButton.IsEnabled = _coordinator.IsCoreAvailable && state.Status == "idle" && available;
+            sourceButton.Opacity = sourceButton.IsEnabled ? 1 : 0.55;
+            bool selected = source == _coordinator.SelectedSource;
+            sourceButton.IsChecked = selected;
+            sourceButton.BorderThickness = new Thickness(selected ? 2 : 1);
+            sourceButton.BorderBrush = (Brush)Microsoft.UI.Xaml.Application.Current.Resources[
+                selected ? "RimVMenuAccentBrush" : "RimVMenuBorderBrush"];
+            sourceButton.Foreground = (Brush)Microsoft.UI.Xaml.Application.Current.Resources[
+                selected ? "RimVMenuSelectionTextBrush" : "RimVMenuTextBrush"];
         }
-        _changingSource = false;
 
         ModelRecord? model = _coordinator.Models.FirstOrDefault(item => item.Descriptor.Id == _coordinator.SelectedModelId);
         ModelName.Text = model?.Descriptor.DisplayName ?? "Choose a model";
@@ -180,37 +230,26 @@ public sealed partial class ShellWindow : Window
             : model?.State == "unsupported" ? "The selected model backend isn't included in this Windows build. Choose an available model."
             : model is null ? "Choose a speech model to turn listening into a transcript." : model.State == "installed" ? "Model ready" : "This model needs to be downloaded.";
         ModelInfo.IsOpen = !_coordinator.IsCoreAvailable || state.Transcription.Status == "loading" || model is null || model.State != "installed";
-        FooterState.Text = state.Session is null
-            ? "Starting a recording won't open the transcript window. Open it later from Recordings."
-            : state.Status == "recording" ? "Your current recording is available in Recordings." : "Your current session is being saved.";
     }
 
     private async void ListenButton_Click(object sender, RoutedEventArgs e) => await _coordinator.StartOrStopAsync();
-    private async void SourceCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    private async void SourceButton_Click(object sender, RoutedEventArgs e)
     {
-        if (_changingSource || SourceCombo.SelectedItem is not ComboBoxItem item) return;
-        await _coordinator.SetSourceAsync((string)item.Tag);
+        if (sender is ToggleButton button) await _coordinator.SetSourceAsync((string)button.Tag);
+        Render();
+    }
+
+    private void RootGrid_KeyDown(object sender, KeyRoutedEventArgs e)
+    {
+        if (e.Key != global::Windows.System.VirtualKey.Escape) return;
+        HidePopup();
+        e.Handled = true;
     }
 
     private void LanguageButton_Click(object sender, RoutedEventArgs e) => OpenLanguageWindow();
     private void ModelButton_Click(object sender, RoutedEventArgs e) => OpenModelWindow();
     private void RecordingsButton_Click(object sender, RoutedEventArgs e) => OpenRecordingsWindow();
-    private void SettingsButton_Click(object sender, RoutedEventArgs e) => OpenSettingsWindow();
     private void QuitButton_Click(object sender, RoutedEventArgs e) => App.CurrentApp.Quit();
-
-    private void MoreButton_Click(object sender, RoutedEventArgs e)
-    {
-        var menu = new MenuFlyout();
-        menu.Items.Add(new MenuFlyoutItem { Text = "Open current recording" });
-        menu.Items.Add(new MenuFlyoutSeparator());
-        menu.Items.Add(new MenuFlyoutItem { Text = "Quit RimV" });
-        ((MenuFlyoutItem)menu.Items[0]).Click += (_, _) =>
-        {
-            if (_coordinator.Snapshot.Session is { } session) OpenTranscriptionWindow(session.Id);
-        };
-        ((MenuFlyoutItem)menu.Items[2]).Click += (_, _) => App.CurrentApp.Quit();
-        menu.ShowAt((FrameworkElement)sender);
-    }
 
     public void OpenLanguageWindow()
     {

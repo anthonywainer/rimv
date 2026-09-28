@@ -15,15 +15,14 @@ internal sealed class TrayIcon : IDisposable
     private const uint NifMessage = 1;
     private const uint NifIcon = 2;
     private const uint NifTip = 4;
+    private const uint IconId = 1;
     private const int SubclassId = 0x52494D56;
-    private const uint NinSelect = 0x0400;
-    private const uint NinKeySelect = 0x0401;
-    private const uint WmContextMenu = 0x007B;
     private readonly ShellWindow _window;
     private readonly NativeMethods.SubclassProc _subclass;
     private nint _icon;
     private bool _initialized;
     private bool _subclassAttached;
+    private bool _version4;
 
     public TrayIcon(ShellWindow window)
     {
@@ -47,9 +46,23 @@ internal sealed class TrayIcon : IDisposable
         if (!ShellNotifyIcon(NimAdd, ref data))
             throw new InvalidOperationException("Windows couldn't add RimV to the notification area.");
         data.Version = 4;
-        ShellNotifyIcon(NimSetVersion, ref data);
+        _version4 = ShellNotifyIcon(NimSetVersion, ref data);
         _initialized = true;
         UpdateTooltip();
+    }
+
+    public bool TryGetBounds(out NativeMethods.Rect bounds)
+    {
+        bounds = default;
+        if (!_initialized) return false;
+        NotifyIconIdentifier identifier = new()
+        {
+            Size = (uint)Marshal.SizeOf<NotifyIconIdentifier>(),
+            Window = _window.WindowHandle,
+            Id = IconId,
+        };
+        return ShellNotifyIconGetRect(ref identifier, out bounds) == 0
+            && bounds.Right > bounds.Left && bounds.Bottom > bounds.Top;
     }
 
     private nint WindowProcedure(nint hwnd, uint message, nuint wParam, nint lParam, nuint subclassId, nuint referenceData)
@@ -59,7 +72,7 @@ internal sealed class TrayIcon : IDisposable
             // Notification icon v4 packs the event in the low word of lParam;
             // the high word contains the icon identifier.
             uint action = unchecked((uint)lParam) & 0xffff;
-            if (action is NinSelect or NinKeySelect or WmContextMenu or 0x0202 or 0x0205) // Both buttons open the same compact menu.
+            if (NativeWindowsPolicy.IsTrayToggleEvent(action, _version4)) // Right-click uses the same menu.
                 App.CurrentApp.TogglePopup();
             return 0;
         }
@@ -70,7 +83,7 @@ internal sealed class TrayIcon : IDisposable
     {
         Size = (uint)Marshal.SizeOf<NotifyIconData>(),
         Window = _window.WindowHandle,
-        Id = 1,
+        Id = IconId,
         Flags = NifMessage | NifIcon | NifTip,
         CallbackMessage = CallbackMessage,
         Icon = _icon,
@@ -122,6 +135,18 @@ internal sealed class TrayIcon : IDisposable
     [DllImport("shell32.dll", EntryPoint = "Shell_NotifyIconW", CharSet = CharSet.Unicode, SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool ShellNotifyIcon(uint message, ref NotifyIconData data);
+
+    [DllImport("shell32.dll", EntryPoint = "Shell_NotifyIconGetRect")]
+    private static extern int ShellNotifyIconGetRect(ref NotifyIconIdentifier identifier, out NativeMethods.Rect iconLocation);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct NotifyIconIdentifier
+    {
+        public uint Size;
+        public nint Window;
+        public uint Id;
+        public Guid Guid;
+    }
 
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
     private struct NotifyIconData

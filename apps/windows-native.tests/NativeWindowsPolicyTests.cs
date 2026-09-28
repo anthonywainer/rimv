@@ -5,6 +5,17 @@ namespace RimV.Windows.UnitTests;
 public sealed class NativeWindowsPolicyTests
 {
     [Theory]
+    [InlineData(0x0400u, true, true)]
+    [InlineData(0x0401u, true, true)]
+    [InlineData(0x007Bu, true, true)]
+    [InlineData(0x0202u, true, false)]
+    [InlineData(0x0205u, true, false)]
+    [InlineData(0x0202u, false, true)]
+    [InlineData(0x0205u, false, true)]
+    public void TraySelectEventsToggleOnceForTheNegotiatedShellVersion(uint action, bool version4, bool expected) =>
+        Assert.Equal(expected, NativeWindowsPolicy.IsTrayToggleEvent(action, version4));
+
+    [Theory]
     [InlineData("microphone", true, true, "microphone")]
     [InlineData("system", true, true, "system")]
     [InlineData("both", true, true, "both")]

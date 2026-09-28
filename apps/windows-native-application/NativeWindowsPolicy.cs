@@ -3,6 +3,10 @@ namespace RimV.Windows.Application;
 /// <summary>Presentation rules derived from shared-core status and capabilities.</summary>
 public static class NativeWindowsPolicy
 {
+    public static bool IsTrayToggleEvent(uint action, bool version4) => version4
+        ? action is 0x0400 or 0x0401 or 0x007B // NIN_SELECT, NIN_KEYSELECT, WM_CONTEXTMENU
+        : action is 0x0202 or 0x0205; // Legacy left/right button release
+
     public static string ResolveSource(string preferred, bool microphoneAvailable, bool systemAvailable) =>
         preferred switch
         {

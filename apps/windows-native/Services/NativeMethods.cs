@@ -8,6 +8,13 @@ internal static class NativeMethods
     internal const uint WM_APP = 0x8000;
     internal const uint MONITOR_DEFAULTTONEAREST = 2;
     internal const uint MDT_EFFECTIVE_DPI = 0;
+    private const int GwlExStyle = -20;
+    private const int WsExAppWindow = 0x00040000;
+    private const int WsExToolWindow = 0x00000080;
+    private const uint SwpFrameChanged = 0x0020;
+    private const uint SwpNoMove = 0x0002;
+    private const uint SwpNoSize = 0x0001;
+    private const uint SwpNoZOrder = 0x0004;
 
     [StructLayout(LayoutKind.Sequential)]
     internal struct Point { public int X; public int Y; }
@@ -62,6 +69,68 @@ internal static class NativeMethods
     [DllImport("user32.dll", EntryPoint = "DestroyIcon", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static extern bool DestroyIcon(nint icon);
+
+    internal static void MakeToolWindow(nint window)
+    {
+        nint style = GetWindowLongPtr(window, GwlExStyle);
+        SetWindowLongPtr(window, GwlExStyle, (style | (nint)WsExToolWindow) & ~(nint)WsExAppWindow);
+        SetWindowPos(window, 0, 0, 0, 0, 0, SwpFrameChanged | SwpNoMove | SwpNoSize | SwpNoZOrder);
+    }
+
+    internal static void ClipTrayPopup(nint window, int width, int height, int cornerRadius,
+        int pointerSize, int pointerOffset, RimV.Windows.Application.PopupPointerEdge edge)
+    {
+        int left = edge == RimV.Windows.Application.PopupPointerEdge.Left ? pointerSize : 0;
+        int top = edge == RimV.Windows.Application.PopupPointerEdge.Top ? pointerSize : 0;
+        int right = width - (edge == RimV.Windows.Application.PopupPointerEdge.Right ? pointerSize : 0);
+        int bottom = height - (edge == RimV.Windows.Application.PopupPointerEdge.Bottom ? pointerSize : 0);
+        nint shape = CreateRoundRectRgn(left, top, right + 1, bottom + 1, cornerRadius, cornerRadius);
+        if (shape == 0) return;
+        Point[] points = edge switch
+        {
+            RimV.Windows.Application.PopupPointerEdge.Bottom =>
+                [new() { X = pointerOffset - 12, Y = bottom - 1 }, new() { X = pointerOffset + 12, Y = bottom - 1 }, new() { X = pointerOffset, Y = height }],
+            RimV.Windows.Application.PopupPointerEdge.Top =>
+                [new() { X = pointerOffset - 12, Y = top + 1 }, new() { X = pointerOffset + 12, Y = top + 1 }, new() { X = pointerOffset, Y = 0 }],
+            RimV.Windows.Application.PopupPointerEdge.Left =>
+                [new() { X = left + 1, Y = pointerOffset - 12 }, new() { X = left + 1, Y = pointerOffset + 12 }, new() { X = 0, Y = pointerOffset }],
+            _ =>
+                [new() { X = right - 1, Y = pointerOffset - 12 }, new() { X = right - 1, Y = pointerOffset + 12 }, new() { X = width, Y = pointerOffset }],
+        };
+        nint pointer = CreatePolygonRgn(points, points.Length, 2);
+        if (pointer != 0)
+        {
+            CombineRgn(shape, shape, pointer, 2);
+            DeleteObject(pointer);
+        }
+        if (SetWindowRgn(window, shape, true) == 0) DeleteObject(shape);
+    }
+
+    [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW", SetLastError = true)]
+    private static extern nint GetWindowLongPtr(nint window, int index);
+
+    [DllImport("user32.dll", EntryPoint = "SetWindowLongPtrW", SetLastError = true)]
+    private static extern nint SetWindowLongPtr(nint window, int index, nint value);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool SetWindowPos(nint window, nint insertAfter, int x, int y, int width, int height, uint flags);
+
+    [DllImport("gdi32.dll", SetLastError = true)]
+    private static extern nint CreateRoundRectRgn(int left, int top, int right, int bottom, int ellipseWidth, int ellipseHeight);
+
+    [DllImport("gdi32.dll", SetLastError = true)]
+    private static extern nint CreatePolygonRgn([In] Point[] points, int count, int fillMode);
+
+    [DllImport("gdi32.dll", SetLastError = true)]
+    private static extern int CombineRgn(nint destination, nint source1, nint source2, int mode);
+
+    [DllImport("gdi32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool DeleteObject(nint handle);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern int SetWindowRgn(nint window, nint region, [MarshalAs(UnmanagedType.Bool)] bool redraw);
 
     internal static bool ActivateProcessWindow(int processId, string expectedTitle)
     {
