@@ -245,6 +245,31 @@ jobs:
             Write-Host '--- Native installer failure diagnostics ---'
             $registeredInstallDirectory = (Get-ItemProperty -LiteralPath 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\RimV.Native.Windows' -Name InstallLocation -ErrorAction SilentlyContinue).InstallLocation
             Write-Host "Registered install directory: $registeredInstallDirectory"
+            # Emit only fixed event names and exception type/HRESULT. Do not
+            # publish raw app logs, messages, paths, or transcription data.
+            $appLogPath = Join-Path $env:LOCALAPPDATA 'RimV\logs\windows-native.log'
+            if (Test-Path -LiteralPath $appLogPath) {
+              $entries = @(Get-Content -LiteralPath $appLogPath -Tail 200 | ForEach-Object {
+                try { $_ | ConvertFrom-Json } catch { $null }
+              } | Where-Object { $null -ne $_ })
+              $lastLaunch = -1
+              for ($index = 0; $index -lt $entries.Count; $index++) {
+                if ($entries[$index].event -eq 'app.launch') { $lastLaunch = $index }
+              }
+              if ($lastLaunch -ge 0) { $entries = @($entries[$lastLaunch..($entries.Count - 1)]) }
+              Write-Host 'Sanitized startup diagnostics (event names and exception type/HRESULT only):'
+              foreach ($entry in $entries) {
+                $errorType = $null
+                $hresult = $null
+                if ($entry.error -match '^(?<type>[A-Za-z0-9_.+`]+)(?: \(0x(?<hresult>[0-9A-Fa-f]+)\))?') {
+                  $errorType = $Matches.type
+                  $hresult = $Matches.hresult
+                }
+                Write-Host ("{0} {1} {2} {3}" -f $entry.utc, $entry.level, $entry.event, $(if ($errorType) { "$errorType $hresult" } else { '' }))
+              }
+            } else {
+              Write-Host 'The app did not create its local diagnostic log.'
+            }
             if (Test-Path -LiteralPath $installDirectory) {
               Get-ChildItem -LiteralPath $installDirectory -Force -Recurse | Select-Object FullName, Length, Attributes | Format-Table -AutoSize | Out-String | Write-Host
               $appPath = Join-Path $installDirectory 'RimV.Windows.exe'
