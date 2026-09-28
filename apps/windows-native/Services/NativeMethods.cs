@@ -8,6 +8,7 @@ internal static class NativeMethods
     internal const uint WM_APP = 0x8000;
     internal const uint MONITOR_DEFAULTTONEAREST = 2;
     internal const uint MDT_EFFECTIVE_DPI = 0;
+    internal const int GWLP_HWNDPARENT = -8;
     private const int GwlExStyle = -20;
     private const int WsExAppWindow = 0x00040000;
     private const int WsExToolWindow = 0x00000080;
@@ -31,6 +32,9 @@ internal static class NativeMethods
         public uint Flags;
     }
 
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct NativeRect { public int Left; public int Top; public int Right; public int Bottom; }
+
     [DllImport("user32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static extern bool GetCursorPos(out Point point);
@@ -38,6 +42,18 @@ internal static class NativeMethods
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static extern bool IsWindowVisible(nint window);
+
+    [DllImport("user32.dll")]
+    internal static extern nint GetForegroundWindow();
+
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool GetWindowRect(nint window, out NativeRect rect);
+
+    [DllImport("user32.dll")]
+    internal static extern uint GetDpiForWindow(nint window);
+
+    internal static void SetOwner(nint window, nint owner) => SetWindowLongPtr(window, GWLP_HWNDPARENT, owner);
 
     [DllImport("user32.dll")]
     internal static extern nint MonitorFromPoint(Point point, uint flags);
@@ -97,6 +113,25 @@ internal static class NativeMethods
             _ =>
                 [new() { X = right - 1, Y = pointerOffset - 12 }, new() { X = right - 1, Y = pointerOffset + 12 }, new() { X = width, Y = pointerOffset }],
         };
+        nint pointer = CreatePolygonRgn(points, points.Length, 2);
+        if (pointer != 0)
+        {
+            CombineRgn(shape, shape, pointer, 2);
+            DeleteObject(pointer);
+        }
+        if (SetWindowRgn(window, shape, true) == 0) DeleteObject(shape);
+    }
+
+    internal static void ClipSelectorPopup(nint window, int width, int height, int cornerRadius,
+        int pointerSize, int pointerOffset, RimV.Windows.Application.PopupPointerEdge edge)
+    {
+        int left = edge == RimV.Windows.Application.PopupPointerEdge.Left ? pointerSize : 0;
+        int right = width - (edge == RimV.Windows.Application.PopupPointerEdge.Right ? pointerSize : 0);
+        nint shape = CreateRoundRectRgn(left, 0, right + 1, height + 1, cornerRadius, cornerRadius);
+        if (shape == 0) return;
+        Point[] points = edge == RimV.Windows.Application.PopupPointerEdge.Left
+            ? [new() { X = left + 1, Y = pointerOffset - 12 }, new() { X = left + 1, Y = pointerOffset + 12 }, new() { X = 0, Y = pointerOffset }]
+            : [new() { X = right - 1, Y = pointerOffset - 12 }, new() { X = right - 1, Y = pointerOffset + 12 }, new() { X = width, Y = pointerOffset }];
         nint pointer = CreatePolygonRgn(points, points.Length, 2);
         if (pointer != 0)
         {

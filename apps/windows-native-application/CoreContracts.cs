@@ -62,6 +62,12 @@ public sealed class ModelDescriptor
     [JsonPropertyName("storage_directory")] public string StorageDirectory { get; init; } = "";
     [JsonPropertyName("files")] public List<ModelFile> Files { get; init; } = [];
     [JsonPropertyName("languages")] public List<string> Languages { get; init; } = [];
+    [JsonPropertyName("capabilities")] public ModelCapabilities Capabilities { get; init; } = new();
+}
+
+public sealed class ModelCapabilities
+{
+    [JsonPropertyName("supports_language_detection")] public bool SupportsLanguageDetection { get; init; }
 }
 
 public sealed class ModelFile

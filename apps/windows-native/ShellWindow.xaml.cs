@@ -15,8 +15,10 @@ public sealed partial class ShellWindow : Window
     private readonly AppWindow _appWindow;
     private Func<PixelRect?>? _trayBounds;
     private bool _isVisible;
+    private readonly PopupCoordinator _popups;
     private LanguageWindow? _languageWindow;
-    private ModelManagerWindow? _modelWindow;
+    private ModelSelectorWindow? _modelSelectorWindow;
+    private ModelManagerWindow? _modelManagerWindow;
     private RecordingsWindow? _recordingsWindow;
     private SettingsWindow? _settingsWindow;
     private TranscriptionWindow? _transcriptionWindow;
@@ -25,6 +27,7 @@ public sealed partial class ShellWindow : Window
     {
         InitializeComponent();
         _coordinator = coordinator;
+        _popups = new PopupCoordinator(this, App.CurrentApp.UiQueue);
         _coordinator.Changed += Coordinator_Changed;
         WindowHandle = WindowNative.GetWindowHandle(this);
         var id = Microsoft.UI.Win32Interop.GetWindowIdFromWindow(WindowHandle);
@@ -37,15 +40,20 @@ public sealed partial class ShellWindow : Window
         _appWindow.SetPresenter(presenter);
         NativeMethods.MakeToolWindow(WindowHandle);
         _appWindow.Closing += AppWindow_Closing;
-        Activated += ShellWindow_Activated;
         RootGrid.Loaded += (_, _) => App.CurrentApp.ThemeManager.RegisterRoot(RootGrid);
-        Closed += (_, _) => _coordinator.Changed -= Coordinator_Changed;
+        Closed += (_, _) =>
+        {
+            _popups.Dispose();
+            _coordinator.Changed -= Coordinator_Changed;
+        };
         Render();
     }
 
     internal nint WindowHandle { get; }
     internal AppWindow NativeAppWindow => _appWindow;
     internal AppCoordinator Coordinator => _coordinator;
+    internal bool IsPopupVisible => _popups.IsMenuVisible;
+    internal bool HasActiveSelector => _popups.ActiveSelector != PopupSelectorKind.None;
 
     internal void SetTrayBoundsProvider(Func<PixelRect?> provider) => _trayBounds = provider;
 
@@ -54,27 +62,17 @@ public sealed partial class ShellWindow : Window
         if (App.CurrentApp.IsShuttingDown) return;
         App.CurrentApp.Log.Info("shell.close_requested_hide_to_tray");
         args.Cancel = true;
-        HidePopup();
-    }
-
-    private void ShellWindow_Activated(object sender, WindowActivatedEventArgs args)
-    {
-        if (args.WindowActivationState == WindowActivationState.Deactivated && _isVisible && !PointerIsOverTrayIcon())
-            HidePopup();
+        _popups.DismissAll("shell_close_requested");
     }
 
     public void ToggleNearTray()
     {
-        if (_isVisible)
-        {
-            HidePopup();
-            return;
-        }
-        ShowFromActivation();
+        _popups.ToggleMenu();
     }
 
     public void ShowFromActivation()
     {
+        _popups.ShowMenu();
         PositionNearTray();
         _isVisible = true;
         _appWindow.Show();
@@ -104,14 +102,6 @@ public sealed partial class ShellWindow : Window
         ShowPointer(placement, scale);
         NativeMethods.ClipTrayPopup(WindowHandle, width, height, (int)Math.Round(32 * scale),
             (int)Math.Round(14 * scale), placement.PointerOffset, placement.Edge);
-    }
-
-    private bool PointerIsOverTrayIcon()
-    {
-        PixelRect? bounds = _trayBounds?.Invoke();
-        if (bounds is null || !NativeMethods.GetCursorPos(out NativeMethods.Point point)) return false;
-        return point.X >= bounds.Value.Left && point.X < bounds.Value.Right
-            && point.Y >= bounds.Value.Top && point.Y < bounds.Value.Bottom;
     }
 
     private void ShowPointer(TrayPopupPlacement placement, double scale)
@@ -155,12 +145,22 @@ public sealed partial class ShellWindow : Window
         }
     }
 
-    private void HidePopup()
+    internal void HideMainFromCoordinator()
     {
         _isVisible = false;
         _appWindow.Hide();
         App.CurrentApp.Log.Info("shell.hidden_to_tray");
     }
+
+    internal bool PointerIsOverTrayIcon()
+    {
+        PixelRect? bounds = _trayBounds?.Invoke();
+        if (bounds is null || !NativeMethods.GetCursorPos(out NativeMethods.Point point)) return false;
+        return point.X >= bounds.Value.Left && point.X < bounds.Value.Right
+            && point.Y >= bounds.Value.Top && point.Y < bounds.Value.Bottom;
+    }
+
+    internal void CloseSelectorPopup() => _popups.CloseSelector();
 
     public void DestroyShellWindow()
     {
@@ -223,7 +223,8 @@ public sealed partial class ShellWindow : Window
 
         ModelRecord? model = _coordinator.Models.FirstOrDefault(item => item.Descriptor.Id == _coordinator.SelectedModelId);
         ModelName.Text = model?.Descriptor.DisplayName ?? "Choose a model";
-        LanguageName.Text = DisplayLanguage(_coordinator.SelectedLanguage);
+        LanguageName.Text = DisplayLanguage(_coordinator.SelectedLanguage,
+            model?.Descriptor.Capabilities.SupportsLanguageDetection == true);
         ErrorInfo.Message = _coordinator.ErrorMessage ?? "";
         ErrorInfo.IsOpen = _coordinator.ErrorMessage is not null;
         ModelInfo.Message = !_coordinator.IsCoreAvailable
@@ -234,9 +235,9 @@ public sealed partial class ShellWindow : Window
         ModelInfo.IsOpen = !_coordinator.IsCoreAvailable || state.Transcription.Status == "loading" || model is null || model.State != "installed";
     }
 
-    private static string DisplayLanguage(string? code)
+    private static string DisplayLanguage(string? code, bool supportsDetection)
     {
-        if (string.IsNullOrWhiteSpace(code) || code == "auto") return "Automatic";
+        if (string.IsNullOrWhiteSpace(code) || code == "auto") return supportsDetection ? "Auto Detect" : "Default";
         try { return CultureInfo.GetCultureInfo(code).EnglishName; }
         catch (CultureNotFoundException) { return code; }
     }
@@ -251,7 +252,7 @@ public sealed partial class ShellWindow : Window
     private void RootGrid_KeyDown(object sender, KeyRoutedEventArgs e)
     {
         if (e.Key != global::Windows.System.VirtualKey.Escape) return;
-        HidePopup();
+        _popups.HandleEscape();
         e.Handled = true;
     }
 
@@ -262,44 +263,51 @@ public sealed partial class ShellWindow : Window
 
     public void OpenLanguageWindow()
     {
-        App.CurrentApp.Log.Info("window.open", "language");
-        HidePopup();
-        if (_languageWindow is null)
-        {
-            _languageWindow = new LanguageWindow(_coordinator);
-            _languageWindow.Closed += (_, _) => _languageWindow = null;
-        }
-        _languageWindow.Activate();
+        EnsureMenuVisible();
+        if (_popups.ActiveSelector == PopupSelectorKind.Language) { _popups.CloseSelector(); return; }
+        _languageWindow = new LanguageWindow(_coordinator);
+        _popups.OpenSelector(PopupSelectorKind.Language, _languageWindow, LanguageAnchor, 336, 466,
+            (placement, scale) => _languageWindow?.ApplyPopupPlacement(placement, scale));
     }
 
     public void OpenModelWindow()
     {
-        App.CurrentApp.Log.Info("window.open", "model_manager");
-        HidePopup();
-        if (_modelWindow is null)
-        {
-            _modelWindow = new ModelManagerWindow(_coordinator);
-            _modelWindow.Closed += (_, _) => _modelWindow = null;
-        }
-        _modelWindow.Activate();
+        EnsureMenuVisible();
+        if (_popups.ActiveSelector == PopupSelectorKind.Model) { _popups.CloseSelector(); return; }
+        _modelSelectorWindow = new ModelSelectorWindow(_coordinator, OpenModelManagerWindow);
+        _popups.OpenSelector(PopupSelectorKind.Model, _modelSelectorWindow, ModelAnchor, 336, 190,
+            (placement, scale) => _modelSelectorWindow?.ApplyPopupPlacement(placement, scale));
     }
 
     public void OpenRecordingsWindow()
     {
-        App.CurrentApp.Log.Info("window.open", "recordings");
-        HidePopup();
-        if (_recordingsWindow is null)
+        EnsureMenuVisible();
+        if (_popups.ActiveSelector == PopupSelectorKind.Recordings) { _popups.CloseSelector(); return; }
+        _recordingsWindow = new RecordingsWindow(_coordinator, OpenTranscriptionWindow);
+        _popups.OpenSelector(PopupSelectorKind.Recordings, _recordingsWindow, RecordingsAnchor, 352, 440,
+            (placement, scale) => _recordingsWindow?.ApplyPopupPlacement(placement, scale));
+    }
+
+    private void OpenModelManagerWindow()
+    {
+        _popups.CloseForIndependentWindow();
+        if (_modelManagerWindow is null)
         {
-            _recordingsWindow = new RecordingsWindow(_coordinator, OpenTranscriptionWindow);
-            _recordingsWindow.Closed += (_, _) => _recordingsWindow = null;
+            _modelManagerWindow = new ModelManagerWindow(_coordinator);
+            _modelManagerWindow.Closed += (_, _) => _modelManagerWindow = null;
         }
-        _recordingsWindow.Activate();
+        _modelManagerWindow.Activate();
+    }
+
+    private void EnsureMenuVisible()
+    {
+        if (!_popups.IsMenuVisible) ShowFromActivation();
     }
 
     public void OpenSettingsWindow()
     {
         App.CurrentApp.Log.Info("window.open", "settings");
-        HidePopup();
+        _popups.CloseForIndependentWindow();
         if (_settingsWindow is null)
         {
             _settingsWindow = new SettingsWindow(_coordinator);
@@ -311,7 +319,7 @@ public sealed partial class ShellWindow : Window
     public void OpenTranscriptionWindow(string sessionId)
     {
         App.CurrentApp.Log.Info("window.open", "transcription");
-        HidePopup();
+        _popups.CloseForIndependentWindow();
         if (_transcriptionWindow is null)
         {
             _transcriptionWindow = new TranscriptionWindow(_coordinator);

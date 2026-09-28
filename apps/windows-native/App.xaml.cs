@@ -167,6 +167,7 @@ public partial class App : Microsoft.UI.Xaml.Application
     public void OpenLanguageWindow() => _shell?.OpenLanguageWindow();
     public void OpenModelWindow() => _shell?.OpenModelWindow();
     public void OpenRecordingsWindow() => _shell?.OpenRecordingsWindow();
+    public void CloseSelectorPopup() => _shell?.CloseSelectorPopup();
     public void OpenSettingsWindow() => _shell?.OpenSettingsWindow();
     public void OpenTranscriptionWindow(string sessionId) => _shell?.OpenTranscriptionWindow(sessionId);
 

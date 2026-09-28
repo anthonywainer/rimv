@@ -1,36 +1,84 @@
-<Window
-    x:Class="RimV.Windows.RecordingsWindow"
-    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    Title="Recordings">
-    <Grid x:Name="RootGrid" Background="{ThemeResource RimVBackgroundBrush}" Padding="24" RowSpacing="14">
-        <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-        <StackPanel Spacing="4">
-            <TextBlock Text="Recordings" FontSize="24" FontWeight="SemiBold" />
-            <TextBlock Text="Open, rename or remove a saved session. Active recordings stay at the top." Foreground="{ThemeResource RimVSecondaryTextBrush}" TextWrapping="Wrap" />
-        </StackPanel>
-        <Grid Grid.Row="1" ColumnSpacing="8">
-            <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-            <TextBox x:Name="SearchBox" PlaceholderText="Search recordings" AutomationProperties.Name="Search recordings" TextChanged="SearchBox_TextChanged" />
-            <Button Grid.Column="1" Content="Refresh" Click="RefreshButton_Click" />
-        </Grid>
-        <ListView x:Name="RecordingList" Grid.Row="2" SelectionChanged="RecordingList_SelectionChanged" AutomationProperties.Name="Saved recordings">
-            <ListView.ItemTemplate>
-                <DataTemplate x:DataType="local:RecordingRow" xmlns:local="using:RimV.Windows">
-                    <StackPanel Padding="8,10" Spacing="3">
-                        <TextBlock Text="{x:Bind Title}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
-                        <TextBlock Text="{x:Bind Subtitle}" FontSize="12" Foreground="{ThemeResource RimVSecondaryTextBrush}" />
-                    </StackPanel>
-                </DataTemplate>
-            </ListView.ItemTemplate>
-        </ListView>
-        <TextBlock x:Name="EmptyText" Grid.Row="2" Text="No recordings yet. Start listening from the RimV tray menu." TextWrapping="Wrap" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="{ThemeResource RimVSecondaryTextBrush}" />
-        <InfoBar x:Name="ErrorInfo" Grid.Row="3" IsOpen="False" Severity="Error" IsClosable="True" />
-        <Grid Grid.Row="4" ColumnSpacing="8">
-            <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-            <Button x:Name="OpenButton" Content="Open" Click="OpenButton_Click" />
-            <Button x:Name="RenameButton" Grid.Column="1" Content="Rename" Click="RenameButton_Click" />
-            <Button x:Name="DeleteButton" Grid.Column="2" Content="Delete" Click="DeleteButton_Click" Foreground="{ThemeResource RimVErrorBrush}" />
-        </Grid>
+<Window x:Class="RimV.Windows.RecordingsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="using:RimV.Windows" Title="Recordings">
+    <Grid x:Name="RootGrid" Background="Transparent" KeyDown="RootGrid_KeyDown">
+        <Border x:Name="PopupSurface" Background="{ThemeResource RimVMenuSurfaceBrush}"
+                BorderBrush="{ThemeResource RimVMenuBorderBrush}" BorderThickness="1"
+                CornerRadius="16" Padding="16,14">
+            <Border.Shadow><ThemeShadow /></Border.Shadow>
+            <Grid RowSpacing="9">
+                <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                <Grid ColumnSpacing="8">
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                    <TextBlock Text="Recordings" FontSize="16" FontWeight="SemiBold" Foreground="{ThemeResource RimVMenuTextBrush}" />
+                    <TextBlock x:Name="RecordingCount" Grid.Column="1" FontSize="11" VerticalAlignment="Center"
+                               Foreground="{ThemeResource RimVMenuSecondaryTextBrush}" />
+                </Grid>
+                <TextBox x:Name="SearchBox" Grid.Row="1" PlaceholderText="Search recordings…"
+                         AutomationProperties.Name="Search recordings" TextChanged="SearchBox_TextChanged" Height="34" />
+                <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="6">
+                    <ToggleButton x:Name="AllFilter" Content="All" Tag="All" IsChecked="True" Click="Filter_Click" />
+                    <ToggleButton x:Name="RecordingFilterToggle" Content="Recording" Tag="Recording" Click="Filter_Click" />
+                    <ToggleButton x:Name="CompletedFilter" Content="Completed" Tag="Completed" Click="Filter_Click" />
+                </StackPanel>
+                <Grid Grid.Row="3">
+                    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                        <ItemsControl x:Name="RecordingList">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="local:RecordingSelectorRow">
+                                    <Border Background="{ThemeResource RimVMenuPanelBrush}" CornerRadius="9" Padding="5" Margin="0,0,0,6">
+                                        <Grid ColumnSpacing="4">
+                                            <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                                            <Button Tag="{x:Bind Id}" Click="OpenRecording_Click" Padding="7,5"
+                                                    HorizontalContentAlignment="Stretch" Background="Transparent" BorderThickness="0"
+                                                    AutomationProperties.Name="{x:Bind AccessibleName}">
+                                                <Grid ColumnSpacing="6">
+                                                    <Grid.ColumnDefinitions><ColumnDefinition Width="20"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                                    <FontIcon Glyph="{x:Bind Icon}" FontFamily="Segoe Fluent Icons" FontSize="14"
+                                                              Foreground="{ThemeResource RimVMenuAccentBrush}" VerticalAlignment="Center" />
+                                                    <StackPanel Grid.Column="1" Spacing="3">
+                                                        <TextBlock Text="{x:Bind Title}" FontSize="12" FontWeight="SemiBold"
+                                                                   TextTrimming="CharacterEllipsis" Foreground="{ThemeResource RimVMenuTextBrush}" />
+                                                        <TextBlock Text="{x:Bind Subtitle}" FontSize="10" TextTrimming="CharacterEllipsis"
+                                                                   Foreground="{ThemeResource RimVMenuSecondaryTextBrush}" />
+                                                    </StackPanel>
+                                                </Grid>
+                                            </Button>
+                                            <Button Grid.Column="1" Content="⋯" Tag="{x:Bind Id}" Width="32" Height="32"
+                                                    Padding="0" Background="Transparent" BorderThickness="0"
+                                                    AutomationProperties.Name="Recording actions">
+                                                <Button.Flyout>
+                                                    <MenuFlyout>
+                                                        <MenuFlyoutItem Text="Open" Tag="{x:Bind Id}" Click="OpenRecording_Click" />
+                                                        <MenuFlyoutItem Text="Rename…" Tag="{x:Bind Id}" Click="RenameRecording_Click" />
+                                                        <MenuFlyoutItem Text="Delete…" Tag="{x:Bind Id}" IsEnabled="{x:Bind CanDelete}"
+                                                                        Click="DeleteRecording_Click" />
+                                                    </MenuFlyout>
+                                                </Button.Flyout>
+                                            </Button>
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+                    <TextBlock x:Name="EmptyText" Text="No recordings yet. Start listening from the RimV menu."
+                               TextWrapping="Wrap" TextAlignment="Center" VerticalAlignment="Center"
+                               Foreground="{ThemeResource RimVMenuSecondaryTextBrush}" Padding="18" Visibility="Collapsed" />
+                </Grid>
+                <InfoBar x:Name="ErrorInfo" Grid.Row="4" IsOpen="False" Severity="Error" IsClosable="True" />
+                <Button Grid.Row="5" Content="Open Recordings Folder" HorizontalAlignment="Stretch"
+                        Click="OpenFolder_Click" AutomationProperties.Name="Open recordings folder" />
+            </Grid>
+        </Border>
+        <Canvas x:Name="LeftPointer" Width="14" Height="24" HorizontalAlignment="Left" Visibility="Collapsed">
+            <Polygon Points="14,0 14,24 0,12" Fill="{ThemeResource RimVMenuBorderBrush}" />
+            <Polygon Points="14,2 14,22 2,12" Fill="{ThemeResource RimVMenuSurfaceBrush}" />
+        </Canvas>
+        <Canvas x:Name="RightPointer" Width="14" Height="24" HorizontalAlignment="Right" Visibility="Collapsed">
+            <Polygon Points="0,0 0,24 14,12" Fill="{ThemeResource RimVMenuBorderBrush}" />
+            <Polygon Points="0,2 0,22 12,12" Fill="{ThemeResource RimVMenuSurfaceBrush}" />
+        </Canvas>
     </Grid>
 </Window>

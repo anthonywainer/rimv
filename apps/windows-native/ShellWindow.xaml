@@ -86,7 +86,7 @@
                     </Border>
                     <InfoBar x:Name="ErrorInfo" IsOpen="False" Severity="Error" IsClosable="True" Margin="0,0,0,8"/>
                     <InfoBar x:Name="ModelInfo" IsOpen="False" Severity="Informational" Margin="0,0,0,8"/>
-                    <Button Style="{StaticResource RimVMenuRowButtonStyle}" Click="LanguageButton_Click"
+                    <Button x:Name="LanguageAnchor" Style="{StaticResource RimVMenuRowButtonStyle}" Click="LanguageButton_Click"
                             AutomationProperties.Name="Choose transcription language">
                         <Grid ColumnSpacing="9">
                             <Grid.ColumnDefinitions>
@@ -101,7 +101,7 @@
                             <FontIcon Grid.Column="3" Glyph="&#xE76C;" FontFamily="Segoe Fluent Icons" FontSize="12"/>
                         </Grid>
                     </Button>
-                    <Button Style="{StaticResource RimVMenuRowButtonStyle}" Click="ModelButton_Click"
+                    <Button x:Name="ModelAnchor" Style="{StaticResource RimVMenuRowButtonStyle}" Click="ModelButton_Click"
                             AutomationProperties.Name="Choose transcription model">
                         <Grid ColumnSpacing="9">
                             <Grid.ColumnDefinitions>
@@ -117,7 +117,7 @@
                         </Grid>
                     </Button>
                     <Border Height="1" Background="{ThemeResource RimVMenuBorderBrush}" Margin="0,3"/>
-                    <Button Style="{StaticResource RimVMenuRowButtonStyle}" Click="RecordingsButton_Click"
+                    <Button x:Name="RecordingsAnchor" Style="{StaticResource RimVMenuRowButtonStyle}" Click="RecordingsButton_Click"
                             AutomationProperties.Name="Open recordings">
                         <Grid ColumnSpacing="9">
                             <Grid.ColumnDefinitions><ColumnDefinition Width="22"/><ColumnDefinition Width="*"/><ColumnDefinition Width="16"/></Grid.ColumnDefinitions>
