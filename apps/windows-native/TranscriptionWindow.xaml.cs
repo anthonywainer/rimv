@@ -345,9 +345,9 @@ public sealed partial class TranscriptionWindow : Window
         _viewerLifecycle.ResetPlayback();
     }
 
-    private void PlaybackSession_Changed(Windows.Media.Playback.MediaPlaybackSession sender, object args) =>
+    private void PlaybackSession_Changed(global::Windows.Media.Playback.MediaPlaybackSession sender, object args) =>
         _viewerLifecycle.SetPlayback(
-            sender.PlaybackState == Windows.Media.Playback.MediaPlaybackState.Playing,
+            sender.PlaybackState == global::Windows.Media.Playback.MediaPlaybackState.Playing,
             sender.Position);
 
     private static string MakeLiveKey(string source, string utteranceId) => $"{source}:{utteranceId}";
