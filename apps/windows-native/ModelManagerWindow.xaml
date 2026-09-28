@@ -32,10 +32,10 @@
             <InfoBar x:Name="ErrorInfo" Grid.Row="1" IsOpen="False" Severity="Error" IsClosable="True" />
             <Grid x:Name="CatalogPage" Grid.Row="2">
                 <ListView x:Name="ModelList" SelectionMode="None" AutomationProperties.Name="Speech model catalog">
-                    <ListView.ItemsPanel><ItemsPanelTemplate><ItemsStackPanel Spacing="12" /></ItemsPanelTemplate></ListView.ItemsPanel>
+                    <ListView.ItemsPanel><ItemsPanelTemplate><ItemsStackPanel /></ItemsPanelTemplate></ListView.ItemsPanel>
                     <ListView.ItemTemplate>
                         <DataTemplate x:DataType="local:ModelCardRow" xmlns:local="using:RimV.Windows">
-                            <Border Background="{ThemeResource RimVSurfaceBrush}" BorderBrush="{ThemeResource RimVBorderBrush}" BorderThickness="1" CornerRadius="12" Padding="16">
+                            <Border Background="{ThemeResource RimVSurfaceBrush}" BorderBrush="{ThemeResource RimVBorderBrush}" BorderThickness="1" CornerRadius="12" Padding="16" Margin="0,0,0,12">
                                 <Grid ColumnSpacing="16" RowSpacing="7">
                                     <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                                     <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
