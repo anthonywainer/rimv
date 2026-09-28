@@ -29,6 +29,10 @@ internal static class NativeMethods
     internal static extern bool GetCursorPos(out Point point);
 
     [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool IsWindowVisible(nint window);
+
+    [DllImport("user32.dll")]
     internal static extern nint MonitorFromPoint(Point point, uint flags);
 
     [DllImport("user32.dll", EntryPoint = "GetMonitorInfoW", CharSet = CharSet.Unicode, SetLastError = true)]

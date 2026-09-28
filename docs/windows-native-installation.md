@@ -19,6 +19,15 @@ The installer is unsigned unless a certificate-backed Authenticode step is confi
 
 The installer never deletes user data. To delete personal data, uninstall first, then review and manually remove `%LOCALAPPDATA%\RimV`. That folder can be shared with other RimV Windows builds; inspect it before deletion.
 
+## Diagnostics
+
+The native Windows app writes rotating diagnostic logs under `%LOCALAPPDATA%\RimV\logs`:
+
+- `windows-native.log` records app launch, single-instance activation, tray setup, shared-core operation names, event types, errors and shutdown.
+- `rust-engine.log` records Rust engine tracing output when available.
+
+The Windows host log rotates at 4 MiB with one previous file retained. The Rust engine log is moved to `.1` at the next app launch if it has reached 4 MiB. Logs exclude transcript text and audio buffers. File paths containing the current user's profile are redacted in the Windows host log. Review both files before sharing them because Rust diagnostics and exception details can still include local system information.
+
 There has not been a previous native WinUI installer. Upgrade from the HTML/Tauri installer is not applicable: the apps have separate installer identities and application folders. A later native installer first runs the previous native uninstaller, then installs the new payload.
 
 ## Reproducible package build

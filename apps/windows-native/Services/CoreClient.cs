@@ -8,10 +8,11 @@ namespace RimV.Windows;
 internal sealed class CoreClient : ISharedCoreClient
 {
     private readonly EngineHandle _handle;
+    private readonly IAppLog _log;
     private readonly SemaphoreSlim _commands = new(1, 1);
     private bool _disposed;
 
-    private CoreClient(EngineHandle handle) => _handle = handle;
+    private CoreClient(EngineHandle handle, IAppLog log) { _handle = handle; _log = log; }
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -19,7 +20,7 @@ internal sealed class CoreClient : ISharedCoreClient
         PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
     };
 
-    public static CoreClient Create(string recordingsDirectory, string modelsDirectory)
+    public static CoreClient Create(string recordingsDirectory, string modelsDirectory, IAppLog log)
     {
         uint version = CoreNativeMethods.ApiVersion();
         if (version != 1) throw new InvalidOperationException($"RimV core API version {version} is not supported.");
@@ -28,6 +29,7 @@ internal sealed class CoreClient : ISharedCoreClient
         {
             recordings_directory = recordingsDirectory,
             models_directory = modelsDirectory,
+            diagnostics_log_path = Path.Combine(Path.GetDirectoryName(recordingsDirectory)!, "logs", "rust-engine.log"),
         });
         nint input = Marshal.StringToCoTaskMemUTF8(configuration);
         try
@@ -43,7 +45,8 @@ internal sealed class CoreClient : ISharedCoreClient
                 throw;
             }
             if (handle == 0) throw new InvalidOperationException("The shared RimV engine did not return a handle.");
-            return new CoreClient(new EngineHandle(handle));
+            log.Info("rust_engine.created", $"api_version={version}");
+            return new CoreClient(new EngineHandle(handle), log);
         }
         finally
         {
@@ -54,13 +57,24 @@ internal sealed class CoreClient : ISharedCoreClient
     public Task<T> RequestAsync<T>(object request, CancellationToken cancellationToken = default)
     {
         string json = JsonSerializer.Serialize(request, JsonOptions);
+        string operation = GetOperationName(json);
         return Task.Run(() =>
         {
             _commands.Wait(cancellationToken);
             try
             {
                 ObjectDisposedException.ThrowIf(_disposed, this);
-                return Invoke<T>(json);
+                try
+                {
+                    T result = Invoke<T>(json);
+                    if (operation != "poll_event") _log.Info("rust.request", operation);
+                    return result;
+                }
+                catch (Exception error)
+                {
+                    _log.Error("rust.request_failed", error, operation);
+                    throw;
+                }
             }
             finally { _commands.Release(); }
         }, cancellationToken);
@@ -69,12 +83,21 @@ internal sealed class CoreClient : ISharedCoreClient
     public Task<CoreEvent?> PollEventAsync(CancellationToken cancellationToken) => Task.Run<CoreEvent?>(() =>
     {
         string json = JsonSerializer.Serialize(new { type = "poll_event", timeout_ms = 300 }, JsonOptions);
-        JsonElement result = Invoke<JsonElement>(json);
-        if (result.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined) return null;
-        string type = result.TryGetProperty("type", out JsonElement typeValue)
-            ? typeValue.GetString() ?? ""
-            : "";
-        return new CoreEvent(type, result);
+        try
+        {
+            JsonElement result = Invoke<JsonElement>(json);
+            if (result.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined) return null;
+            string type = result.TryGetProperty("type", out JsonElement typeValue)
+                ? typeValue.GetString() ?? ""
+                : "";
+            if (type.Length > 0) _log.Info("rust.event", type);
+            return new CoreEvent(type, result);
+        }
+        catch (Exception error)
+        {
+            _log.Error("rust.event_poll_failed", error);
+            throw;
+        }
     }, cancellationToken);
 
     private T Invoke<T>(string requestJson)
@@ -117,6 +140,21 @@ internal sealed class CoreClient : ISharedCoreClient
         using JsonDocument document = JsonDocument.Parse(envelope);
         if (!document.RootElement.GetProperty("ok").GetBoolean())
             throw new CoreRequestException(document.RootElement.GetProperty("error").GetProperty("message").GetString() ?? "RimV initialization failed.");
+    }
+
+    private static string GetOperationName(string json)
+    {
+        using JsonDocument document = JsonDocument.Parse(json);
+        JsonElement root = document.RootElement;
+        if (root.TryGetProperty("type", out JsonElement type))
+        {
+            string operation = type.GetString() ?? "unknown";
+            if (operation == "send" && root.TryGetProperty("command", out JsonElement command)
+                && command.TryGetProperty("type", out JsonElement commandType))
+                return $"send.{commandType.GetString() ?? "unknown"}";
+            return operation;
+        }
+        return "unknown";
     }
 
     public void Shutdown()

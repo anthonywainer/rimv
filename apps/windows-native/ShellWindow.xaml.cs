@@ -46,6 +46,7 @@ public sealed partial class ShellWindow : Window
     private void AppWindow_Closing(AppWindow sender, AppWindowClosingEventArgs args)
     {
         if (App.CurrentApp.IsShuttingDown) return;
+        App.CurrentApp.Log.Info("shell.close_requested_hide_to_tray");
         args.Cancel = true;
         HidePopup();
     }
@@ -74,6 +75,7 @@ public sealed partial class ShellWindow : Window
         }
         _appWindow.Show();
         Activate();
+        App.CurrentApp.Log.Info("shell.show_completed", $"native_window_visible={NativeMethods.IsWindowVisible(WindowHandle)}");
         Render();
     }
 
@@ -117,6 +119,7 @@ public sealed partial class ShellWindow : Window
         _isVisible = false;
         _isActive = false;
         _appWindow.Hide();
+        App.CurrentApp.Log.Info("shell.hidden_to_tray");
     }
 
     public void DestroyShellWindow()
@@ -211,6 +214,7 @@ public sealed partial class ShellWindow : Window
 
     public void OpenLanguageWindow()
     {
+        App.CurrentApp.Log.Info("window.open", "language");
         HidePopup();
         if (_languageWindow is null)
         {
@@ -222,6 +226,7 @@ public sealed partial class ShellWindow : Window
 
     public void OpenModelWindow()
     {
+        App.CurrentApp.Log.Info("window.open", "model_manager");
         HidePopup();
         if (_modelWindow is null)
         {
@@ -233,6 +238,7 @@ public sealed partial class ShellWindow : Window
 
     public void OpenRecordingsWindow()
     {
+        App.CurrentApp.Log.Info("window.open", "recordings");
         HidePopup();
         if (_recordingsWindow is null)
         {
@@ -244,6 +250,7 @@ public sealed partial class ShellWindow : Window
 
     public void OpenSettingsWindow()
     {
+        App.CurrentApp.Log.Info("window.open", "settings");
         HidePopup();
         if (_settingsWindow is null)
         {
@@ -255,6 +262,7 @@ public sealed partial class ShellWindow : Window
 
     public void OpenTranscriptionWindow(string sessionId)
     {
+        App.CurrentApp.Log.Info("window.open", "transcription");
         HidePopup();
         if (_transcriptionWindow is null)
         {

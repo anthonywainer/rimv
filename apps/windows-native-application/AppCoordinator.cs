@@ -9,6 +9,7 @@ public sealed class AppCoordinator
     private readonly ISharedCoreClientFactory _coreFactory;
     private readonly IUserPreferencesStore _preferences;
     private readonly IUiDispatcher _dispatcher;
+    private readonly IAppLog _log;
     private readonly CancellationTokenSource _shutdown = new();
     private readonly SemaphoreSlim _operations = new(1, 1);
     private ISharedCoreClient? _core;
@@ -36,16 +37,19 @@ public sealed class AppCoordinator
         string dataDirectory,
         ISharedCoreClientFactory coreFactory,
         IUserPreferencesStore preferences,
-        IUiDispatcher dispatcher)
+        IUiDispatcher dispatcher,
+        IAppLog? log = null)
     {
         _dataDirectory = dataDirectory;
         _coreFactory = coreFactory;
         _preferences = preferences;
         _dispatcher = dispatcher;
+        _log = log ?? NullAppLog.Instance;
     }
 
     public async Task InitializeAsync()
     {
+        _log.Info("coordinator.initialize");
         Directory.CreateDirectory(_dataDirectory);
         try
         {
@@ -57,6 +61,7 @@ public sealed class AppCoordinator
         }
         catch (Exception error) when (error is not OperationCanceledException)
         {
+            _log.Error("preferences.load_failed", error);
             LastErrorDetail = error.ToString();
             ErrorMessage = "RimV couldn't load your preferences. It will use the defaults.";
         }
@@ -97,6 +102,7 @@ public sealed class AppCoordinator
 
         await ApplySourcePreferenceAsync();
         StartEventPump();
+        _log.Info("coordinator.ready", $"models={Models.Count}; recordings={Recordings.Count}");
         NotifyChanged();
     }
 
@@ -112,6 +118,7 @@ public sealed class AppCoordinator
 
     public void SetTheme(string theme)
     {
+        _log.Info("preferences.theme_changed");
         ThemeName = NormalizeTheme(theme);
         _ = GuardAsync(SavePreferencesAsync);
         NotifyChanged();
@@ -277,6 +284,7 @@ public sealed class AppCoordinator
                 }
                 catch (Exception error)
                 {
+                    _log.Error("core.event_pump_failed", error);
                     _dispatcher.TryEnqueue(() => SetError("RimV lost contact with the shared engine. Restart the app to reconnect.", error.ToString()));
                     try { await Task.Delay(500, _shutdown.Token).ConfigureAwait(false); }
                     catch (OperationCanceledException) when (_shutdown.IsCancellationRequested) { break; }
@@ -289,6 +297,7 @@ public sealed class AppCoordinator
     {
         try
         {
+            _log.Info("core.event", item.Type);
             switch (item.Type)
             {
                 case "snapshot":
@@ -305,6 +314,7 @@ public sealed class AppCoordinator
                     break;
                 case "transcript_update":
                     Interlocked.Increment(ref _transcriptRevision);
+                    _log.Info("transcript.update_received");
                     break;
                 case "error":
                 case "transcription_error":
@@ -318,6 +328,7 @@ public sealed class AppCoordinator
         }
         catch (Exception error)
         {
+            _log.Error("core.event_apply_failed", error);
             SetError("RimV received an update it couldn't display. The recording can continue.", error.ToString());
         }
     }
@@ -344,6 +355,7 @@ public sealed class AppCoordinator
         catch (OperationCanceledException) when (_shutdown.IsCancellationRequested) { }
         catch (Exception error)
         {
+            _log.Error("coordinator.operation_failed", error);
             string message = error is CoreRequestException ? ToFriendlyError(error.Message) : "RimV couldn't complete that action. Check the shared engine and try again.";
             SetError(message, error.ToString());
         }
@@ -353,11 +365,15 @@ public sealed class AppCoordinator
         }
     }
 
-    public void ReportError(Exception error) => SetError(
-        error is DllNotFoundException or EntryPointNotFoundException
+    public void ReportError(Exception error)
+    {
+        _log.Error("coordinator.startup_error", error);
+        SetError(
+            error is DllNotFoundException or EntryPointNotFoundException
             ? "RimV's shared engine is missing. Rebuild the app with the matching Rust core DLL."
             : "RimV couldn't start the shared engine. Check the app's local data folder and try again.",
-        error.ToString());
+            error.ToString());
+    }
 
     public void ClearError()
     {
@@ -367,6 +383,7 @@ public sealed class AppCoordinator
 
     private void SetError(string message, string detail)
     {
+        _log.Info("coordinator.error_state_changed");
         ErrorMessage = message;
         LastErrorDetail = detail;
         NotifyChanged();
@@ -387,6 +404,7 @@ public sealed class AppCoordinator
 
     public async Task ShutdownAsync()
     {
+        _log.Info("coordinator.shutdown");
         _shutdown.Cancel();
         if (_eventPump is not null)
         {

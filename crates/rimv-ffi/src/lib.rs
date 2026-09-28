@@ -15,7 +15,7 @@ use std::{
     path::PathBuf,
     ptr,
     sync::{
-        Arc, Mutex,
+        Arc, Mutex, OnceLock,
         atomic::{AtomicBool, Ordering},
         mpsc::{self, Receiver, SyncSender},
     },
@@ -40,6 +40,34 @@ pub struct RimvEngine {
 struct InitConfig {
     recordings_directory: PathBuf,
     models_directory: Option<PathBuf>,
+    diagnostics_log_path: Option<PathBuf>,
+}
+
+static DIAGNOSTICS_INITIALIZED: OnceLock<()> = OnceLock::new();
+
+fn initialize_diagnostics(path: Option<&std::path::Path>) {
+    let Some(path) = path else { return };
+    let _ = DIAGNOSTICS_INITIALIZED.get_or_init(|| {
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        if std::fs::metadata(path).is_ok_and(|metadata| metadata.len() >= 4 * 1024 * 1024) {
+            let backup = path.with_extension("log.1");
+            let _ = std::fs::remove_file(&backup);
+            let _ = std::fs::rename(path, backup);
+        }
+        if let Ok(file) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)
+        {
+            let _ = tracing_subscriber::fmt()
+                .with_ansi(false)
+                .with_max_level(tracing::Level::INFO)
+                .with_writer(file)
+                .try_init();
+        }
+    });
 }
 
 #[derive(Deserialize)]
@@ -287,6 +315,7 @@ pub unsafe extern "C" fn rimv_engine_create(
         let input = unsafe { read_utf8(config_json) }?;
         let config: InitConfig =
             serde_json::from_str(input).map_err(|e| format!("invalid configuration: {e}"))?;
+        initialize_diagnostics(config.diagnostics_log_path.as_deref());
         if config.recordings_directory.as_os_str().is_empty() {
             return Err("recordings_directory must not be empty".into());
         }
