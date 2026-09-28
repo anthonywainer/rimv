@@ -1,4 +1,3 @@
-using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using RimV.Windows.Application;
 using System.Runtime.InteropServices;
@@ -9,23 +8,24 @@ internal sealed class ThemeManager : IDisposable
 {
     private readonly AppCoordinator _coordinator;
     private readonly List<WeakReference<FrameworkElement>> _roots = [];
-    private readonly DispatcherQueueTimer _appearanceTimer;
+    private readonly Timer _appearanceTimer;
     private bool? _lastHighContrast;
 
     public ThemeManager(AppCoordinator coordinator)
     {
         _coordinator = coordinator;
         _coordinator.Changed += Coordinator_Changed;
-        _appearanceTimer = App.CurrentApp.UiQueue.CreateTimer();
-        _appearanceTimer.Interval = TimeSpan.FromSeconds(1);
-        _appearanceTimer.Tick += (_, _) =>
-        {
-            bool highContrast = IsHighContrastEnabled();
-            if (_lastHighContrast == highContrast) return;
-            _lastHighContrast = highContrast;
-            ApplyAll();
-        };
-        _appearanceTimer.Start();
+        _appearanceTimer = new Timer(
+            _ => App.CurrentApp.UiQueue.TryEnqueue(() =>
+            {
+                bool highContrast = IsHighContrastEnabled();
+                if (_lastHighContrast == highContrast) return;
+                _lastHighContrast = highContrast;
+                ApplyAll();
+            }),
+            null,
+            TimeSpan.FromSeconds(1),
+            TimeSpan.FromSeconds(1));
     }
 
     public void RegisterRoot(FrameworkElement root)
@@ -79,7 +79,7 @@ internal sealed class ThemeManager : IDisposable
     public void Dispose()
     {
         _coordinator.Changed -= Coordinator_Changed;
-        _appearanceTimer.Stop();
+        _appearanceTimer.Dispose();
         _roots.Clear();
     }
 }

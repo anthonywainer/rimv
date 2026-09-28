@@ -87,8 +87,12 @@ public partial class App : Microsoft.UI.Xaml.Application
             new FileUserPreferencesStore(Path.Combine(dataDirectory, "preferences.json")),
             new WinUiDispatcher(UiQueue),
             _log);
+        _log.Info("theme_manager.initializing");
         ThemeManager = new ThemeManager(Coordinator);
+        _log.Info("theme_manager.initialized");
+        _log.Info("shell_window.initializing");
         _shell = new ShellWindow(Coordinator);
+        _log.Info("shell_window.initialized");
         _tray = new TrayIcon(_shell);
         CancellationTokenSource activationCancellation = new();
         _activationCancellation = activationCancellation;
