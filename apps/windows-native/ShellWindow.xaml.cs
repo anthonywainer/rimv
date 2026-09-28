@@ -1,8 +1,10 @@
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
+using System.Globalization;
 using WinRT.Interop;
 
 namespace RimV.Windows;
@@ -221,7 +223,7 @@ public sealed partial class ShellWindow : Window
 
         ModelRecord? model = _coordinator.Models.FirstOrDefault(item => item.Descriptor.Id == _coordinator.SelectedModelId);
         ModelName.Text = model?.Descriptor.DisplayName ?? "Choose a model";
-        LanguageName.Text = string.IsNullOrWhiteSpace(_coordinator.SelectedLanguage) ? "Automatic" : _coordinator.SelectedLanguage;
+        LanguageName.Text = DisplayLanguage(_coordinator.SelectedLanguage);
         ErrorInfo.Message = _coordinator.ErrorMessage ?? "";
         ErrorInfo.IsOpen = _coordinator.ErrorMessage is not null;
         ModelInfo.Message = !_coordinator.IsCoreAvailable
@@ -230,6 +232,13 @@ public sealed partial class ShellWindow : Window
             : model?.State == "unsupported" ? "The selected model backend isn't included in this Windows build. Choose an available model."
             : model is null ? "Choose a speech model to turn listening into a transcript." : model.State == "installed" ? "Model ready" : "This model needs to be downloaded.";
         ModelInfo.IsOpen = !_coordinator.IsCoreAvailable || state.Transcription.Status == "loading" || model is null || model.State != "installed";
+    }
+
+    private static string DisplayLanguage(string? code)
+    {
+        if (string.IsNullOrWhiteSpace(code) || code == "auto") return "Automatic";
+        try { return CultureInfo.GetCultureInfo(code).EnglishName; }
+        catch (CultureNotFoundException) { return code; }
     }
 
     private async void ListenButton_Click(object sender, RoutedEventArgs e) => await _coordinator.StartOrStopAsync();
