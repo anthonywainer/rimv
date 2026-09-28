@@ -19,7 +19,7 @@ public partial class App : Microsoft.UI.Xaml.Application
     private FileAppLog? _log;
 
     public static App CurrentApp => (App)Current;
-    internal IAppLog Log => _log ?? NullAppLog.Instance;
+    internal IAppLog Log => (IAppLog?)_log ?? NullAppLog.Instance;
     public AppCoordinator Coordinator { get; private set; } = null!;
     internal ThemeManager ThemeManager { get; private set; } = null!;
     public DispatcherQueue UiQueue { get; private set; } = null!;
