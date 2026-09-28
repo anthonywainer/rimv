@@ -1,33 +1,31 @@
+using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using RimV.Windows.Application;
 using System.Runtime.InteropServices;
-using Windows.UI.ViewManagement;
 
 namespace RimV.Windows;
 
 internal sealed class ThemeManager : IDisposable
 {
     private readonly AppCoordinator _coordinator;
-    private readonly AccessibilitySettings _accessibility = new();
     private readonly List<WeakReference<FrameworkElement>> _roots = [];
-    private bool _highContrastListenerRegistered;
+    private readonly DispatcherQueueTimer _appearanceTimer;
+    private bool? _lastHighContrast;
 
     public ThemeManager(AppCoordinator coordinator)
     {
         _coordinator = coordinator;
         _coordinator.Changed += Coordinator_Changed;
-        try
+        _appearanceTimer = App.CurrentApp.UiQueue.CreateTimer();
+        _appearanceTimer.Interval = TimeSpan.FromSeconds(1);
+        _appearanceTimer.Tick += (_, _) =>
         {
-            _accessibility.HighContrastChanged += Accessibility_HighContrastChanged;
-            _highContrastListenerRegistered = true;
-        }
-        catch (COMException error)
-        {
-            // This view-management event is unavailable in some unpackaged
-            // desktop sessions. Keep the system theme fallback and let RimV
-            // continue starting rather than failing before its shell appears.
-            App.CurrentApp.Log.Error("theme.high_contrast_listener_unavailable", error);
-        }
+            bool highContrast = IsHighContrastEnabled();
+            if (_lastHighContrast == highContrast) return;
+            _lastHighContrast = highContrast;
+            ApplyAll();
+        };
+        _appearanceTimer.Start();
     }
 
     public void RegisterRoot(FrameworkElement root)
@@ -42,7 +40,24 @@ internal sealed class ThemeManager : IDisposable
         _roots.RemoveAll(item => !item.TryGetTarget(out FrameworkElement? current) || ReferenceEquals(current, root));
 
     private void Coordinator_Changed(object? sender, EventArgs args) => ApplyAll();
-    private void Accessibility_HighContrastChanged(AccessibilitySettings sender, object args) => ApplyAll();
+    private static bool IsHighContrastEnabled()
+    {
+        HighContrast settings = new() { Size = (uint)Marshal.SizeOf<HighContrast>() };
+        return SystemParametersInfo(0x0042, settings.Size, ref settings, 0)
+            && (settings.Flags & 0x00000001) != 0;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct HighContrast
+    {
+        public uint Size;
+        public uint Flags;
+        public nint DefaultScheme;
+    }
+
+    [DllImport("user32.dll", EntryPoint = "SystemParametersInfoW", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool SystemParametersInfo(uint action, uint parameter, ref HighContrast settings, uint updateProfile);
 
     private void ApplyAll()
     {
@@ -52,9 +67,7 @@ internal sealed class ThemeManager : IDisposable
 
     private void Apply(FrameworkElement root)
     {
-        bool highContrast = false;
-        try { highContrast = _accessibility.HighContrast; }
-        catch { /* Use the selected system theme if accessibility settings are unavailable. */ }
+        bool highContrast = IsHighContrastEnabled();
         root.RequestedTheme = highContrast ? ElementTheme.Default : _coordinator.ThemeName switch
         {
             "light" => ElementTheme.Light,
@@ -66,8 +79,7 @@ internal sealed class ThemeManager : IDisposable
     public void Dispose()
     {
         _coordinator.Changed -= Coordinator_Changed;
-        if (_highContrastListenerRegistered)
-            _accessibility.HighContrastChanged -= Accessibility_HighContrastChanged;
+        _appearanceTimer.Stop();
         _roots.Clear();
     }
 }
