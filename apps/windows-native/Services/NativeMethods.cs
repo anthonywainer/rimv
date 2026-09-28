@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using System.Text;
 
 namespace RimV.Windows;
 
@@ -57,6 +58,52 @@ internal static class NativeMethods
     [DllImport("user32.dll", EntryPoint = "DestroyIcon", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static extern bool DestroyIcon(nint icon);
+
+    internal static bool ActivateProcessWindow(int processId, string expectedTitle)
+    {
+        nint target = 0;
+        EnumWindows((window, _) =>
+        {
+            GetWindowThreadProcessId(window, out uint ownerProcessId);
+            if (ownerProcessId != (uint)processId) return true;
+
+            StringBuilder title = new(256);
+            GetWindowText(window, title, title.Capacity);
+            if (!string.Equals(title.ToString(), expectedTitle, StringComparison.Ordinal)) return true;
+
+            target = window;
+            return false;
+        }, 0);
+
+        if (target == 0) return false;
+        ShowWindow(target, ShowWindowRestore);
+        SetForegroundWindow(target);
+        return true;
+    }
+
+    private const int ShowWindowRestore = 9;
+
+    [UnmanagedFunctionPointer(CallingConvention.Winapi)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private delegate bool EnumWindowsCallback(nint window, nint parameter);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool EnumWindows(EnumWindowsCallback callback, nint parameter);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern uint GetWindowThreadProcessId(nint window, out uint processId);
+
+    [DllImport("user32.dll", EntryPoint = "GetWindowTextW", CharSet = CharSet.Unicode)]
+    private static extern int GetWindowText(nint window, StringBuilder text, int maximumCount);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool ShowWindow(nint window, int command);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool SetForegroundWindow(nint window);
 
     [DllImport("shell32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     internal static extern int SetCurrentProcessExplicitAppUserModelID(string appId);

@@ -1,6 +1,7 @@
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using RimV.Windows.Application;
+using System.Diagnostics;
 using System.Threading;
 
 namespace RimV.Windows;
@@ -39,6 +40,16 @@ public partial class App : Microsoft.UI.Xaml.Application
         if (!firstInstance)
         {
             activationEvent.Set();
+            // Older running builds do not listen for the named activation event.
+            foreach (Process process in Process.GetProcessesByName("RimV.Windows"))
+            {
+                using (process)
+                {
+                    if (process.Id != Environment.ProcessId
+                        && NativeMethods.ActivateProcessWindow(process.Id, "RimV"))
+                        break;
+                }
+            }
             activationEvent.Dispose();
             _activationEvent = null;
             instanceMutex.Dispose();
