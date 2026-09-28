@@ -14,7 +14,6 @@ public sealed partial class ShellWindow : Window
     private readonly AppCoordinator _coordinator;
     private readonly AppWindow _appWindow;
     private Func<PixelRect?>? _trayBounds;
-    private bool _isVisible;
     private readonly PopupCoordinator _popups;
     private LanguageWindow? _languageWindow;
     private ModelSelectorWindow? _modelSelectorWindow;
@@ -74,7 +73,6 @@ public sealed partial class ShellWindow : Window
     {
         _popups.ShowMenu();
         PositionNearTray();
-        _isVisible = true;
         _appWindow.Show();
         Activate();
         App.CurrentApp.Log.Info("shell.show_completed", $"native_window_visible={NativeMethods.IsWindowVisible(WindowHandle)}");
@@ -147,7 +145,6 @@ public sealed partial class ShellWindow : Window
 
     internal void HideMainFromCoordinator()
     {
-        _isVisible = false;
         _appWindow.Hide();
         App.CurrentApp.Log.Info("shell.hidden_to_tray");
     }

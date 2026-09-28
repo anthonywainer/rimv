@@ -102,7 +102,9 @@ public sealed partial class LanguageWindow : Window
     private static LanguageSelectorRow ToRow(LanguageOption option, string selectedCode)
     {
         bool selected = string.Equals(option.Code, selectedCode, StringComparison.OrdinalIgnoreCase);
-        Color fill = selected ? Color.FromArgb(255, 229, 245, 243) : Colors.Transparent;
+        global::Windows.UI.Color fill = selected
+            ? global::Windows.UI.Color.FromArgb(255, 229, 245, 243)
+            : Colors.Transparent;
         string accessibleName = selected ? $"{option.Name}, selected" : option.Name;
         return new LanguageSelectorRow
         {
