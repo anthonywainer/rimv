@@ -61,7 +61,7 @@ public sealed class AppCoordinatorTests
             ],
         };
         var preferences = new MemoryPreferences(new UserPreferences("model-en", "es", "microphone", "system"));
-        var coordinator = CreateCoordinator(temporary.Path, factory, preferences.Value, preferences);
+        var coordinator = CreateCoordinator(temporary.Path, factory, preferences.Value!, preferences);
         await coordinator.InitializeAsync();
 
         JsonElement selected = factory.Client.Requests.Single(request => Type(request) == "select_model");
@@ -109,6 +109,49 @@ public sealed class AppCoordinatorTests
 
         Assert.Equal("transcript_update", received.Type);
         Assert.Equal(1, coordinator.TranscriptRevision);
+        await coordinator.ShutdownAsync();
+    }
+
+    [Fact]
+    public async Task ModelRemovalUsesSharedCoreCommandAndRefreshesCatalog()
+    {
+        using var temporary = new TemporaryDirectory();
+        var factory = new FakeCoreFactory
+        {
+            Models = [new ModelRecord
+            {
+                State = "installed",
+                Descriptor = new ModelDescriptor { Id = "parakeet", DisplayName = "Parakeet" },
+            }],
+        };
+        var coordinator = CreateCoordinator(temporary.Path, factory, UserPreferences.Default);
+        await coordinator.InitializeAsync();
+
+        await coordinator.RemoveModelAsync("parakeet");
+
+        Assert.Contains(factory.Client.Requests, request => Type(request) == "remove_model"
+            && request.GetProperty("model_id").GetString() == "parakeet");
+        Assert.Empty(coordinator.Models);
+        await coordinator.ShutdownAsync();
+    }
+
+    [Fact]
+    public async Task ModelDownloadProgressAndFailuresReachTheWindowSubscriber()
+    {
+        using var temporary = new TemporaryDirectory();
+        var factory = new FakeCoreFactory();
+        var coordinator = CreateCoordinator(temporary.Path, factory, UserPreferences.Default);
+        await coordinator.InitializeAsync();
+        var observed = new TaskCompletionSource<ModelProgress>(TaskCreationOptions.RunContinuationsAsynchronously);
+        coordinator.ModelProgressReceived += progress => observed.TrySetResult(progress);
+        using JsonDocument payload = JsonDocument.Parse("""{"progress":{"model_id":"model-a","phase":"failed","downloaded_bytes":512,"total_bytes":1024,"error":"checksum mismatch"}}""");
+
+        await factory.Client.PublishAsync(new CoreEvent("model_progress", payload.RootElement.Clone()));
+
+        ModelProgress result = await observed.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        Assert.Equal("failed", result.Phase);
+        Assert.Equal("checksum mismatch", result.Error);
+        Assert.Equal(50, NativeWindowsPolicy.DownloadProgressPercent(result));
         await coordinator.ShutdownAsync();
     }
 
@@ -162,6 +205,7 @@ public sealed class AppCoordinatorTests
                 "get_state" => Snapshot,
                 "get_models" => Models.ToList(),
                 "get_recordings" => new List<RecordingSummary>(),
+                "remove_model" => RemoveModel(input),
                 "send" => ApplyCommand(input),
                 _ => JsonDocument.Parse("null").RootElement.Clone(),
             };
@@ -174,6 +218,13 @@ public sealed class AppCoordinatorTests
             if (command == "start_capture") Snapshot = WithStatus("recording");
             else if (command == "stop_capture") Snapshot = WithStatus("idle");
             return Snapshot;
+        }
+
+        private JsonElement RemoveModel(JsonElement input)
+        {
+            string? id = input.GetProperty("model_id").GetString();
+            Models = Models.Where(model => model.Descriptor.Id != id).ToArray();
+            return JsonDocument.Parse("null").RootElement.Clone();
         }
 
         private CoreSnapshot WithStatus(string status) => new() { Status = status, Capabilities = Snapshot.Capabilities };

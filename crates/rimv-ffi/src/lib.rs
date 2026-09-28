@@ -5,7 +5,9 @@
 //! ABI. The host must serialize lifecycle and command calls and poll events on
 //! a worker thread, never on the WinUI dispatcher.
 use engine_protocol::EngineCommand;
-use engine_runtime::{EngineConfig, EngineRuntime, ExportFormat, RecordingLibrary, Subscription};
+use engine_runtime::{
+    EngineConfig, EngineEvent, EngineRuntime, ExportFormat, RecordingLibrary, Subscription,
+};
 use model_manager::ModelManager;
 use serde::Deserialize;
 use std::{
@@ -30,6 +32,7 @@ pub struct RimvEngine {
     events: Subscription,
     recordings: RecordingLibrary,
     models: ModelManager,
+    selected_model_id: Mutex<Option<String>>,
     model_operations: Arc<Mutex<HashMap<String, Arc<AtomicBool>>>>,
     model_workers: Mutex<Vec<JoinHandle<()>>>,
     model_events: Mutex<Receiver<ModelProgress>>,
@@ -96,10 +99,14 @@ enum Request {
     CancelModelInstall {
         model_id: String,
     },
+    RemoveModel {
+        model_id: String,
+    },
     GetRecordings,
     GetRecording {
         session_id: String,
     },
+    GetTranscriptState,
     RenameRecording {
         session_id: String,
         title: String,
@@ -338,6 +345,7 @@ pub unsafe extern "C" fn rimv_engine_create(
             events,
             recordings: RecordingLibrary::new(config.recordings_directory),
             models: ModelManager::new(model_root),
+            selected_model_id: Mutex::new(None),
             model_operations: Arc::new(Mutex::new(HashMap::new())),
             model_workers: Mutex::new(Vec::new()),
             model_events: Mutex::new(model_events),
@@ -403,6 +411,30 @@ pub unsafe extern "C" fn rimv_engine_request(
                             .events
                             .recv_timeout(remaining.min(Duration::from_millis(50)))
                         {
+                            Ok(EngineEvent::TranscriptUpdate { update }) => {
+                                let transcript = engine.runtime.transcript_snapshot();
+                                let current = transcript
+                                    .updates
+                                    .iter()
+                                    .find(|known| {
+                                        known.source == update.source
+                                            && known.utterance_id == update.utterance_id
+                                    })
+                                    .cloned();
+                                let update = current.unwrap_or_else(|| {
+                                    let mut removed = update;
+                                    removed.stable_text.clear();
+                                    removed.unstable_text.clear();
+                                    removed.is_final = false;
+                                    removed
+                                });
+                                break serde_json::json!({
+                                    "type":"transcript_update",
+                                    "session_id":transcript.session_id,
+                                    "revision":transcript.revision,
+                                    "update":update
+                                });
+                            }
                             Ok(event) => {
                                 break serde_json::to_value(event).map_err(|e| e.to_string())?;
                             }
@@ -417,6 +449,11 @@ pub unsafe extern "C" fn rimv_engine_request(
                 }
             }
             Request::GetModels => {
+                let selected_model_id = engine
+                    .selected_model_id
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .clone();
                 let operations = engine
                     .model_operations
                     .lock()
@@ -426,6 +463,7 @@ pub unsafe extern "C" fn rimv_engine_request(
                     .catalog()
                     .iter()
                     .map(|descriptor| {
+                        let selected = selected_model_id.as_deref() == Some(descriptor.id.as_str());
                         let state = if !engine_runtime::supports_asr_backend(&descriptor.backend) {
                             "unsupported"
                         } else if operations.contains_key(&descriptor.id) {
@@ -437,7 +475,7 @@ pub unsafe extern "C" fn rimv_engine_request(
                                 model_manager::ModelState::Missing => "available",
                             }
                         };
-                        serde_json::json!({"descriptor":descriptor,"state":state})
+                        serde_json::json!({"descriptor":descriptor,"state":state,"selected":selected})
                     })
                     .collect::<Vec<_>>();
                 serde_json::to_value(models).map_err(|e| e.to_string())?
@@ -479,13 +517,15 @@ pub unsafe extern "C" fn rimv_engine_request(
                     .runtime
                     .send(EngineCommand::SetTranscriptionLanguage { language })
                     .map_err(|e| e.to_string())?;
-                serde_json::to_value(
-                    engine
-                        .runtime
-                        .send(EngineCommand::SetTranscriptionEnabled { enabled: true })
-                        .map_err(|e| e.to_string())?,
-                )
-                .map_err(|e| e.to_string())?
+                let snapshot = engine
+                    .runtime
+                    .send(EngineCommand::SetTranscriptionEnabled { enabled: true })
+                    .map_err(|e| e.to_string())?;
+                *engine
+                    .selected_model_id
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(model_id);
+                serde_json::to_value(snapshot).map_err(|e| e.to_string())?
             }
             Request::SetLanguage { model_id, language } => {
                 if engine.runtime.snapshot().status != engine_runtime::EngineStatus::Idle {
@@ -520,6 +560,10 @@ pub unsafe extern "C" fn rimv_engine_request(
                     .runtime
                     .send(EngineCommand::ClearTranscriptionModel)
                     .map_err(|e| e.to_string())?;
+                *engine
+                    .selected_model_id
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner) = None;
                 serde_json::to_value(
                     engine
                         .runtime
@@ -543,6 +587,40 @@ pub unsafe extern "C" fn rimv_engine_request(
                 cancelled.store(true, Ordering::Release);
                 serde_json::Value::Null
             }
+            Request::RemoveModel { model_id } => {
+                let snapshot = engine.runtime.snapshot();
+                if snapshot.status != engine_runtime::EngineStatus::Idle {
+                    return Err("stop capture before removing a transcription model".into());
+                }
+                let operations = engine
+                    .model_operations
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                if operations.contains_key(&model_id) {
+                    return Err(
+                        "wait for the model installation to finish before removing it".into(),
+                    );
+                }
+                let selected_model_id = engine
+                    .selected_model_id
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                if selected_model_id.as_deref() == Some(model_id.as_str()) {
+                    return Err("select another model before removing the current model".into());
+                }
+                let descriptor = engine
+                    .models
+                    .descriptor(&model_id)
+                    .map_err(|error| error.to_string())?;
+                if engine.models.state(descriptor) != model_manager::ModelState::Ready {
+                    return Err("model is not installed".into());
+                }
+                engine
+                    .models
+                    .remove(&model_id)
+                    .map_err(|error| error.to_string())?;
+                serde_json::Value::Null
+            }
             Request::GetRecordings => serde_json::to_value(
                 engine
                     .recordings
@@ -557,6 +635,10 @@ pub unsafe extern "C" fn rimv_engine_request(
                     .map_err(|e| e.to_string())?,
             )
             .map_err(|e| e.to_string())?,
+            Request::GetTranscriptState => {
+                serde_json::to_value(engine.runtime.transcript_snapshot())
+                    .map_err(|error| error.to_string())?
+            }
             Request::RenameRecording { session_id, title } => {
                 engine
                     .recordings

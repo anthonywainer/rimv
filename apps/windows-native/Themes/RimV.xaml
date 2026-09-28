@@ -26,6 +26,8 @@
             <SolidColorBrush x:Key="RimVMenuSelectedBackgroundBrush" Color="#E5F5F3" />
             <SolidColorBrush x:Key="RimVMenuReadyBackgroundBrush" Color="#DDF2E6" />
             <SolidColorBrush x:Key="RimVMenuReadyTextBrush" Color="#087D3C" />
+            <SolidColorBrush x:Key="RimVMenuLiveBackgroundBrush" Color="#FFF0F1" />
+            <SolidColorBrush x:Key="RimVMenuLiveTextBrush" Color="#C53C4A" />
         </ResourceDictionary>
         <ResourceDictionary x:Key="Dark">
             <SolidColorBrush x:Key="RimVBackgroundBrush" Color="#0B0F19" />
@@ -51,6 +53,8 @@
             <SolidColorBrush x:Key="RimVMenuSelectedBackgroundBrush" Color="#173B39" />
             <SolidColorBrush x:Key="RimVMenuReadyBackgroundBrush" Color="#174B34" />
             <SolidColorBrush x:Key="RimVMenuReadyTextBrush" Color="#84E1A7" />
+            <SolidColorBrush x:Key="RimVMenuLiveBackgroundBrush" Color="#4B232E" />
+            <SolidColorBrush x:Key="RimVMenuLiveTextBrush" Color="#FF9198" />
         </ResourceDictionary>
         <ResourceDictionary x:Key="HighContrast">
             <SolidColorBrush x:Key="RimVBackgroundBrush" Color="{ThemeResource SystemColorWindowColor}" />
@@ -76,6 +80,8 @@
             <SolidColorBrush x:Key="RimVMenuSelectedBackgroundBrush" Color="{ThemeResource SystemColorWindowColor}" />
             <SolidColorBrush x:Key="RimVMenuReadyBackgroundBrush" Color="{ThemeResource SystemColorWindowColor}" />
             <SolidColorBrush x:Key="RimVMenuReadyTextBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
+            <SolidColorBrush x:Key="RimVMenuLiveBackgroundBrush" Color="{ThemeResource SystemColorWindowColor}" />
+            <SolidColorBrush x:Key="RimVMenuLiveTextBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
         </ResourceDictionary>
     </ResourceDictionary.ThemeDictionaries>
     <Style x:Key="RimVPrimaryButtonStyle" TargetType="Button">

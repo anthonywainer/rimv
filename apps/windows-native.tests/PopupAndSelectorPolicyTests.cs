@@ -108,6 +108,26 @@ public sealed class PopupAndSelectorPolicyTests
         Assert.Empty(ModelSelectorPolicy.InstalledReady([TestModel("available", "missing")]));
     }
 
+    [Fact]
+    public void ModelManagerDisablesRemovalForSelectedOrBusyModelsAndReportsProgress()
+    {
+        ModelRecord selected = TestModel("installed", "selected");
+        selected = new ModelRecord { State = selected.State, Selected = true, Descriptor = selected.Descriptor };
+        ModelRecord available = TestModel("available", "available");
+        ModelRecord installed = TestModel("installed", "installed");
+
+        Assert.False(NativeWindowsPolicy.CanRemoveModel(selected, "idle"));
+        Assert.False(NativeWindowsPolicy.CanRemoveModel(installed, "recording"));
+        Assert.True(NativeWindowsPolicy.CanRemoveModel(installed, "idle"));
+        Assert.False(NativeWindowsPolicy.CanRemoveModel(available, "idle"));
+        Assert.Equal(42.5, NativeWindowsPolicy.DownloadProgressPercent(new ModelProgress
+        {
+            DownloadedBytes = 425,
+            TotalBytes = 1000,
+        }));
+        Assert.Equal(0, NativeWindowsPolicy.DownloadProgressPercent(new ModelProgress()));
+    }
+
     private static ModelRecord TestModel(string state, string id) => new()
     {
         State = state,

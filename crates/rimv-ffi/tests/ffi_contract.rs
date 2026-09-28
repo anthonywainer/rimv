@@ -79,6 +79,20 @@ fn c_abi_version_lifecycle_and_structured_errors_match_the_header_contract() {
         }
     }
 
+    let transcript = engine.request(r#"{"type":"get_transcript_state"}"#);
+    assert_eq!(transcript["ok"], true);
+    assert_eq!(transcript["result"]["revision"], 0);
+    assert_eq!(transcript["result"]["updates"].as_array().unwrap().len(), 0);
+
+    let unknown_model = engine.request(r#"{"type":"remove_model","model_id":"not-a-model"}"#);
+    assert_eq!(unknown_model["ok"], false);
+    assert!(
+        unknown_model["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("unknown model")
+    );
+
     let changed = engine
         .request(r#"{"type":"send","command":{"type":"set_microphone_enabled","enabled":false}}"#);
     assert_eq!(changed["ok"], true);

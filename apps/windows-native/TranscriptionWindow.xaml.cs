@@ -2,7 +2,6 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using System.Collections.ObjectModel;
 using System.Text.Json;
-using Windows.ApplicationModel.DataTransfer;
 using Windows.Media.Core;
 using Windows.Media.Playback;
 using Windows.Storage;
@@ -18,20 +17,22 @@ public sealed partial class TranscriptionWindow : Window
     private readonly AppCoordinator _coordinator;
     private readonly ObservableCollection<TranscriptRow> _rows = [];
     private readonly Dictionary<string, TranscriptRow> _byKey = new(StringComparer.Ordinal);
+    private readonly LiveTranscriptBuffer _liveTranscript = new();
+    private readonly RecordingViewerLifecycle _viewerLifecycle = new();
     private readonly MediaPlayer _player = new();
     private string? _sessionId;
     private RecordingSummary? _summary;
     private bool _loading;
-    private bool _finalizedLoaded;
-    private string _previousStatus = "idle";
 
     public TranscriptionWindow(AppCoordinator coordinator)
     {
         InitializeComponent();
         _coordinator = coordinator;
-        WindowHelpers.Configure(this, 920, 700);
+        WindowHelpers.Configure(this, 920, 720);
         TranscriptList.ItemsSource = _rows;
         AudioPlayer.SetMediaPlayer(_player);
+        _player.PlaybackSession.PlaybackStateChanged += PlaybackSession_Changed;
+        _player.PlaybackSession.PositionChanged += PlaybackSession_Changed;
         _coordinator.CoreEventReceived += CoreEventReceived;
         _coordinator.Changed += Coordinator_Changed;
         App.CurrentApp.ThemeManager.RegisterRoot(RootGrid);
@@ -40,96 +41,180 @@ public sealed partial class TranscriptionWindow : Window
             _coordinator.CoreEventReceived -= CoreEventReceived;
             _coordinator.Changed -= Coordinator_Changed;
             App.CurrentApp.ThemeManager.UnregisterRoot(RootGrid);
-            _player.Pause();
-            _player.Source = null;
+            _player.PlaybackSession.PlaybackStateChanged -= PlaybackSession_Changed;
+            _player.PlaybackSession.PositionChanged -= PlaybackSession_Changed;
+            StopAndResetPlayback();
+            _viewerLifecycle.Close();
             _player.Dispose();
         };
     }
 
     public async void ShowSession(string sessionId)
     {
+        long generation = _viewerLifecycle.Open(sessionId);
         _sessionId = sessionId;
         _summary = null;
-        _finalizedLoaded = false;
-        _previousStatus = _coordinator.Snapshot.Status;
+        _liveTranscript.Open(sessionId);
         _rows.Clear();
         _byKey.Clear();
-        SessionTitle.Text = "Transcript";
+        SessionTitle.Text = "Loading recording…";
         SessionStatus.Text = "Loading recording…";
-        EmptyText.Text = "Your transcript will appear here while listening.";
+        AudioStatus.Text = "Audio unavailable";
+        DurationText.Text = "00:00";
+        BrandSubtitle.Text = "Transcription viewer";
+        BadgeText.Text = "LOADING";
+        StatusBadge.Visibility = Visibility.Visible;
+        LiveStatusBadge.Visibility = Visibility.Collapsed;
+        CompletedStatusBadge.Visibility = Visibility.Collapsed;
+        TranscriptTitle.Text = "Transcription";
+        FooterText.Text = "Viewer only · Closing this window does not stop recording.";
+        EmptyText.Text = "Loading transcript…";
         EmptyText.Visibility = Visibility.Visible;
         TranscriptList.Visibility = Visibility.Collapsed;
         AudioPlayer.Visibility = Visibility.Collapsed;
-        _player.Pause();
-        _player.Source = null;
+        LiveAudioText.Visibility = Visibility.Collapsed;
+        ExportTxtButton.Visibility = Visibility.Collapsed;
+        ExportJsonButton.Visibility = Visibility.Collapsed;
+        DeleteButton.Visibility = Visibility.Collapsed;
+        ErrorInfo.IsOpen = false;
+        StopAndResetPlayback();
         AudioPlayer.SetMediaPlayer(_player);
         Activate();
-        await LoadSessionAsync(sessionId);
+        await LoadSessionAsync(sessionId, generation);
     }
 
-    private async Task LoadSessionAsync(string sessionId)
+    private async Task LoadSessionAsync(string sessionId, long generation)
     {
         _loading = true;
         try
         {
-            long revision;
-            RecordingDetails details;
-            int attempts = 0;
-            do
-            {
-                revision = _coordinator.TranscriptRevision;
-                details = await _coordinator.GetRecordingAsync(sessionId);
-                attempts++;
-            }
-            while (details.Summary.State == "recording" && revision != _coordinator.TranscriptRevision && attempts < 3);
-            if (_sessionId != sessionId) return;
+            RecordingDetails details = await _coordinator.GetRecordingAsync(sessionId);
+            if (!IsCurrentOpen(sessionId, generation)) return;
             _summary = details.Summary;
-            _finalizedLoaded = details.Summary.State == "completed";
-            DeleteButton.IsEnabled = _finalizedLoaded;
-            DeleteButton.Visibility = _finalizedLoaded ? Visibility.Visible : Visibility.Collapsed;
+            bool live = details.Summary.State == "recording";
             SessionTitle.Text = details.Summary.Title;
-            SessionStatus.Text = details.Summary.State == "recording"
-                ? "Recording · this window can close without stopping capture"
-                : $"Saved recording · {details.Transcript.Count} transcript lines";
-            foreach (TranscriptLine line in details.Transcript)
+            Title = $"RimV — {details.Summary.Title}";
+            BrandSubtitle.Text = live ? "Live transcription · Audio capture" : "Completed recording · Saved audio";
+            StatusBadge.Visibility = Visibility.Collapsed;
+            LiveStatusBadge.Visibility = live ? Visibility.Visible : Visibility.Collapsed;
+            CompletedStatusBadge.Visibility = live ? Visibility.Collapsed : Visibility.Visible;
+            TranscriptTitle.Text = live ? "Live transcription" : "Transcription";
+            SessionStatus.Text = live
+                ? "Listening · live results update here"
+                : $"Processed · {details.Transcript.Count} transcript lines";
+            AudioTitle.Text = live ? "Audio capture" : "Recorded audio";
+            AudioDescription.Text = live ? CaptureSourceDescription() : "Saved session audio";
+            AudioStatus.Text = live ? "Recording" : "Audio unavailable";
+            DurationText.Text = live ? FormatDuration(_coordinator.Snapshot.ElapsedMs) : FormatDuration(details.Summary.DurationMs);
+            LiveAudioText.Visibility = live ? Visibility.Visible : Visibility.Collapsed;
+            DeleteButton.IsEnabled = !live && NativeWindowsPolicy.CanDeleteRecording(details.Summary.State);
+            DeleteButton.Visibility = DeleteButton.IsEnabled ? Visibility.Visible : Visibility.Collapsed;
+            ExportTxtButton.Visibility = live ? Visibility.Collapsed : Visibility.Visible;
+            ExportJsonButton.Visibility = live ? Visibility.Collapsed : Visibility.Visible;
+            FooterText.Text = live
+                ? "Viewer only · Recording continues if you close this window."
+                : "Final transcript · Timestamped source data is preserved in JSON.";
+
+            if (live)
             {
-                string key = MakeKey(line.Source, line.StartMs);
-                AddOrReplace(new TranscriptRow(key, line.StartMs, line.Text, $"{line.StartMs / 1000d:0.0}s · {FriendlySource(line.Source)}", true));
+                LiveTranscriptSnapshot snapshot = await _coordinator.GetLiveTranscriptSnapshotAsync();
+                if (!IsCurrentOpen(sessionId, generation)) return;
+                if (snapshot.SessionId == sessionId)
+                {
+                    if (_liveTranscript.Restore(snapshot))
+                    {
+                        _rows.Clear();
+                        _byKey.Clear();
+                        foreach (TranscriptUpdate update in snapshot.Updates)
+                            ApplyTranscriptUpdate(update, snapshot.Revision);
+                    }
+                }
+                EmptyText.Text = "Speak to see your transcript here. Partial text is shown while it is being recognized.";
             }
+            else
+            {
+                foreach (TranscriptLine line in details.Transcript)
+                {
+                    string key = MakePersistedKey(line.Source, line.StartMs);
+                    AddOrReplace(new TranscriptRow(key, line.StartMs, line.Text,
+                        $"{line.StartMs / 1000d:0.0}s · {FriendlySource(line.Source)}", true));
+                }
+                EmptyText.Text = "There is no saved transcript for this recording.";
+                await ConfigurePlaybackAsync(sessionId, generation);
+            }
+            if (!IsCurrentOpen(sessionId, generation)) return;
             UpdateEmptyState();
-            if (details.Summary.State == "completed") ConfigurePlayback(sessionId);
         }
         catch (Exception error)
         {
+            if (!IsCurrentOpen(sessionId, generation)) return;
             _coordinator.ReportError(error);
             ErrorInfo.Message = "RimV couldn't open this recording. Refresh Recordings and try again.";
             ErrorInfo.IsOpen = true;
+            EmptyText.Text = "The recording could not be loaded. Close this window and try again.";
         }
         finally
         {
-            _loading = false;
+            if (generation == _viewerLifecycle.Generation)
+            {
+                _loading = false;
+                if (_summary?.State == "recording" && _coordinator.Snapshot.Status == "idle")
+                    _ = LoadSessionAsync(sessionId, generation);
+            }
         }
     }
 
-    private void ConfigurePlayback(string sessionId)
+    private async Task ConfigurePlaybackAsync(string sessionId, long generation)
     {
-        string root = _coordinator.RecordingsDirectory;
-        string directory = Path.Combine(root, sessionId);
-        string? path = new[] { "microphone.wav", "system.wav" }
-            .Select(name => Path.Combine(directory, name))
-            .FirstOrDefault(File.Exists);
-        if (path is null) return;
-        _player.Source = MediaSource.CreateFromUri(new Uri(path));
-        AudioPlayer.Visibility = Visibility.Visible;
+        string directory = Path.Combine(_coordinator.RecordingsDirectory, sessionId);
+        foreach (string name in new[] { "microphone.wav", "system.wav" })
+        {
+            string path = Path.Combine(directory, name);
+            if (!File.Exists(path)) continue;
+            StorageFile file = await StorageFile.GetFileFromPathAsync(path);
+            if (!IsCurrentOpen(sessionId, generation)) return;
+            _player.Source = MediaSource.CreateFromStorageFile(file);
+            _player.PlaybackSession.Position = TimeSpan.Zero;
+            AudioPlayer.Visibility = Visibility.Visible;
+            AudioStatus.Text = $"Saved · {(name == "microphone.wav" ? "Microphone" : "System audio")}";
+            return;
+        }
+        AudioStatus.Text = "Audio unavailable";
     }
 
     private void CoreEventReceived(CoreEvent item)
     {
-        if (item.Type != "transcript_update" || _sessionId is null || _coordinator.Snapshot.Session?.Id != _sessionId) return;
-        TranscriptUpdate? update = item.Payload.GetProperty("update").Deserialize<TranscriptUpdate>();
+        if (item.Type != "transcript_update" || _summary?.State != "recording" || _sessionId is null
+            || _coordinator.Snapshot.Session?.Id != _sessionId) return;
+        if (item.Payload.TryGetProperty("session_id", out JsonElement sessionId)
+            && sessionId.GetString() != _sessionId) return;
+        if (!item.Payload.TryGetProperty("update", out JsonElement payload)) return;
+        TranscriptUpdate? update = payload.Deserialize<TranscriptUpdate>();
         if (update is null) return;
-        string key = MakeKey(update.Source, update.StartMs);
-        string text = string.Join(" ", new[] { update.StableText, update.UnstableText }.Where(value => !string.IsNullOrWhiteSpace(value)));
+        ulong revision = item.Payload.TryGetProperty("revision", out JsonElement revisionElement)
+            ? revisionElement.GetUInt64()
+            : 0;
+        ApplyTranscriptUpdate(update, revision);
+        SessionStatus.Text = update.IsFinal ? "Listening · final transcript updated" : "Listening · transcript updating";
+        UpdateEmptyState();
+    }
+
+    private void Coordinator_Changed(object? sender, EventArgs e)
+    {
+        if (_loading || _summary?.State != "recording" || _sessionId is null) return;
+        if (_coordinator.Snapshot.Session?.Id != _sessionId) return;
+        DurationText.Text = FormatDuration(_coordinator.Snapshot.ElapsedMs);
+        AudioDescription.Text = CaptureSourceDescription();
+        if (_coordinator.Snapshot.Status is "idle" or "error")
+            _ = LoadSessionAsync(_sessionId, _viewerLifecycle.Generation);
+    }
+
+    private void ApplyTranscriptUpdate(TranscriptUpdate update, ulong revision)
+    {
+        if (_sessionId is null || !_liveTranscript.Apply(_sessionId, update, revision)) return;
+        string key = MakeLiveKey(update.Source, update.UtteranceId);
+        string text = string.Join(" ", new[] { update.StableText, update.UnstableText }
+            .Where(value => !string.IsNullOrWhiteSpace(value)));
         if (string.IsNullOrWhiteSpace(text))
         {
             Remove(key);
@@ -137,18 +222,6 @@ public sealed partial class TranscriptionWindow : Window
         }
         AddOrReplace(new TranscriptRow(key, update.StartMs, text,
             $"{update.StartMs / 1000d:0.0}s · {FriendlySource(update.Source)} · {(update.IsFinal ? "Final" : "Live draft")}", update.IsFinal));
-        SessionStatus.Text = update.IsFinal ? "Listening · final transcript updated" : "Listening · transcript updating";
-        UpdateEmptyState();
-    }
-
-    private void Coordinator_Changed(object? sender, EventArgs e)
-    {
-        if (_loading || _sessionId is null) return;
-        string status = _coordinator.Snapshot.Status;
-        bool finalizedNow = status == "idle" && (_previousStatus is "recording" or "stopping");
-        _previousStatus = status;
-        if (!_finalizedLoaded && finalizedNow && _coordinator.Snapshot.Session?.Id == _sessionId)
-            _ = LoadSessionAsync(_sessionId);
     }
 
     private void AddOrReplace(TranscriptRow row)
@@ -178,13 +251,7 @@ public sealed partial class TranscriptionWindow : Window
         bool empty = _rows.Count == 0;
         EmptyText.Visibility = empty ? Visibility.Visible : Visibility.Collapsed;
         TranscriptList.Visibility = empty ? Visibility.Collapsed : Visibility.Visible;
-        EmptyText.Text = _summary?.State == "recording"
-            ? "Speak to see your transcript here. Partial text is marked while it is being recognized."
-            : "There is no saved transcript for this recording.";
     }
-
-    private async void ExportTxtButton_Click(object sender, RoutedEventArgs e) => await ExportAsync("txt");
-    private async void ExportJsonButton_Click(object sender, RoutedEventArgs e) => await ExportAsync("json");
 
     private async void RenameButton_Click(object sender, RoutedEventArgs e)
     {
@@ -200,12 +267,15 @@ public sealed partial class TranscriptionWindow : Window
             XamlRoot = RootGrid.XamlRoot,
         };
         if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
-        await _coordinator.RenameRecordingAsync(_sessionId, field.Text);
+        string title = field.Text.Trim();
+        if (title.Length is 0 or > 120) return;
+        await _coordinator.RenameRecordingAsync(_sessionId, title);
         RecordingSummary? renamed = _coordinator.Recordings.FirstOrDefault(item => item.SessionId == _sessionId);
         if (renamed is not null)
         {
             _summary = renamed;
             SessionTitle.Text = renamed.Title;
+            Title = $"RimV — {renamed.Title}";
         }
     }
 
@@ -222,9 +292,13 @@ public sealed partial class TranscriptionWindow : Window
             XamlRoot = RootGrid.XamlRoot,
         };
         if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
+        StopAndResetPlayback();
         await _coordinator.DeleteRecordingAsync(_sessionId);
         if (!_coordinator.Recordings.Any(item => item.SessionId == _sessionId)) Close();
     }
+
+    private async void ExportTxtButton_Click(object sender, RoutedEventArgs e) => await ExportAsync("txt");
+    private async void ExportJsonButton_Click(object sender, RoutedEventArgs e) => await ExportAsync("json");
 
     private async Task ExportAsync(string format)
     {
@@ -251,20 +325,41 @@ public sealed partial class TranscriptionWindow : Window
         }
     }
 
-    private void CopyButton_Click(object sender, RoutedEventArgs e)
+    private string CaptureSourceDescription()
     {
-        string text = string.Join("\n\n", _rows.Select(item => item.Text));
-        if (text.Length == 0) return;
-        var package = new DataPackage();
-        package.SetText(text);
-        Clipboard.SetContent(package);
+        CoreSnapshot state = _coordinator.Snapshot;
+        bool mic = state.Microphone.Enabled;
+        bool system = state.SystemAudio.Enabled;
+        string source = mic && system ? "Microphone + System" : mic ? "Microphone" : system ? "System" : "No source selected";
+        return $"Capturing from {source}";
     }
 
-    private static string MakeKey(string source, ulong start) => $"{source}:{start}";
+    private bool IsCurrentOpen(string sessionId, long generation) =>
+        _viewerLifecycle.IsCurrent(sessionId, generation) && _sessionId == sessionId;
+
+    private void StopAndResetPlayback()
+    {
+        _player.Pause();
+        _player.PlaybackSession.Position = TimeSpan.Zero;
+        _player.Source = null;
+        _viewerLifecycle.ResetPlayback();
+    }
+
+    private void PlaybackSession_Changed(Windows.Media.Playback.MediaPlaybackSession sender, object args) =>
+        _viewerLifecycle.SetPlayback(
+            sender.PlaybackState == Windows.Media.Playback.MediaPlaybackState.Playing,
+            sender.Position);
+
+    private static string MakeLiveKey(string source, string utteranceId) => $"{source}:{utteranceId}";
+    private static string MakePersistedKey(string source, ulong start) => $"{source}:{start}";
     private static string FriendlySource(string source) => source.ToLowerInvariant() switch
     {
-        "system" => "System audio",
-        "systemaudio" => "System audio",
+        "system" or "systemaudio" => "System audio",
         _ => "Microphone",
     };
+    private static string FormatDuration(ulong milliseconds)
+    {
+        TimeSpan duration = TimeSpan.FromMilliseconds(milliseconds);
+        return duration.TotalHours >= 1 ? duration.ToString(@"hh\:mm\:ss") : duration.ToString(@"mm\:ss");
+    }
 }

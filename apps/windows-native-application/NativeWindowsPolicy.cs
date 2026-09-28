@@ -31,5 +31,13 @@ public static class NativeWindowsPolicy
     public static bool CanSelectModel(string modelState, string engineStatus) =>
         modelState == "installed" && engineStatus == "idle";
 
+    public static bool CanRemoveModel(ModelRecord model, string engineStatus) =>
+        model.State == "installed" && !model.Selected && engineStatus == "idle";
+
+    public static double DownloadProgressPercent(ModelProgress progress) =>
+        progress.TotalBytes is > 0
+            ? Math.Clamp(100d * progress.DownloadedBytes / progress.TotalBytes.Value, 0, 100)
+            : 0;
+
     public static bool CanDeleteRecording(string state) => state == "completed";
 }

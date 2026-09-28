@@ -30,6 +30,7 @@ public sealed class AppCoordinator
     public string? LastErrorDetail { get; private set; }
     public string ThemeName { get; private set; } = "system";
     public string RecordingsDirectory => Path.Combine(_dataDirectory, "recordings");
+    public string ModelsDirectory => Path.Combine(_dataDirectory, "models");
     public bool IsCoreAvailable => _core is not null;
     public long TranscriptRevision => Interlocked.Read(ref _transcriptRevision);
 
@@ -91,6 +92,7 @@ public sealed class AppCoordinator
                         language = SelectedLanguage,
                     }, _shutdown.Token);
                     Snapshot = await _core.RequestAsync<CoreSnapshot>(new { type = "get_state" }, _shutdown.Token);
+                    Models = await _core.RequestAsync<List<ModelRecord>>(new { type = "get_models" }, _shutdown.Token);
                 });
             }
             else
@@ -148,6 +150,9 @@ public sealed class AppCoordinator
     public Task<RecordingDetails> GetRecordingAsync(string id) =>
         RequireCore().RequestAsync<RecordingDetails>(new { type = "get_recording", session_id = id }, _shutdown.Token);
 
+    public Task<LiveTranscriptSnapshot> GetLiveTranscriptSnapshotAsync() =>
+        RequireCore().RequestAsync<LiveTranscriptSnapshot>(new { type = "get_transcript_state" }, _shutdown.Token);
+
     public async Task StartOrStopAsync()
     {
         await GuardAsync(async () =>
@@ -201,6 +206,7 @@ public sealed class AppCoordinator
             SelectedModelId = modelId;
             SelectedLanguage = language;
             Snapshot = await RequireCore().RequestAsync<CoreSnapshot>(new { type = "get_state" }, _shutdown.Token);
+            Models = await RequireCore().RequestAsync<List<ModelRecord>>(new { type = "get_models" }, _shutdown.Token);
             await SavePreferencesAsync();
             ClearError();
             NotifyChanged();
@@ -239,6 +245,23 @@ public sealed class AppCoordinator
     public async Task CancelModelInstallAsync(string id) => await GuardAsync(async () =>
     {
         await RequireCore().RequestAsync<JsonElement>(new { type = "cancel_model_install", model_id = id }, _shutdown.Token);
+    });
+
+    public async Task RemoveModelAsync(string id) => await GuardAsync(async () =>
+    {
+        if (Snapshot.Status is "starting" or "recording" or "stopping")
+            throw new CoreRequestException("Stop listening before removing a model.");
+        await RequireCore().RequestAsync<JsonElement>(new { type = "remove_model", model_id = id }, _shutdown.Token);
+        await RefreshModelsAsync();
+        Snapshot = await RequireCore().RequestAsync<CoreSnapshot>(new { type = "get_state" }, _shutdown.Token);
+        if (SelectedModelId == id)
+        {
+            SelectedModelId = null;
+            SelectedLanguage = null;
+            await SavePreferencesAsync();
+        }
+        ClearError();
+        NotifyChanged();
     });
 
     public async Task RenameRecordingAsync(string id, string title) => await GuardAsync(async () =>

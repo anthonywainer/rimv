@@ -2,36 +2,96 @@
     x:Class="RimV.Windows.TranscriptionWindow"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    Title="RimV Transcription">
+    Title="RimV — Transcription">
     <Grid x:Name="RootGrid" Background="{ThemeResource RimVBackgroundBrush}" Padding="24" RowSpacing="14">
-        <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-        <Grid ColumnSpacing="12">
-            <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-            <StackPanel Spacing="4">
-                <TextBlock x:Name="SessionTitle" Text="Transcript" FontSize="24" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
-                <TextBlock x:Name="SessionStatus" Text="Loading recording…" Foreground="{ThemeResource RimVSecondaryTextBrush}" />
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+        <Grid ColumnSpacing="12" VerticalAlignment="Center">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="44" />
+                <ColumnDefinition Width="190" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <Border Width="44" Height="44" CornerRadius="11" Background="{ThemeResource RimVMenuAccentBrush}" VerticalAlignment="Center">
+                <StackPanel Orientation="Horizontal" Spacing="2" HorizontalAlignment="Center" VerticalAlignment="Center">
+                    <Rectangle Width="2" Height="9" RadiusX="1" RadiusY="1" Fill="White" VerticalAlignment="Center" />
+                    <Rectangle Width="2" Height="17" RadiusX="1" RadiusY="1" Fill="White" VerticalAlignment="Center" />
+                    <Rectangle Width="2" Height="25" RadiusX="1" RadiusY="1" Fill="White" VerticalAlignment="Center" />
+                    <Rectangle Width="2" Height="14" RadiusX="1" RadiusY="1" Fill="White" VerticalAlignment="Center" />
+                    <Rectangle Width="2" Height="21" RadiusX="1" RadiusY="1" Fill="White" VerticalAlignment="Center" />
+                    <Rectangle Width="2" Height="10" RadiusX="1" RadiusY="1" Fill="White" VerticalAlignment="Center" />
+                </StackPanel>
+            </Border>
+            <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
+                <TextBlock Text="RimV" FontSize="20" FontWeight="Bold" />
+                <TextBlock x:Name="BrandSubtitle" Text="Transcription viewer" FontSize="12" Foreground="{ThemeResource RimVSecondaryTextBrush}" />
             </StackPanel>
-            <Button Grid.Column="1" Content="Copy" Click="CopyButton_Click" AutomationProperties.Name="Copy transcript" />
+            <TextBlock x:Name="SessionTitle" Grid.Column="2" Text="Recording" FontSize="15" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" HorizontalAlignment="Right" Margin="0,0,8,0" />
+            <Border x:Name="StatusBadge" Grid.Column="3" Background="{ThemeResource RimVMenuReadyBackgroundBrush}" CornerRadius="15" Padding="11,6" VerticalAlignment="Center">
+                <TextBlock x:Name="BadgeText" Text="LOADING" Foreground="{ThemeResource RimVMenuReadyTextBrush}" FontSize="12" FontWeight="SemiBold" />
+            </Border>
+            <Border x:Name="LiveStatusBadge" Grid.Column="3" Background="{ThemeResource RimVMenuLiveBackgroundBrush}" CornerRadius="15" Padding="11,6" VerticalAlignment="Center" Visibility="Collapsed">
+                <TextBlock Text="● LIVE" Foreground="{ThemeResource RimVMenuLiveTextBrush}" FontSize="12" FontWeight="SemiBold" />
+            </Border>
+            <Border x:Name="CompletedStatusBadge" Grid.Column="3" Background="{ThemeResource RimVMenuReadyBackgroundBrush}" CornerRadius="15" Padding="11,6" VerticalAlignment="Center" Visibility="Collapsed">
+                <TextBlock Text="✓ COMPLETED" Foreground="{ThemeResource RimVMenuReadyTextBrush}" FontSize="12" FontWeight="SemiBold" />
+            </Border>
+            <Button x:Name="RenameButton" Grid.Column="4" Content="Rename" Click="RenameButton_Click" AutomationProperties.Name="Rename recording" />
+            <Button x:Name="DeleteButton" Grid.Column="5" Content="Delete" Click="DeleteButton_Click" IsEnabled="False" Visibility="Collapsed" AutomationProperties.Name="Delete recording" />
         </Grid>
         <InfoBar x:Name="ErrorInfo" Grid.Row="1" IsOpen="False" Severity="Error" IsClosable="True" />
-        <ListView x:Name="TranscriptList" Grid.Row="2" SelectionMode="Multiple" AutomationProperties.Name="Transcript">
-            <ListView.ItemTemplate>
-                <DataTemplate x:DataType="local:TranscriptRow" xmlns:local="using:RimV.Windows">
-                    <StackPanel Padding="8,10" Spacing="4">
-                        <TextBlock Text="{x:Bind Text}" FontSize="16" TextWrapping="Wrap" IsTextSelectionEnabled="True" />
-                        <TextBlock Text="{x:Bind StateText}" FontSize="12" Foreground="{ThemeResource RimVSecondaryTextBrush}" />
-                    </StackPanel>
-                </DataTemplate>
-            </ListView.ItemTemplate>
-        </ListView>
-        <TextBlock x:Name="EmptyText" Grid.Row="2" Text="Your transcript will appear here while listening." TextWrapping="Wrap" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="{ThemeResource RimVSecondaryTextBrush}" />
-        <MediaPlayerElement x:Name="AudioPlayer" Grid.Row="3" AreTransportControlsEnabled="True" Visibility="Collapsed" AutomationProperties.Name="Recording playback" />
+        <Border Grid.Row="2" Background="{ThemeResource RimVSecondaryBrush}" CornerRadius="14" Padding="16,12">
+            <Grid ColumnSpacing="12" RowSpacing="8">
+                <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                <StackPanel Spacing="2">
+                    <TextBlock x:Name="AudioTitle" Text="Recorded audio" FontSize="16" FontWeight="SemiBold" />
+                    <TextBlock x:Name="AudioDescription" Text="Saved session audio" Foreground="{ThemeResource RimVSecondaryTextBrush}" />
+                </StackPanel>
+                <StackPanel Grid.Column="1" HorizontalAlignment="Right" VerticalAlignment="Center" Spacing="2">
+                    <TextBlock x:Name="DurationText" Text="00:00" FontFamily="Consolas" HorizontalAlignment="Right" />
+                    <TextBlock x:Name="AudioStatus" Text="Audio unavailable" FontSize="12" Foreground="{ThemeResource RimVSecondaryTextBrush}" HorizontalAlignment="Right" />
+                </StackPanel>
+                <MediaPlayerElement x:Name="AudioPlayer" Grid.Row="1" Grid.ColumnSpan="2" AreTransportControlsEnabled="True" Height="52" Visibility="Collapsed" AutomationProperties.Name="Recording audio playback" />
+                <TextBlock x:Name="LiveAudioText" Grid.Row="1" Grid.ColumnSpan="2" Text="Audio capture continues while this viewer is open or closed." Foreground="{ThemeResource RimVSecondaryTextBrush}" />
+            </Grid>
+        </Border>
+        <Grid Grid.Row="3" RowSpacing="8">
+            <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+            <Grid ColumnSpacing="8">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                <TextBlock x:Name="TranscriptTitle" Text="Transcription" FontSize="17" FontWeight="SemiBold" VerticalAlignment="Center" />
+                <TextBlock x:Name="SessionStatus" Grid.Column="1" Text="Loading recording…" Foreground="{ThemeResource RimVSecondaryTextBrush}" VerticalAlignment="Center" />
+            </Grid>
+            <Border Grid.Row="1" Background="{ThemeResource RimVSurfaceBrush}" BorderBrush="{ThemeResource RimVBorderBrush}" BorderThickness="1" CornerRadius="12" Padding="16,10">
+                <Grid>
+                    <ListView x:Name="TranscriptList" SelectionMode="Multiple" AutomationProperties.Name="Transcription text">
+                        <ListView.ItemTemplate>
+                            <DataTemplate x:DataType="local:TranscriptRow" xmlns:local="using:RimV.Windows">
+                                <StackPanel Padding="4,8" Spacing="4">
+                                    <TextBlock Text="{x:Bind Text}" FontSize="16" TextWrapping="Wrap" IsTextSelectionEnabled="True" />
+                                    <TextBlock Text="{x:Bind StateText}" FontSize="12" Foreground="{ThemeResource RimVSecondaryTextBrush}" />
+                                </StackPanel>
+                            </DataTemplate>
+                        </ListView.ItemTemplate>
+                    </ListView>
+                    <TextBlock x:Name="EmptyText" Text="Your transcript will appear here while listening." TextWrapping="Wrap" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="{ThemeResource RimVSecondaryTextBrush}" />
+                </Grid>
+            </Border>
+        </Grid>
         <Grid Grid.Row="4" ColumnSpacing="8">
-            <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-            <Button Content="Rename" Click="RenameButton_Click" AutomationProperties.Name="Rename recording" />
-            <Button Grid.Column="1" x:Name="DeleteButton" Content="Delete" Click="DeleteButton_Click" IsEnabled="False" Visibility="Collapsed" AutomationProperties.Name="Delete recording" />
-            <Button Grid.Column="2" Content="Export TXT" Click="ExportTxtButton_Click" />
-            <Button Grid.Column="3" Content="Export JSON" Click="ExportJsonButton_Click" />
+            <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+            <TextBlock x:Name="FooterText" Text="Viewer only · Recording continues if you close this window." Foreground="{ThemeResource RimVSecondaryTextBrush}" VerticalAlignment="Center" />
+            <Button x:Name="ExportTxtButton" Grid.Column="1" Content="↓ Export TXT" Click="ExportTxtButton_Click" Visibility="Collapsed" />
+            <Button x:Name="ExportJsonButton" Grid.Column="2" Content="↓ Export JSON" Click="ExportJsonButton_Click" Visibility="Collapsed" />
         </Grid>
     </Grid>
 </Window>

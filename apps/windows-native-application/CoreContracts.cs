@@ -51,6 +51,7 @@ public sealed class ModelRecord
 {
     [JsonPropertyName("descriptor")] public ModelDescriptor Descriptor { get; init; } = new();
     [JsonPropertyName("state")] public string State { get; set; } = "available";
+    [JsonPropertyName("selected")] public bool Selected { get; init; }
 }
 
 public sealed class ModelDescriptor
@@ -60,6 +61,7 @@ public sealed class ModelDescriptor
     [JsonPropertyName("display_name")] public string DisplayName { get; init; } = "";
     [JsonPropertyName("version")] public string Version { get; init; } = "";
     [JsonPropertyName("storage_directory")] public string StorageDirectory { get; init; } = "";
+    [JsonPropertyName("install_hint")] public string? InstallHint { get; init; }
     [JsonPropertyName("files")] public List<ModelFile> Files { get; init; } = [];
     [JsonPropertyName("languages")] public List<string> Languages { get; init; } = [];
     [JsonPropertyName("capabilities")] public ModelCapabilities Capabilities { get; init; } = new();
@@ -73,6 +75,14 @@ public sealed class ModelCapabilities
 public sealed class ModelFile
 {
     [JsonPropertyName("filename")] public string Filename { get; init; } = "";
+    [JsonPropertyName("expected_size_bytes")] public ulong? ExpectedSizeBytes { get; init; }
+}
+
+public sealed class LiveTranscriptSnapshot
+{
+    [JsonPropertyName("session_id")] public string? SessionId { get; init; }
+    [JsonPropertyName("revision")] public ulong Revision { get; init; }
+    [JsonPropertyName("updates")] public List<TranscriptUpdate> Updates { get; init; } = [];
 }
 
 public sealed class RecordingSummary
