@@ -15,7 +15,7 @@
                         <ItemsControl x:Name="ModelList">
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate x:DataType="local:ModelSelectorRow">
-                                    <Button Tag="{x:Bind Id}" Click="ModelOption_Click" Padding="0" MinHeight="48"
+                                    <local:HandCursorButton Tag="{x:Bind Id}" Click="ModelOption_Click" Padding="0" MinHeight="48"
                                             HorizontalContentAlignment="Stretch" Background="Transparent" BorderThickness="0"
                                             IsEnabled="{x:Bind CanSelect}" AutomationProperties.Name="{x:Bind AccessibleName}">
                                         <Grid Padding="2,4" ColumnSpacing="6">
@@ -29,7 +29,7 @@
                                             <TextBlock Grid.Column="1" Text="{x:Bind Checkmark}" FontSize="16" FontWeight="SemiBold"
                                                        Foreground="{ThemeResource RimVMenuAccentBrush}" VerticalAlignment="Center" />
                                         </Grid>
-                                    </Button>
+                                    </local:HandCursorButton>
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
@@ -39,7 +39,7 @@
                 </ScrollViewer>
                 <StackPanel Grid.Row="2">
                     <Border Height="1" Background="{ThemeResource RimVMenuBorderBrush}" Margin="0,2,0,5" />
-                    <Button Content="Manage Models…" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
+                    <local:HandCursorButton Content="Manage Models…" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
                             Padding="0,4" Background="Transparent" BorderThickness="0"
                             Foreground="{ThemeResource RimVMenuSecondaryTextBrush}" Click="ManageModels_Click" />
                 </StackPanel>

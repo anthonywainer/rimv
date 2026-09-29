@@ -75,7 +75,7 @@
                                     </StackPanel>
                                 </local:HandCursorToggleButton>
                             </Grid>
-                            <Button x:Name="ListenButton" Height="52" HorizontalAlignment="Stretch"
+                            <local:HandCursorButton x:Name="ListenButton" Height="52" HorizontalAlignment="Stretch"
                                     Style="{StaticResource RimVMenuListenButtonStyle}" Click="ListenButton_Click"
                                     AutomationProperties.Name="Start listening">
                                 <StackPanel Orientation="Horizontal" Spacing="10" HorizontalAlignment="Center">
@@ -84,12 +84,12 @@
                                     <TextBlock x:Name="ListenLabel" Text="Start Listening" FontSize="16" FontWeight="SemiBold"
                                                Foreground="{ThemeResource RimVMenuActionForegroundBrush}"/>
                                 </StackPanel>
-                            </Button>
+                            </local:HandCursorButton>
                         </StackPanel>
                     </Border>
                     <InfoBar x:Name="ErrorInfo" IsOpen="False" Severity="Error" IsClosable="True" Margin="0,0,0,8"/>
                     <InfoBar x:Name="ModelInfo" IsOpen="False" Severity="Informational" Margin="0,0,0,8"/>
-                    <Button x:Name="LanguageAnchor" Style="{StaticResource RimVMenuRowButtonStyle}" Click="LanguageButton_Click"
+                    <local:HandCursorButton x:Name="LanguageAnchor" Style="{StaticResource RimVMenuRowButtonStyle}" Click="LanguageButton_Click"
                             AutomationProperties.Name="Choose transcription language">
                         <Grid ColumnSpacing="9">
                             <Grid.ColumnDefinitions>
@@ -103,8 +103,8 @@
                                        Foreground="{ThemeResource RimVMenuSecondaryTextBrush}"/>
                             <FontIcon Grid.Column="3" Glyph="&#xE76C;" FontFamily="Segoe Fluent Icons" FontSize="12"/>
                         </Grid>
-                    </Button>
-                    <Button x:Name="ModelAnchor" Style="{StaticResource RimVMenuRowButtonStyle}" Click="ModelButton_Click"
+                    </local:HandCursorButton>
+                    <local:HandCursorButton x:Name="ModelAnchor" Style="{StaticResource RimVMenuRowButtonStyle}" Click="ModelButton_Click"
                             AutomationProperties.Name="Choose transcription model">
                         <Grid ColumnSpacing="9">
                             <Grid.ColumnDefinitions>
@@ -118,9 +118,9 @@
                                        Foreground="{ThemeResource RimVMenuSecondaryTextBrush}"/>
                             <FontIcon Grid.Column="3" Glyph="&#xE76C;" FontFamily="Segoe Fluent Icons" FontSize="12"/>
                         </Grid>
-                    </Button>
+                    </local:HandCursorButton>
                     <Border Height="1" Background="{ThemeResource RimVMenuBorderBrush}" Margin="0,3"/>
-                    <Button x:Name="RecordingsAnchor" Style="{StaticResource RimVMenuRowButtonStyle}" Click="RecordingsButton_Click"
+                    <local:HandCursorButton x:Name="RecordingsAnchor" Style="{StaticResource RimVMenuRowButtonStyle}" Click="RecordingsButton_Click"
                             AutomationProperties.Name="Open recordings">
                         <Grid ColumnSpacing="9">
                             <Grid.ColumnDefinitions><ColumnDefinition Width="22"/><ColumnDefinition Width="*"/><ColumnDefinition Width="16"/></Grid.ColumnDefinitions>
@@ -128,9 +128,9 @@
                             <TextBlock Grid.Column="1" Text="Recordings" FontSize="15" VerticalAlignment="Center"/>
                             <FontIcon Grid.Column="2" Glyph="&#xE76C;" FontFamily="Segoe Fluent Icons" FontSize="12"/>
                         </Grid>
-                    </Button>
+                    </local:HandCursorButton>
                     <Border Height="1" Background="{ThemeResource RimVMenuBorderBrush}" Margin="0,3"/>
-                    <Button Style="{StaticResource RimVMenuRowButtonStyle}" Click="QuitButton_Click"
+                    <local:HandCursorButton Style="{StaticResource RimVMenuRowButtonStyle}" Click="QuitButton_Click"
                             AutomationProperties.Name="Quit RimV, Ctrl+Q">
                         <Grid ColumnSpacing="9">
                             <Grid.ColumnDefinitions><ColumnDefinition Width="22"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
@@ -139,7 +139,7 @@
                             <TextBlock Grid.Column="2" Text="Ctrl+Q" FontSize="12"
                                        Foreground="{ThemeResource RimVMenuSecondaryTextBrush}" VerticalAlignment="Center" />
                         </Grid>
-                    </Button>
+                    </local:HandCursorButton>
                 </StackPanel>
             </ScrollViewer>
         </Border>

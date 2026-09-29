@@ -76,7 +76,7 @@ public sealed class AppCoordinator
         Directory.CreateDirectory(recordings);
         Directory.CreateDirectory(models);
         _core = _coreFactory.Create(recordings, models);
-        Snapshot = await _core.RequestAsync<CoreSnapshot>(new { type = "get_state" }, _shutdown.Token);
+        ApplySnapshot(await _core.RequestAsync<CoreSnapshot>(new { type = "get_state" }, _shutdown.Token));
         try
         {
             InputDevices = await _core.RequestAsync<List<AudioInputDevice>>(new { type = "list_input_devices" }, _shutdown.Token);
@@ -95,7 +95,7 @@ public sealed class AppCoordinator
                 type = "send",
                 command = new { type = "set_microphone_device", device_id = SelectedMicrophoneDeviceId },
             }, _shutdown.Token);
-            Snapshot = await _core.RequestAsync<CoreSnapshot>(new { type = "get_state" }, _shutdown.Token);
+            ApplySnapshot(await _core.RequestAsync<CoreSnapshot>(new { type = "get_state" }, _shutdown.Token));
         }
         Models = await _core.RequestAsync<List<ModelRecord>>(new { type = "get_models" }, _shutdown.Token);
         Recordings = await _core.RequestAsync<List<RecordingSummary>>(new { type = "get_recordings" }, _shutdown.Token);
@@ -115,7 +115,7 @@ public sealed class AppCoordinator
                         model_id = savedModel.Descriptor.Id,
                         language = SelectedLanguage,
                     }, _shutdown.Token);
-                    Snapshot = await _core.RequestAsync<CoreSnapshot>(new { type = "get_state" }, _shutdown.Token);
+                    ApplySnapshot(await _core.RequestAsync<CoreSnapshot>(new { type = "get_state" }, _shutdown.Token));
                     Models = await _core.RequestAsync<List<ModelRecord>>(new { type = "get_models" }, _shutdown.Token);
                 });
             }
@@ -153,7 +153,7 @@ public sealed class AppCoordinator
     public async Task RefreshStateAsync()
     {
         if (_core is null) return;
-        Snapshot = await _core.RequestAsync<CoreSnapshot>(new { type = "get_state" }, _shutdown.Token);
+        ApplySnapshot(await _core.RequestAsync<CoreSnapshot>(new { type = "get_state" }, _shutdown.Token));
         NotifyChanged();
     }
 
@@ -190,11 +190,11 @@ public sealed class AppCoordinator
                 try { await EnsureVadInstalledAsync(); }
                 finally { IsPreparingToListen = false; NotifyChanged(); }
             }
-            Snapshot = await RequireCore().RequestAsync<CoreSnapshot>(new
+            ApplySnapshot(await RequireCore().RequestAsync<CoreSnapshot>(new
             {
                 type = "send",
                 command = new { type = command },
-            }, _shutdown.Token);
+            }, _shutdown.Token));
             await RefreshRecordingsAsync();
             ClearError();
             NotifyChanged();
@@ -212,7 +212,7 @@ public sealed class AppCoordinator
                 command = new { type = "set_microphone_device", device_id = deviceId },
             }, _shutdown.Token);
             SelectedMicrophoneDeviceId = deviceId;
-            Snapshot = await RequireCore().RequestAsync<CoreSnapshot>(new { type = "get_state" }, _shutdown.Token);
+            ApplySnapshot(await RequireCore().RequestAsync<CoreSnapshot>(new { type = "get_state" }, _shutdown.Token));
             await SavePreferencesAsync();
             ClearError();
             NotifyChanged();
@@ -267,7 +267,7 @@ public sealed class AppCoordinator
             await SendCommandAsync("set_microphone_enabled", microphone);
             await SendCommandAsync("set_system_audio_enabled", system);
             SelectedSource = source;
-            Snapshot = await RequireCore().RequestAsync<CoreSnapshot>(new { type = "get_state" }, _shutdown.Token);
+            ApplySnapshot(await RequireCore().RequestAsync<CoreSnapshot>(new { type = "get_state" }, _shutdown.Token));
             if (persist) await SavePreferencesAsync();
             ClearError();
             NotifyChanged();
@@ -287,7 +287,7 @@ public sealed class AppCoordinator
             await RequireCore().RequestAsync<JsonElement>(new { type = "select_model", model_id = modelId, language }, _shutdown.Token);
             SelectedModelId = modelId;
             SelectedLanguage = language;
-            Snapshot = await RequireCore().RequestAsync<CoreSnapshot>(new { type = "get_state" }, _shutdown.Token);
+            ApplySnapshot(await RequireCore().RequestAsync<CoreSnapshot>(new { type = "get_state" }, _shutdown.Token));
             Models = await RequireCore().RequestAsync<List<ModelRecord>>(new { type = "get_models" }, _shutdown.Token);
             await SavePreferencesAsync();
             ClearError();
@@ -307,7 +307,7 @@ public sealed class AppCoordinator
                 language,
             }, _shutdown.Token);
             SelectedLanguage = language;
-            Snapshot = await RequireCore().RequestAsync<CoreSnapshot>(new { type = "get_state" }, _shutdown.Token);
+            ApplySnapshot(await RequireCore().RequestAsync<CoreSnapshot>(new { type = "get_state" }, _shutdown.Token));
             await SavePreferencesAsync();
             ClearError();
             NotifyChanged();
@@ -335,7 +335,7 @@ public sealed class AppCoordinator
             throw new CoreRequestException("Stop listening before removing a model.");
         await RequireCore().RequestAsync<JsonElement>(new { type = "remove_model", model_id = id }, _shutdown.Token);
         await RefreshModelsAsync();
-        Snapshot = await RequireCore().RequestAsync<CoreSnapshot>(new { type = "get_state" }, _shutdown.Token);
+        ApplySnapshot(await RequireCore().RequestAsync<CoreSnapshot>(new { type = "get_state" }, _shutdown.Token));
         if (SelectedModelId == id)
         {
             SelectedModelId = null;
@@ -406,13 +406,13 @@ public sealed class AppCoordinator
             switch (item.Type)
             {
                 case "snapshot":
-                    Snapshot = item.Payload.GetProperty("snapshot").Deserialize<CoreSnapshot>() ?? Snapshot;
-                    if (_activeSessionId != Snapshot.Session?.Id)
+                    CoreSnapshot? incoming = item.Payload.GetProperty("snapshot").Deserialize<CoreSnapshot>();
+                    if (incoming is not null && ApplySnapshot(incoming) && _activeSessionId != Snapshot.Session?.Id)
                     {
                         _activeSessionId = Snapshot.Session?.Id;
                         _ = GuardAsync(RefreshRecordingsAsync);
                     }
-                    NotifyChanged();
+                    if (incoming is not null && incoming.Revision >= Snapshot.Revision) NotifyChanged();
                     break;
                 case "model_progress":
                     ModelProgressReceived?.Invoke(item.Payload.GetProperty("progress").Deserialize<ModelProgress>() ?? new());
@@ -494,6 +494,17 @@ public sealed class AppCoordinator
         ErrorMessage = message;
         LastErrorDetail = detail;
         NotifyChanged();
+    }
+
+    private bool ApplySnapshot(CoreSnapshot snapshot)
+    {
+        if (!NativeWindowsPolicy.ShouldAcceptSnapshot(Snapshot.Revision, snapshot.Revision))
+        {
+            _log.Info("core.snapshot_stale_ignored", $"current={Snapshot.Revision}; incoming={snapshot.Revision}");
+            return false;
+        }
+        Snapshot = snapshot;
+        return true;
     }
 
     private async Task SavePreferencesAsync() => await _preferences.SaveAsync(

@@ -261,10 +261,11 @@ public sealed partial class ShellWindow : Window
         ErrorInfo.IsOpen = _coordinator.ErrorMessage is not null;
         ModelInfo.Message = !_coordinator.IsCoreAvailable
             ? "The shared Rust engine is unavailable. Rebuild with rimv_core_ffi.dll to use capture and transcription."
-            : state.Transcription.Status == "loading" ? "Loading the speech model…"
             : model?.State == "unsupported" ? "The selected model backend isn't included in this Windows build. Choose an available model."
-            : model is null ? "Choose a speech model to turn listening into a transcript." : model.State == "installed" ? "Model ready" : "This model needs to be downloaded.";
-        ModelInfo.IsOpen = !_coordinator.IsCoreAvailable || state.Transcription.Status == "loading" || model is null || model.State != "installed";
+            : model is null ? "Choose a speech model to turn listening into a transcript."
+            : NativeWindowsPolicy.SpeechModelStatusMessage(state.Transcription.Status, model.State);
+        ModelInfo.IsOpen = !_coordinator.IsCoreAvailable || state.Transcription.Status is "loading" or "error"
+            || model is null || model.State != "installed";
     }
 
     private static string DisplayLanguage(string? code, bool supportsDetection)
@@ -368,4 +369,6 @@ public sealed partial class ShellWindow : Window
         }
         _transcriptionWindow.ShowSession(sessionId);
     }
+
+    public void CloseTranscriptionWindowForShutdown() => _transcriptionWindow?.Close();
 }

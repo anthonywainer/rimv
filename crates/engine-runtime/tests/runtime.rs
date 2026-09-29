@@ -374,6 +374,7 @@ fn timer_events_and_transcription_availability() {
     let state = engine.set_transcription_enabled(true).unwrap();
     assert!(state.transcription.enabled);
     assert!(state.transcription.available && !state.capabilities.transcription);
+    assert_eq!(state.transcription.status, TranscriptionStatus::Disabled);
     let error = engine.start_capture().unwrap_err();
     assert_eq!(error.code, EngineErrorCode::TranscriptionFailed);
     assert_eq!(engine.snapshot().status, EngineStatus::Error);
@@ -401,6 +402,11 @@ fn missing_speech_models_fail_before_capture_starts() {
         ..Default::default()
     };
     let engine = EngineRuntime::with_backend(config, FakeBackend(controls)).unwrap();
+    assert_eq!(
+        engine.snapshot().transcription.status,
+        TranscriptionStatus::Disabled,
+        "an enabled preference must not claim a model is loading before a worker exists"
+    );
     let events = engine.subscribe().unwrap();
     let error = engine.start_capture().unwrap_err();
     assert_eq!(error.code, EngineErrorCode::TranscriptionFailed);

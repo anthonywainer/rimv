@@ -8,6 +8,7 @@ fn main() {
     println!("cargo:rerun-if-changed=native/transcription_window.h");
     println!("cargo:rerun-if-changed=native/recordings_selector.m");
     println!("cargo:rerun-if-changed=native/recordings_selector.h");
+    println!("cargo:rerun-if-changed=native/hand_cursor_button.h");
     println!("cargo:rerun-if-changed=Info.plist");
     if env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("macos") {
         return;

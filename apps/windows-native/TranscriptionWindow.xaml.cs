@@ -10,7 +10,13 @@ using WinRT.Interop;
 
 namespace RimV.Windows;
 
-internal sealed record TranscriptRow(string Key, ulong StartMs, string Text, string StateText, bool IsFinal);
+internal sealed record TranscriptRow(
+    string Key,
+    ulong StartMs,
+    string StableText,
+    string UnstableText,
+    string StateText,
+    bool IsFinal);
 
 public sealed partial class TranscriptionWindow : Window
 {
@@ -20,6 +26,7 @@ public sealed partial class TranscriptionWindow : Window
     private readonly LiveTranscriptBuffer _liveTranscript = new();
     private readonly RecordingViewerLifecycle _viewerLifecycle = new();
     private readonly MediaPlayer _player = new();
+    private readonly Microsoft.UI.Windowing.AppWindow _appWindow;
     private string? _sessionId;
     private RecordingSummary? _summary;
     private bool _loading;
@@ -28,7 +35,8 @@ public sealed partial class TranscriptionWindow : Window
     {
         InitializeComponent();
         _coordinator = coordinator;
-        WindowHelpers.Configure(this, 920, 720);
+        _appWindow = WindowHelpers.Configure(this, 920, 720);
+        _appWindow.Closing += AppWindow_Closing;
         TranscriptList.ItemsSource = _rows;
         AudioPlayer.SetMediaPlayer(_player);
         _player.PlaybackSession.PlaybackStateChanged += PlaybackSession_Changed;
@@ -38,6 +46,7 @@ public sealed partial class TranscriptionWindow : Window
         App.CurrentApp.ThemeManager.RegisterRoot(RootGrid);
         Closed += (_, _) =>
         {
+            _appWindow.Closing -= AppWindow_Closing;
             _coordinator.CoreEventReceived -= CoreEventReceived;
             _coordinator.Changed -= Coordinator_Changed;
             App.CurrentApp.ThemeManager.UnregisterRoot(RootGrid);
@@ -80,8 +89,25 @@ public sealed partial class TranscriptionWindow : Window
         ErrorInfo.IsOpen = false;
         StopAndResetPlayback();
         AudioPlayer.SetMediaPlayer(_player);
+        _appWindow.Show();
         Activate();
         await LoadSessionAsync(sessionId, generation);
+    }
+
+    private void AppWindow_Closing(Microsoft.UI.Windowing.AppWindow sender,
+        Microsoft.UI.Windowing.AppWindowClosingEventArgs args)
+    {
+        if (!NativeWindowsPolicy.ShouldCancelViewerClose(App.CurrentApp.IsShuttingDown)) return;
+        args.Cancel = true;
+        App.CurrentApp.Log.Info("viewer.dismissed_to_tray", _sessionId is null ? "session=none" : "session=active");
+        StopAndResetPlayback();
+        _viewerLifecycle.Close();
+        _sessionId = null;
+        _summary = null;
+        _loading = false;
+        _rows.Clear();
+        _byKey.Clear();
+        _appWindow.Hide();
     }
 
     private async Task LoadSessionAsync(string sessionId, long generation)
@@ -137,7 +163,7 @@ public sealed partial class TranscriptionWindow : Window
                 foreach (TranscriptLine line in details.Transcript)
                 {
                     string key = MakePersistedKey(line.Source, line.StartMs);
-                    AddOrReplace(new TranscriptRow(key, line.StartMs, line.Text,
+                    AddOrReplace(new TranscriptRow(key, line.StartMs, line.Text, "",
                         $"{line.StartMs / 1000d:0.0}s · {FriendlySource(line.Source)}", true));
                 }
                 EmptyText.Text = details.Summary.TranscriptionError is { Length: > 0 } transcriptionError
@@ -191,7 +217,7 @@ public sealed partial class TranscriptionWindow : Window
 
     private void CoreEventReceived(CoreEvent item)
     {
-        if (item.Type != "transcript_update" || _summary?.State != "recording" || _sessionId is null
+        if (!_viewerLifecycle.IsOpen || item.Type != "transcript_update" || _summary?.State != "recording" || _sessionId is null
             || _coordinator.Snapshot.Session?.Id != _sessionId) return;
         if (item.Payload.TryGetProperty("session_id", out JsonElement sessionId)
             && sessionId.GetString() != _sessionId) return;
@@ -233,14 +259,12 @@ public sealed partial class TranscriptionWindow : Window
     {
         if (_sessionId is null || !_liveTranscript.Apply(_sessionId, update, revision)) return;
         string key = MakeLiveKey(update.Source, update.UtteranceId);
-        string text = string.Join(" ", new[] { update.StableText, update.UnstableText }
-            .Where(value => !string.IsNullOrWhiteSpace(value)));
-        if (string.IsNullOrWhiteSpace(text))
+        if (string.IsNullOrWhiteSpace(update.StableText) && string.IsNullOrWhiteSpace(update.UnstableText))
         {
             Remove(key);
             return;
         }
-        AddOrReplace(new TranscriptRow(key, update.StartMs, text,
+        AddOrReplace(new TranscriptRow(key, update.StartMs, update.StableText, update.UnstableText,
             $"{update.StartMs / 1000d:0.0}s · {FriendlySource(update.Source)} · {(update.IsFinal ? "Final" : "Live draft")}", update.IsFinal));
     }
 

@@ -27,7 +27,7 @@
                             <ItemsControl x:Name="PopularList">
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate x:DataType="local:LanguageSelectorRow">
-                                        <Button Tag="{x:Bind Code}" Click="LanguageOption_Click" Padding="0" Height="34"
+                                        <local:HandCursorButton Tag="{x:Bind Code}" Click="LanguageOption_Click" Padding="0" Height="34"
                                                 HorizontalContentAlignment="Stretch" Background="Transparent" BorderThickness="0"
                                                 AutomationProperties.Name="{x:Bind AccessibleName}">
                                             <Border Background="{x:Bind Background}" CornerRadius="7" Padding="9,3">
@@ -48,7 +48,7 @@
                                                                Foreground="{ThemeResource RimVMenuAccentBrush}" VerticalAlignment="Center" />
                                                 </Grid>
                                             </Border>
-                                        </Button>
+                                        </local:HandCursorButton>
                                     </DataTemplate>
                                 </ItemsControl.ItemTemplate>
                             </ItemsControl>
@@ -57,7 +57,7 @@
                             <ItemsControl x:Name="AllList" Visibility="Collapsed">
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate x:DataType="local:LanguageSelectorRow">
-                                        <Button Tag="{x:Bind Code}" Click="LanguageOption_Click" Padding="0" Height="34"
+                                        <local:HandCursorButton Tag="{x:Bind Code}" Click="LanguageOption_Click" Padding="0" Height="34"
                                                 HorizontalContentAlignment="Stretch" Background="Transparent" BorderThickness="0"
                                                 AutomationProperties.Name="{x:Bind AccessibleName}">
                                             <Border Background="{x:Bind Background}" CornerRadius="7" Padding="9,3">
@@ -78,7 +78,7 @@
                                                                Foreground="{ThemeResource RimVMenuAccentBrush}" VerticalAlignment="Center" />
                                                 </Grid>
                                             </Border>
-                                        </Button>
+                                        </local:HandCursorButton>
                                     </DataTemplate>
                                 </ItemsControl.ItemTemplate>
                             </ItemsControl>
@@ -87,7 +87,7 @@
                         </StackPanel>
                     </ScrollViewer>
                 </Grid>
-                <Button x:Name="AllLanguagesButton" Grid.Row="3" Content="All supported languages  ›"
+                <local:HandCursorButton x:Name="AllLanguagesButton" Grid.Row="3" Content="All supported languages  ›"
                         HorizontalAlignment="Left" Padding="0" Background="Transparent" BorderThickness="0"
                         Foreground="{ThemeResource RimVMenuAccentBrush}" Click="AllLanguagesButton_Click" />
                 <TextBlock Grid.Row="4" Text="Only languages supported by the selected transcription model are shown."

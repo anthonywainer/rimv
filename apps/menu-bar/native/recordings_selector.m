@@ -1,4 +1,5 @@
 #import "recordings_selector.h"
+#import "hand_cursor_button.h"
 #import "transcription_window.h"
 
 extern void rimv_menu_selector_did_close(NSInteger);
@@ -110,7 +111,7 @@ static NSString *RimvRecordingDetail(NSDictionary *session) {
         self.stateLabel.alignment = NSTextAlignmentRight;
         self.stateLabel.frame = NSMakeRect(206, 12, 78, 17);
         [self addSubview:self.stateLabel];
-        self.actionsButton = [NSButton buttonWithTitle:@"" target:self action:@selector(showActions:)];
+        self.actionsButton = [RimvHandCursorButton buttonWithTitle:@"" target:self action:@selector(showActions:)];
         self.actionsButton.frame = NSMakeRect(264, 31, 28, 26);
         self.actionsButton.bordered = NO;
         self.actionsButton.image = [NSImage imageWithSystemSymbolName:@"ellipsis" accessibilityDescription:@"Recording actions"];
@@ -157,11 +158,11 @@ static NSString *RimvRecordingDetail(NSDictionary *session) {
     self.titleEditor.stringValue = value ?: @"";
     self.titleEditor.accessibilityLabel = @"Recording name";
     [self addSubview:self.titleEditor];
-    self.saveButton = [NSButton buttonWithTitle:@"Save" target:self.owner action:@selector(saveRename:)];
+    self.saveButton = [RimvHandCursorButton buttonWithTitle:@"Save" target:self.owner action:@selector(saveRename:)];
     self.saveButton.frame = NSMakeRect(202, 28, 46, 26);
     self.saveButton.identifier = self.session[@"path"];
     [self addSubview:self.saveButton];
-    self.cancelButton = [NSButton buttonWithTitle:@"Cancel" target:self.owner action:@selector(cancelRename:)];
+    self.cancelButton = [RimvHandCursorButton buttonWithTitle:@"Cancel" target:self.owner action:@selector(cancelRename:)];
     self.cancelButton.frame = NSMakeRect(250, 28, 46, 26);
     [self addSubview:self.cancelButton];
 }
@@ -202,7 +203,7 @@ static NSString *RimvRecordingDetail(NSDictionary *session) {
     NSArray *titles = @[@"All", @"Recording", @"Completed"];
     NSMutableArray *buttons = [NSMutableArray array];
     for (NSUInteger index = 0; index < titles.count; index++) {
-        NSButton *button = [NSButton buttonWithTitle:titles[index] target:self action:@selector(filter:)];
+        NSButton *button = [RimvHandCursorButton buttonWithTitle:titles[index] target:self action:@selector(filter:)];
         button.tag = (NSInteger)index;
         button.frame = NSMakeRect(18 + index * 94, 320, 88, 25);
         [view addSubview:button];
@@ -215,7 +216,7 @@ static NSString *RimvRecordingDetail(NSDictionary *session) {
     self.list = [[RimvRecordingListView alloc] initWithFrame:NSMakeRect(0, 0, 300, 1)];
     scroll.documentView = self.list;
     [view addSubview:scroll];
-    NSButton *folder = [NSButton buttonWithTitle:@"Open Recordings Folder" target:self action:@selector(folder:)];
+    NSButton *folder = [RimvHandCursorButton buttonWithTitle:@"Open Recordings Folder" target:self action:@selector(folder:)];
     folder.frame = NSMakeRect(18, 14, 200, 28);
     [view addSubview:folder];
     NSViewController *controller = [NSViewController new];

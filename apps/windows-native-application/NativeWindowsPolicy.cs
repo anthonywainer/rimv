@@ -24,6 +24,22 @@ public static class NativeWindowsPolicy
         _ => "start_capture",
     };
 
+    public static bool ShouldAcceptSnapshot(ulong currentRevision, ulong incomingRevision) =>
+        incomingRevision >= currentRevision;
+
+    public static bool ShouldCancelViewerClose(bool applicationIsShuttingDown) =>
+        !applicationIsShuttingDown;
+
+    public static string SpeechModelStatusMessage(string transcriptionStatus, string? modelState) =>
+        transcriptionStatus switch
+        {
+            "loading" => "Loading the speech model…",
+            "error" => "The speech model couldn't be initialized. Check Model Manager, then try again.",
+            "ready" or "transcribing" when modelState == "installed" => "Ready",
+            _ when modelState == "installed" => "Model installed · loads when you start listening",
+            _ => "This model needs to be downloaded.",
+        };
+
     public static bool CanInstallModel(string state) => state is "available" or "incomplete";
 
     public static bool CanCancelModelInstall(string state) => state == "downloading";

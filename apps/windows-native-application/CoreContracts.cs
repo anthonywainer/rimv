@@ -8,6 +8,7 @@ public sealed class CoreRequestException(string message) : Exception(message);
 
 public sealed class CoreSnapshot
 {
+    [JsonPropertyName("revision")] public ulong Revision { get; init; }
     [JsonPropertyName("status")] public string Status { get; init; } = "idle";
     [JsonPropertyName("session")] public SessionInfo? Session { get; init; }
     [JsonPropertyName("elapsed_ms")] public ulong ElapsedMs { get; init; }

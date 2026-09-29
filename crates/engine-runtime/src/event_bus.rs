@@ -380,4 +380,49 @@ mod tests {
         assert!(transcript.updates.is_empty());
         assert_eq!(transcript.revision, 0);
     }
+
+    #[test]
+    fn transcript_subscriber_reconnects_to_partial_then_final_replaces_it_once() {
+        let bus = EventBus::new(EngineSnapshot::default(), 8, 2);
+        let mut snapshot = bus.snapshot();
+        snapshot.session = Some(crate::SessionInfo {
+            id: crate::SessionId("session-live".into()),
+            started_at_unix_ms: 0,
+            recording_directory: "recordings/session-live".into(),
+        });
+        bus.update(&mut snapshot);
+        let subscriber = bus.subscribe().unwrap();
+        let initial_event = subscriber.recv_timeout(Duration::ZERO).unwrap();
+        assert!(matches!(initial_event, EngineEvent::Snapshot { .. }));
+
+        let mut partial = transcript_update("utterance-1", "hello", false);
+        partial.unstable_text = " there".into();
+        bus.transcript_update(partial.clone());
+        assert_eq!(
+            subscriber.recv_timeout(Duration::ZERO).unwrap(),
+            EngineEvent::TranscriptUpdate {
+                update: partial.clone()
+            }
+        );
+
+        let reopened = bus.transcript_snapshot();
+        assert_eq!(reopened.session_id.as_deref(), Some("session-live"));
+        assert_eq!(reopened.revision, 1);
+        assert_eq!(reopened.updates, vec![partial]);
+
+        let final_update = transcript_update("utterance-1", "hello there", true);
+        bus.transcript_update(final_update.clone());
+        assert_eq!(
+            subscriber.recv_timeout(Duration::ZERO).unwrap(),
+            EngineEvent::TranscriptUpdate {
+                update: final_update.clone()
+            }
+        );
+
+        let current = bus.transcript_snapshot();
+        assert_eq!(current.revision, 2);
+        assert_eq!(current.updates.len(), 1);
+        assert_eq!(current.updates[0], final_update);
+        assert!(current.updates[0].is_final);
+    }
 }

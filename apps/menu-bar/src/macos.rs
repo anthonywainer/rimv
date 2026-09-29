@@ -727,8 +727,24 @@ mod recording_metadata_tests {
 }
 
 fn update_transcription_window(engine: &EngineRuntime, update: &engine_runtime::TranscriptUpdate) {
+    let transcript = engine.transcript_snapshot();
+    // Event delivery can lag the producer. Reconcile by utterance identity so
+    // the native view never receives an older hypothesis after a final update.
+    let current = transcript
+        .updates
+        .iter()
+        .find(|known| known.source == update.source && known.utterance_id == update.utterance_id)
+        .cloned();
+    let update = current.unwrap_or_else(|| {
+        let mut cleared = update.clone();
+        cleared.stable_text.clear();
+        cleared.unstable_text.clear();
+        cleared.is_final = false;
+        cleared
+    });
     let json = serde_json::json!({
-        "revision": engine.transcript_snapshot().revision,
+        "session_id": transcript.session_id,
+        "revision": transcript.revision,
         "update": update,
     })
     .to_string();

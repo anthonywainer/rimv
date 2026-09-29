@@ -41,6 +41,28 @@ public sealed class NativeWindowsPolicyTests
         Assert.Equal(expected, NativeWindowsPolicy.ListeningCommand(status));
 
     [Theory]
+    [InlineData(4UL, 3UL, false)]
+    [InlineData(4UL, 4UL, true)]
+    [InlineData(4UL, 5UL, true)]
+    public void OlderCoreSnapshotsCannotOverwriteNewerModelState(ulong current, ulong incoming, bool expected) =>
+        Assert.Equal(expected, NativeWindowsPolicy.ShouldAcceptSnapshot(current, incoming));
+
+    [Theory]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    public void ViewerCloseHidesWhileExplicitApplicationShutdownCloses(bool appIsShuttingDown, bool cancelClose) =>
+        Assert.Equal(cancelClose, NativeWindowsPolicy.ShouldCancelViewerClose(appIsShuttingDown));
+
+    [Theory]
+    [InlineData("loading", "installed", "Loading the speech model…")]
+    [InlineData("ready", "installed", "Ready")]
+    [InlineData("transcribing", "installed", "Ready")]
+    [InlineData("disabled", "installed", "Model installed · loads when you start listening")]
+    [InlineData("error", "installed", "The speech model couldn't be initialized. Check Model Manager, then try again.")]
+    public void SpeechModelMessageMatchesActualWorkerLifecycle(string status, string modelState, string expected) =>
+        Assert.Equal(expected, NativeWindowsPolicy.SpeechModelStatusMessage(status, modelState));
+
+    [Theory]
     [InlineData("available", true, false)]
     [InlineData("incomplete", true, false)]
     [InlineData("downloading", false, false)]

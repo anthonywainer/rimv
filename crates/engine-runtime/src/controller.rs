@@ -144,11 +144,9 @@ impl Controller {
             EngineCommand::SetTranscriptionEnabled { enabled } => {
                 self.state.transcription.enabled = enabled;
                 self.state.transcription.available = self.config.transcription.model_path.is_some();
-                self.state.transcription.status = if enabled {
-                    crate::TranscriptionStatus::Loading
-                } else {
-                    crate::TranscriptionStatus::Disabled
-                };
+                // Enabling is a preference change. A worker is only loaded
+                // during an active capture session.
+                self.state.transcription.status = crate::TranscriptionStatus::Disabled;
                 if self.session.is_some() {
                     if enabled {
                         self.start_transcription();
@@ -466,6 +464,11 @@ impl Controller {
                 self.handle_speech_event(&mut session, SpeechEvent::Update(update));
             }
         }
+        if self.state.transcription.status != crate::TranscriptionStatus::Error {
+            // The transcription worker (and its loaded model) has now been
+            // joined and released. The next capture will load it again.
+            self.state.transcription.status = crate::TranscriptionStatus::Disabled;
+        }
         for source in SOURCES {
             match session.slot(source).finish(duration) {
                 Ok(Some(file)) => files.push(file),
@@ -607,6 +610,16 @@ impl Controller {
     fn handle_speech_event(&mut self, session: &mut CaptureSession, event: SpeechEvent) {
         match event {
             SpeechEvent::Update(update) => {
+                tracing::debug!(
+                    source=?update.source,
+                    utterance_id=%update.utterance_id,
+                    start_ms=update.start_ms,
+                    end_ms=update.end_ms,
+                    final_result=update.is_final,
+                    stable_chars=update.stable_text.chars().count(),
+                    unstable_chars=update.unstable_text.chars().count(),
+                    "shared transcript update accepted"
+                );
                 if update.is_final {
                     session
                         .transcript_segments
@@ -640,8 +653,9 @@ impl Controller {
                 self.state.transcription.status = crate::TranscriptionStatus::Ready;
                 self.state.transcription.backend = Some(info.backend_name);
                 self.state.transcription.model = Some(info.model_name);
-                self.state.transcription.supports_partial_results =
-                    info.capabilities.supports_partial_results;
+                // The shared worker produces provisional results by decoding
+                // bounded prefixes even when the backend API itself is offline.
+                self.state.transcription.supports_partial_results = true;
                 self.state.transcription.supports_true_streaming =
                     info.capabilities.supports_true_streaming;
             }

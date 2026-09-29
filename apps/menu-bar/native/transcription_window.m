@@ -501,10 +501,14 @@ typedef NS_ENUM(NSInteger, RimvViewerMode) {
 }
 
 - (void)applyTranscriptUpdateEnvelope:(NSDictionary *)envelope {
+    NSString *sessionID = [envelope[@"session_id"] isKindOfClass:NSString.class] ? envelope[@"session_id"] : nil;
+    if (sessionID.length && ![sessionID isEqualToString:self.liveSessionID]) return;
     NSDictionary *update = [envelope[@"update"] isKindOfClass:NSDictionary.class] ? envelope[@"update"] : envelope;
     uint64_t revision = [envelope[@"revision"] unsignedLongLongValue];
-    if (revision && revision <= self.transcriptRevision) return;
-    if (revision) self.transcriptRevision = revision;
+    // Multiple utterance/source updates can share the latest snapshot revision.
+    // Applying an equal-revision update is safe because rows are keyed by ID.
+    if (revision && revision < self.transcriptRevision) return;
+    if (revision > self.transcriptRevision) self.transcriptRevision = revision;
     if (!self.finalUpdates) self.finalUpdates = [NSMutableDictionary dictionary];
     if (!self.partialUpdates) self.partialUpdates = [NSMutableDictionary dictionary];
     NSString *identifier = [update[@"utterance_id"] isKindOfClass:NSString.class] ? update[@"utterance_id"] : nil;

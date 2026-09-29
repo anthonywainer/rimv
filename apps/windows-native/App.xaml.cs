@@ -172,12 +172,14 @@ public partial class App : Microsoft.UI.Xaml.Application
     public void CloseSelectorPopup() => _shell?.CloseSelectorPopup();
     public void OpenSettingsWindow() => _shell?.OpenSettingsWindow();
     public void OpenTranscriptionWindow(string sessionId) => _shell?.OpenTranscriptionWindow(sessionId);
+    internal void CloseTranscriptionWindowForShutdown() => _shell?.CloseTranscriptionWindowForShutdown();
 
     public async void Quit()
     {
         if (IsShuttingDown) return;
         _log?.Info("app.quit_requested");
         IsShuttingDown = true;
+        _shell?.CloseTranscriptionWindowForShutdown();
         _activationCancellation?.Cancel();
         _activationEvent?.Set();
         if (_activationListener is not null) await _activationListener;

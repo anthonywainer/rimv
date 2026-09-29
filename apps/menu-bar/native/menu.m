@@ -3,6 +3,7 @@
 #import "model_manager.h"
 #import "transcription_window.h"
 #import "recordings_selector.h"
+#import "hand_cursor_button.h"
 
 typedef void (*CommandCallback)(uint32_t, uint8_t);
 
@@ -11,6 +12,13 @@ static BOOL RimvIsDark(NSAppearance *appearance) {
         NSAppearanceNameAqua, NSAppearanceNameDarkAqua
     ]] isEqualToString:NSAppearanceNameDarkAqua];
 }
+
+@implementation RimvHandCursorButton
+- (void)resetCursorRects {
+    [super resetCursorRects];
+    [self addCursorRect:self.bounds cursor:NSCursor.pointingHandCursor];
+}
+@end
 
 @interface RimvPopoverView : NSView
 @property(nonatomic, copy) dispatch_block_t appearanceChanged;
@@ -200,7 +208,7 @@ static NSString *elapsed(uint64_t milliseconds) {
     return label;
 }
 - (NSButton *)row:(NSString *)title symbol:(NSString *)symbol action:(SEL)action frame:(NSRect)frame {
-    NSButton *button = [NSButton buttonWithTitle:title target:self action:action];
+    NSButton *button = [RimvHandCursorButton buttonWithTitle:title target:self action:action];
     button.frame = frame;
     button.bordered = NO;
     button.alignment = NSTextAlignmentLeft;
@@ -432,8 +440,8 @@ static NSString *elapsed(uint64_t milliseconds) {
     self.microphoneCard = [self sourceCard:@"Microphone" symbol:@"mic" action:@selector(selectMicrophone:) frame:NSMakeRect(139, 160, 103, 74)];
     self.bothCard = [self sourceCard:@"Both" symbol:@"waveform" action:@selector(selectBoth:) frame:NSMakeRect(250, 160, 103, 74)];
     self.sourceDetail = [self label:@"CAPTURE SOURCE" frame:NSMakeRect(28, 134, 180, 16) size:12 weight:NSFontWeightBold];
-    self.microphone = [NSButton buttonWithTitle:@"Microphone" target:self action:@selector(toggleMicrophone:)];
-    self.system = [NSButton buttonWithTitle:@"System Audio" target:self action:@selector(toggleSystem:)];
+    self.microphone = [RimvHandCursorButton buttonWithTitle:@"Microphone" target:self action:@selector(toggleMicrophone:)];
+    self.system = [RimvHandCursorButton buttonWithTitle:@"System Audio" target:self action:@selector(toggleSystem:)];
     self.capture = [self row:@"" symbol:@"" action:@selector(toggleCapture:) frame:NSMakeRect(28, 249, 324, 49)];
     self.capture.image = nil;
     self.capture.alignment = NSTextAlignmentCenter;
@@ -789,7 +797,7 @@ static NSString *elapsed(uint64_t milliseconds) {
     self.languageListDocument = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 300, 1)];
     scroll.documentView = self.languageListDocument;
     [self.languagePopoverView addSubview:scroll];
-    self.allLanguagesButton = [NSButton buttonWithTitle:@"All supported languages  ›" target:self action:@selector(toggleAllLanguages:)];
+    self.allLanguagesButton = [RimvHandCursorButton buttonWithTitle:@"All supported languages  ›" target:self action:@selector(toggleAllLanguages:)];
     self.allLanguagesButton.frame = NSMakeRect(18, 405, 300, 28);
     self.allLanguagesButton.bordered = NO;
     self.allLanguagesButton.alignment = NSTextAlignmentLeft;
@@ -814,7 +822,7 @@ static NSString *elapsed(uint64_t milliseconds) {
 }
 - (void)addLanguageOption:(NSString *)code atY:(CGFloat *)y {
     BOOL selected = [code isEqualToString:self.selectedLanguage];
-    NSButton *button = [NSButton buttonWithTitle:@"" target:self action:@selector(selectLanguageButton:)];
+    NSButton *button = [RimvHandCursorButton buttonWithTitle:@"" target:self action:@selector(selectLanguageButton:)];
     button.frame = NSMakeRect(0, *y, 292, 40);
     button.bordered = NO;
     button.wantsLayer = YES;
@@ -1321,7 +1329,7 @@ bool rimv_menu_self_test(void) {
         menu.languageSearch.stringValue = @"span";
         [menu reloadLanguageOptions];
         passed &= menu.languageListDocument.subviews.count == 2;
-        NSButton *spanish = [NSButton buttonWithTitle:@"" target:nil action:NULL];
+        NSButton *spanish = [RimvHandCursorButton buttonWithTitle:@"" target:nil action:NULL];
         spanish.identifier = @"es";
         [menu selectLanguageButton:spanish];
         passed &= testedCommand == 12 && [menu.languageValue.stringValue isEqualToString:@"Spanish"];
@@ -1330,7 +1338,7 @@ bool rimv_menu_self_test(void) {
         menu.languageSearch.stringValue = @"";
         [menu reloadLanguageOptions];
         passed &= !menu.allLanguagesButton.hidden;
-        NSButton *ukrainian = [NSButton buttonWithTitle:@"" target:nil action:NULL];
+        NSButton *ukrainian = [RimvHandCursorButton buttonWithTitle:@"" target:nil action:NULL];
         ukrainian.identifier = @"uk";
         [menu selectLanguageButton:ukrainian];
         passed &= testedCommand == 39 && [menu.languageValue.stringValue isEqualToString:@"Ukrainian"];

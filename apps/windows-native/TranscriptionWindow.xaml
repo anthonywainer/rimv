@@ -60,7 +60,10 @@
                     <TextBlock x:Name="DurationText" Text="00:00" FontFamily="Consolas" HorizontalAlignment="Right" />
                     <TextBlock x:Name="AudioStatus" Text="Audio unavailable" FontSize="12" Foreground="{ThemeResource RimVSecondaryTextBrush}" HorizontalAlignment="Right" />
                 </StackPanel>
-                <MediaPlayerElement x:Name="AudioPlayer" Grid.Row="1" Grid.ColumnSpan="2" AreTransportControlsEnabled="True" Height="52" Visibility="Collapsed" AutomationProperties.Name="Recording audio playback" />
+                <MediaPlayerElement x:Name="AudioPlayer" Grid.Row="1" Grid.ColumnSpan="2"
+                                    AreTransportControlsEnabled="True" HorizontalAlignment="Stretch"
+                                    MinHeight="64" Visibility="Collapsed"
+                                    AutomationProperties.Name="Recording audio playback" />
                 <TextBlock x:Name="LiveAudioText" Grid.Row="1" Grid.ColumnSpan="2" Text="Audio capture continues while this viewer is open or closed." Foreground="{ThemeResource RimVSecondaryTextBrush}" />
             </Grid>
         </Border>
@@ -73,11 +76,14 @@
             </Grid>
             <Border Grid.Row="1" Background="{ThemeResource RimVSurfaceBrush}" BorderBrush="{ThemeResource RimVBorderBrush}" BorderThickness="1" CornerRadius="12" Padding="16,10">
                 <Grid>
-                    <ListView x:Name="TranscriptList" SelectionMode="Multiple" AutomationProperties.Name="Transcription text">
+                    <ListView x:Name="TranscriptList" SelectionMode="None" AutomationProperties.Name="Transcription text">
                         <ListView.ItemTemplate>
                             <DataTemplate x:DataType="local:TranscriptRow" xmlns:local="using:RimV.Windows">
                                 <StackPanel Padding="4,8" Spacing="4">
-                                    <TextBlock Text="{x:Bind Text}" FontSize="16" TextWrapping="Wrap" IsTextSelectionEnabled="True" />
+                                    <TextBlock FontSize="16" TextWrapping="Wrap" IsTextSelectionEnabled="True">
+                                        <Run Text="{x:Bind StableText}" />
+                                        <Run Text="{x:Bind UnstableText}" Foreground="{ThemeResource RimVPartialTranscriptBrush}" FontStyle="Italic" />
+                                    </TextBlock>
                                     <TextBlock Text="{x:Bind StateText}" FontSize="12" Foreground="{ThemeResource RimVSecondaryTextBrush}" />
                                 </StackPanel>
                             </DataTemplate>

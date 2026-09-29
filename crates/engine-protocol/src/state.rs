@@ -47,6 +47,8 @@ pub struct FeatureState {
     #[cfg_attr(feature = "serde", serde(default))]
     pub model: Option<String>,
     #[cfg_attr(feature = "serde", serde(default))]
+    /// Whether the shared transcription pipeline emits provisional updates.
+    /// This may use repeated offline recognition rather than model-native streaming.
     pub supports_partial_results: bool,
     #[cfg_attr(feature = "serde", serde(default))]
     pub supports_true_streaming: bool,

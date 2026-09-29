@@ -67,11 +67,9 @@ impl EngineRuntime {
             transcription: FeatureState {
                 enabled: config.transcription_enabled,
                 available: config.transcription.model_path.is_some(),
-                status: if config.transcription_enabled {
-                    crate::TranscriptionStatus::Loading
-                } else {
-                    crate::TranscriptionStatus::Disabled
-                },
+                // A configured model is not being loaded until a capture
+                // session starts. Loading is reserved for a live worker init.
+                status: crate::TranscriptionStatus::Disabled,
                 ..Default::default()
             },
             capabilities,
