@@ -128,6 +128,16 @@ impl Controller {
             EngineCommand::SetMicrophoneEnabled { enabled } => {
                 return self.toggle(AudioSource::Microphone, enabled);
             }
+            EngineCommand::SetMicrophoneDevice { device_id } => {
+                if self.session.is_some() {
+                    return Err(EngineError::new(
+                        EngineErrorCode::AlreadyRecording,
+                        "change the microphone device after capture stops",
+                    ));
+                }
+                self.config.microphone.configured.device_id = device_id.clone();
+                self.state.microphone.configured.device_id = device_id;
+            }
             EngineCommand::SetSystemAudioEnabled { enabled } => {
                 return self.toggle(AudioSource::System, enabled);
             }
@@ -230,6 +240,12 @@ impl Controller {
             ));
         }
         self.state.status = EngineStatus::Starting;
+        tracing::info!(
+            transcription_enabled = self.state.transcription.enabled,
+            microphone = self.state.microphone.enabled,
+            system_audio = self.state.system_audio.enabled,
+            "capture session starting"
+        );
         self.state.last_error = None;
         self.state.microphone.last_error = None;
         self.state.system_audio.last_error = None;
@@ -253,7 +269,21 @@ impl Controller {
             // or reported a load error. Otherwise native frames arrive while
             // the bounded worker input queue has no consumer, silently losing
             // the beginning of a recording before VAD can see it.
-            self.wait_for_transcription_initialization();
+            if let Err(error) = self.wait_for_transcription_initialization()
+                && self.config.transcription.preflight_vad
+            {
+                if let Some(mut session) = self.session.take() {
+                    if let Some((mut worker, _)) = session.transcription.take() {
+                        worker.shutdown();
+                    }
+                    let _ = std::fs::remove_dir_all(&session.directory);
+                }
+                self.state.session = None;
+                self.state.elapsed_ms = 0;
+                self.state.status = EngineStatus::Error;
+                self.publish();
+                return Err(error);
+            }
         }
         for source in SOURCES {
             if self.source(source).enabled
@@ -281,6 +311,7 @@ impl Controller {
             session.begin_recording();
         }
         self.state.status = EngineStatus::Recording;
+        tracing::info!(session_id=?self.state.session.as_ref().map(|session| &session.id), "capture session recording");
         self.next_tick = Instant::now() + self.config.snapshot_interval;
         self.publish();
         Ok(())
@@ -310,7 +341,7 @@ impl Controller {
         }
     }
 
-    fn wait_for_transcription_initialization(&mut self) {
+    fn wait_for_transcription_initialization(&mut self) -> Result<()> {
         loop {
             let event = self.session.as_ref().and_then(|session| {
                 session
@@ -319,7 +350,17 @@ impl Controller {
                     .and_then(|(_, receiver)| receiver.recv().ok())
             });
             let Some(event) = event else {
-                return;
+                return Err(EngineError::new(
+                    EngineErrorCode::TranscriptionFailed,
+                    "transcription worker exited before initialization completed",
+                ));
+            };
+            let failure = match &event {
+                SpeechEvent::Error(error) => Some(EngineError::new(
+                    EngineErrorCode::TranscriptionFailed,
+                    error.to_string(),
+                )),
+                _ => None,
             };
             let initialized = matches!(event, SpeechEvent::Ready(_) | SpeechEvent::Error(_));
             if let Some(mut session) = self.session.take() {
@@ -327,7 +368,11 @@ impl Controller {
                 self.session = Some(session);
             }
             if initialized {
-                return;
+                return if self.config.transcription.preflight_vad {
+                    failure.map_or(Ok(()), Err)
+                } else {
+                    Ok(())
+                };
             }
         }
     }
@@ -390,6 +435,7 @@ impl Controller {
 
     fn finish(&mut self, desired_status: EngineStatus) -> Result<()> {
         self.state.status = EngineStatus::Stopping;
+        tracing::info!(desired_status=?desired_status, "capture session stopping and flushing pending speech");
         self.publish();
         let Some(mut session) = self.session.take() else {
             return Ok(());

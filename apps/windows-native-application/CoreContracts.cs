@@ -15,6 +15,13 @@ public sealed class CoreSnapshot
     [JsonPropertyName("system_audio")] public SourceState SystemAudio { get; init; } = new();
     [JsonPropertyName("transcription")] public TranscriptionState Transcription { get; init; } = new();
     [JsonPropertyName("capabilities")] public EngineCapabilities Capabilities { get; init; } = new();
+    [JsonPropertyName("last_error")] public CoreError? LastError { get; init; }
+}
+
+public sealed class CoreError
+{
+    [JsonPropertyName("code")] public string Code { get; init; } = "";
+    [JsonPropertyName("message")] public string Message { get; init; } = "";
 }
 
 public sealed class SessionInfo
@@ -26,8 +33,21 @@ public sealed class SessionInfo
 
 public sealed class SourceState
 {
+    [JsonPropertyName("configured")] public SourceConfiguration Configured { get; init; } = new();
     [JsonPropertyName("enabled")] public bool Enabled { get; init; }
     [JsonPropertyName("active")] public bool Active { get; init; }
+}
+
+public sealed class SourceConfiguration
+{
+    [JsonPropertyName("device_id")] public string? DeviceId { get; init; }
+}
+
+public sealed class AudioInputDevice
+{
+    [JsonPropertyName("id")] public string Id { get; init; } = "";
+    [JsonPropertyName("name")] public string Name { get; init; } = "";
+    [JsonPropertyName("is_default")] public bool IsDefault { get; init; }
 }
 
 public sealed class TranscriptionState
@@ -94,6 +114,7 @@ public sealed class RecordingSummary
     [JsonPropertyName("state")] public string State { get; init; } = "completed";
     [JsonPropertyName("sources")] public List<string> Sources { get; init; } = [];
     [JsonPropertyName("has_transcript")] public bool HasTranscript { get; init; }
+    [JsonPropertyName("transcription_error")] public string? TranscriptionError { get; init; }
 }
 
 public sealed class RecordingDetails

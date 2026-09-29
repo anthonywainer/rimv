@@ -7,6 +7,11 @@ pub enum EngineCommand {
     SetMicrophoneEnabled {
         enabled: bool,
     },
+    /// Selects a native input endpoint for subsequent microphone capture;
+    /// `None` follows the operating-system default input device.
+    SetMicrophoneDevice {
+        device_id: Option<String>,
+    },
     SetSystemAudioEnabled {
         enabled: bool,
     },
@@ -57,6 +62,22 @@ mod tests {
         assert_eq!(
             json,
             serde_json::json!({"type":"set_transcription_language","language":null})
+        );
+        assert_eq!(
+            serde_json::from_value::<EngineCommand>(json).unwrap(),
+            command
+        );
+    }
+
+    #[test]
+    fn microphone_device_selection_has_a_stable_json_contract() {
+        let command = EngineCommand::SetMicrophoneDevice {
+            device_id: Some("input:USB Microphone:0".into()),
+        };
+        let json = serde_json::to_value(&command).unwrap();
+        assert_eq!(
+            json,
+            serde_json::json!({"type":"set_microphone_device","device_id":"input:USB Microphone:0"})
         );
         assert_eq!(
             serde_json::from_value::<EngineCommand>(json).unwrap(),

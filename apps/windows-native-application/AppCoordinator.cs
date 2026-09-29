@@ -22,6 +22,7 @@ public sealed class AppCoordinator
     public event Action<ModelProgress>? ModelProgressReceived;
     public CoreSnapshot Snapshot { get; private set; } = new();
     public IReadOnlyList<ModelRecord> Models { get; private set; } = [];
+    public IReadOnlyList<AudioInputDevice> InputDevices { get; private set; } = [];
     public IReadOnlyList<RecordingSummary> Recordings { get; private set; } = [];
     public string? SelectedModelId { get; private set; }
     public string? SelectedLanguage { get; private set; }
@@ -29,6 +30,8 @@ public sealed class AppCoordinator
     public string? ErrorMessage { get; private set; }
     public string? LastErrorDetail { get; private set; }
     public string ThemeName { get; private set; } = "system";
+    public string? SelectedMicrophoneDeviceId { get; private set; }
+    public bool IsPreparingToListen { get; private set; }
     public string RecordingsDirectory => Path.Combine(_dataDirectory, "recordings");
     public string ModelsDirectory => Path.Combine(_dataDirectory, "models");
     public bool IsCoreAvailable => _core is not null;
@@ -58,6 +61,7 @@ public sealed class AppCoordinator
             SelectedModelId = preferences.SelectedModelId;
             SelectedLanguage = preferences.Language;
             SelectedSource = preferences.Source;
+            SelectedMicrophoneDeviceId = preferences.MicrophoneDeviceId;
             ThemeName = NormalizeTheme(preferences.Theme);
         }
         catch (Exception error) when (error is not OperationCanceledException)
@@ -73,6 +77,26 @@ public sealed class AppCoordinator
         Directory.CreateDirectory(models);
         _core = _coreFactory.Create(recordings, models);
         Snapshot = await _core.RequestAsync<CoreSnapshot>(new { type = "get_state" }, _shutdown.Token);
+        try
+        {
+            InputDevices = await _core.RequestAsync<List<AudioInputDevice>>(new { type = "list_input_devices" }, _shutdown.Token);
+        }
+        catch (Exception error)
+        {
+            _log.Error("audio.input_devices_unavailable", error);
+            InputDevices = [];
+        }
+        if (SelectedMicrophoneDeviceId is not null && !InputDevices.Any(device => device.Id == SelectedMicrophoneDeviceId))
+            SelectedMicrophoneDeviceId = null;
+        if (Snapshot.Microphone.Configured.DeviceId != SelectedMicrophoneDeviceId)
+        {
+            await _core.RequestAsync<CoreSnapshot>(new
+            {
+                type = "send",
+                command = new { type = "set_microphone_device", device_id = SelectedMicrophoneDeviceId },
+            }, _shutdown.Token);
+            Snapshot = await _core.RequestAsync<CoreSnapshot>(new { type = "get_state" }, _shutdown.Token);
+        }
         Models = await _core.RequestAsync<List<ModelRecord>>(new { type = "get_models" }, _shutdown.Token);
         Recordings = await _core.RequestAsync<List<RecordingSummary>>(new { type = "get_recordings" }, _shutdown.Token);
 
@@ -159,6 +183,13 @@ public sealed class AppCoordinator
         {
             string? command = NativeWindowsPolicy.ListeningCommand(Snapshot.Status);
             if (command is null) return;
+            if (command == "start_capture" && Snapshot.Transcription.Enabled)
+            {
+                IsPreparingToListen = true;
+                NotifyChanged();
+                try { await EnsureVadInstalledAsync(); }
+                finally { IsPreparingToListen = false; NotifyChanged(); }
+            }
             Snapshot = await RequireCore().RequestAsync<CoreSnapshot>(new
             {
                 type = "send",
@@ -168,6 +199,57 @@ public sealed class AppCoordinator
             ClearError();
             NotifyChanged();
         });
+    }
+
+    public async Task SelectMicrophoneDeviceAsync(string? deviceId)
+    {
+        if (deviceId is not null && !InputDevices.Any(device => device.Id == deviceId)) return;
+        await GuardAsync(async () =>
+        {
+            await RequireCore().RequestAsync<CoreSnapshot>(new
+            {
+                type = "send",
+                command = new { type = "set_microphone_device", device_id = deviceId },
+            }, _shutdown.Token);
+            SelectedMicrophoneDeviceId = deviceId;
+            Snapshot = await RequireCore().RequestAsync<CoreSnapshot>(new { type = "get_state" }, _shutdown.Token);
+            await SavePreferencesAsync();
+            ClearError();
+            NotifyChanged();
+        });
+    }
+
+    private async Task EnsureVadInstalledAsync()
+    {
+        const string vadId = "silero-vad";
+        ModelRecord? vad = Models.FirstOrDefault(model => model.Descriptor.Id == vadId);
+        if (vad is null)
+            throw new CoreRequestException("RimV can't find its Silero speech detector in the shared model catalog. Reinstall or repair the application.");
+        if (vad.State == "installed") return;
+        if (vad.State == "unsupported")
+            throw new CoreRequestException("This RimV build does not include Silero VAD support. Install a Windows build with the shared speech runtime enabled.");
+
+        var completion = new TaskCompletionSource<ModelProgress>(TaskCreationOptions.RunContinuationsAsynchronously);
+        void OnProgress(ModelProgress progress)
+        {
+            if (progress.ModelId == vadId && progress.Phase is "complete" or "failed" or "cancelled")
+                completion.TrySetResult(progress);
+        }
+        ModelProgressReceived += OnProgress;
+        try
+        {
+            if (vad.State != "downloading")
+                await RequireCore().RequestAsync<JsonElement>(new { type = "install_model", model_id = vadId }, _shutdown.Token);
+            ModelProgress result = await completion.Task.WaitAsync(TimeSpan.FromMinutes(15), _shutdown.Token);
+            if (result.Phase != "complete")
+                throw new CoreRequestException(result.Phase == "cancelled"
+                    ? "Installing the required speech detector was cancelled. Open Model Manager and retry, then start listening again."
+                    : $"RimV couldn't install the required speech detector. Check your internet connection and available disk space, then retry in Model Manager. {result.Error}");
+            await RefreshModelsAsync();
+            if (Models.FirstOrDefault(model => model.Descriptor.Id == vadId)?.State != "installed")
+                throw new CoreRequestException("The speech detector download finished, but its model file is missing. Open Model Manager and retry the installation.");
+        }
+        finally { ModelProgressReceived -= OnProgress; }
     }
 
     public async Task SetSourceAsync(string source, bool persist = true)
@@ -361,6 +443,8 @@ public sealed class AppCoordinator
     private static string ToFriendlyError(string message)
     {
         string lower = message.ToLowerInvariant();
+        if (lower.Contains("silero") || lower.Contains("vad") || lower.Contains("speech detector"))
+            return "RimV couldn't prepare its speech detector. Check your internet connection and free disk space, install Silero VAD in Model Manager, then try again.";
         if (lower.Contains("permission")) return "Windows blocked audio access. Allow microphone access in Windows Settings, then try again.";
         if (lower.Contains("device") || lower.Contains("endpoint")) return "An audio device isn't available. Connect or select an audio input, then try again.";
         return message;
@@ -413,7 +497,10 @@ public sealed class AppCoordinator
     }
 
     private async Task SavePreferencesAsync() => await _preferences.SaveAsync(
-        new UserPreferences(SelectedModelId, SelectedLanguage, SelectedSource, ThemeName), _shutdown.Token);
+        new UserPreferences(SelectedModelId, SelectedLanguage, SelectedSource, ThemeName)
+        {
+            MicrophoneDeviceId = SelectedMicrophoneDeviceId,
+        }, _shutdown.Token);
 
     private void NotifyChanged()
     {

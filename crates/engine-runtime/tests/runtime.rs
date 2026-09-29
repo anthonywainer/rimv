@@ -351,21 +351,38 @@ fn source_runtime_failure_isolated_then_total_failure_stops_session() {
 
 #[test]
 fn timer_events_and_transcription_availability() {
-    let (engine, _directory, _) = setup();
+    let directory = tempfile::tempdir().unwrap();
+    let config = EngineConfig {
+        recordings_directory: directory.path().into(),
+        transcription: TranscriptionSettings {
+            model_path: Some(directory.path().join("missing-asr-model")),
+            preflight_vad: true,
+            vad: speech_transcription::VadConfig {
+                model_path: Some(directory.path().join("missing-vad-model.onnx")),
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let engine = EngineRuntime::with_backend(
+        config,
+        FakeBackend(Arc::new(Mutex::new(Default::default()))),
+    )
+    .unwrap();
     let events = engine.subscribe().unwrap();
     let state = engine.set_transcription_enabled(true).unwrap();
     assert!(state.transcription.enabled);
-    assert!(!state.transcription.available && !state.capabilities.transcription);
-    engine.start_capture().unwrap();
-    let tick = next_snapshot(&events, |s| {
-        s.status == EngineStatus::Recording && s.elapsed_ms >= 500
-    });
-    assert!(tick.elapsed_ms >= 500);
-    engine.stop_capture().unwrap();
+    assert!(state.transcription.available && !state.capabilities.transcription);
+    let error = engine.start_capture().unwrap_err();
+    assert_eq!(error.code, EngineErrorCode::TranscriptionFailed);
+    assert_eq!(engine.snapshot().status, EngineStatus::Error);
+    assert!(engine.snapshot().session.is_none());
+    assert!(received_transcription_error(&events));
 }
 
 #[test]
-fn missing_parakeet_model_does_not_stop_recording() {
+fn missing_speech_models_fail_before_capture_starts() {
     let directory = tempfile::tempdir().unwrap();
     let controls: Controls = Arc::new(Mutex::new(Default::default()));
     let config = EngineConfig {
@@ -374,35 +391,65 @@ fn missing_parakeet_model_does_not_stop_recording() {
         transcription: TranscriptionSettings {
             backend: AsrBackendKind::Parakeet,
             model_path: Some(directory.path().join("missing-parakeet-model")),
+            preflight_vad: true,
+            vad: speech_transcription::VadConfig {
+                model_path: Some(directory.path().join("missing-silero-vad.onnx")),
+                ..Default::default()
+            },
             ..Default::default()
         },
         ..Default::default()
     };
     let engine = EngineRuntime::with_backend(config, FakeBackend(controls)).unwrap();
     let events = engine.subscribe().unwrap();
+    let error = engine.start_capture().unwrap_err();
+    assert_eq!(error.code, EngineErrorCode::TranscriptionFailed);
+    assert!(error.message.contains("model"));
+    let state = engine.snapshot();
+    assert_eq!(state.status, EngineStatus::Error);
+    assert!(state.session.is_none());
+    assert!(directory.path().read_dir().unwrap().next().is_none());
+    assert!(received_transcription_error(&events));
+}
+
+#[test]
+fn lazy_transcription_start_preserves_capture_for_existing_runtime_clients() {
+    let directory = tempfile::tempdir().unwrap();
+    let config = EngineConfig {
+        recordings_directory: directory.path().into(),
+        transcription_enabled: true,
+        transcription: TranscriptionSettings {
+            model_path: Some(directory.path().join("missing-asr-model")),
+            vad: speech_transcription::VadConfig {
+                model_path: Some(directory.path().join("missing-vad-model.onnx")),
+                ..Default::default()
+            },
+            preflight_vad: false,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let engine = EngineRuntime::with_backend(
+        config,
+        FakeBackend(Arc::new(Mutex::new(Default::default()))),
+    )
+    .unwrap();
     let started = engine.start_capture().unwrap();
     assert_eq!(started.status, EngineStatus::Recording);
-    let mut saw_model_error = false;
-    for _ in 0..20 {
-        if let EngineEvent::TranscriptionError { error } =
-            events.recv_timeout(Duration::from_secs(1)).unwrap()
+    assert_eq!(started.transcription.status, TranscriptionStatus::Error);
+    engine.stop_capture().unwrap();
+}
+
+fn received_transcription_error(events: &engine_runtime::Subscription) -> bool {
+    for _ in 0..8 {
+        if matches!(events.recv_timeout(Duration::from_millis(100)), Ok(
+            EngineEvent::TranscriptionError { error }
+        ) if error.code == EngineErrorCode::TranscriptionFailed)
         {
-            assert_eq!(error.code, EngineErrorCode::TranscriptionFailed);
-            assert!(
-                error.message.contains("model path is not configured")
-                    || error.message.contains("model")
-            );
-            saw_model_error = true;
-            break;
+            return true;
         }
     }
-    assert!(saw_model_error);
-    let state = next_snapshot(&events, |state| {
-        state.status == EngineStatus::Recording
-            && state.transcription.status == TranscriptionStatus::Error
-    });
-    assert!(!state.transcription.available);
-    engine.stop_capture().unwrap();
+    false
 }
 
 #[test]

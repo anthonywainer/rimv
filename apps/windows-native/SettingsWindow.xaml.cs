@@ -13,7 +13,7 @@ public sealed partial class SettingsWindow : Window
     {
         InitializeComponent();
         _coordinator = coordinator;
-        WindowHelpers.Configure(this, 520, 480, resizable: false);
+        WindowHelpers.Configure(this, 560, 560, resizable: false);
         App.CurrentApp.ThemeManager.RegisterRoot(RootGrid);
         Closed += (_, _) => App.CurrentApp.ThemeManager.UnregisterRoot(RootGrid);
         DataLocation.Text = $"Local recordings and models: {coordinator.RecordingsDirectory}";
@@ -22,6 +22,15 @@ public sealed partial class SettingsWindow : Window
             ?.InformationalVersion ?? "0.1.0-beta";
         AppVersionText.Text = $"RimV Native Windows · v{version}";
         ThemeCombo.SelectedItem = ThemeCombo.Items.Cast<ComboBoxItem>().FirstOrDefault(item => (string)item.Tag == coordinator.ThemeName);
+        InputDeviceCombo.Items.Add(new ComboBoxItem { Content = "Windows default microphone", Tag = "" });
+        foreach (AudioInputDevice device in coordinator.InputDevices)
+            InputDeviceCombo.Items.Add(new ComboBoxItem
+            {
+                Content = device.IsDefault ? $"{device.Name} · Default" : device.Name,
+                Tag = device.Id,
+            });
+        InputDeviceCombo.SelectedItem = InputDeviceCombo.Items.Cast<ComboBoxItem>()
+            .FirstOrDefault(item => (string)item.Tag == (coordinator.SelectedMicrophoneDeviceId ?? ""));
         _initialized = true;
     }
 
@@ -29,5 +38,12 @@ public sealed partial class SettingsWindow : Window
     {
         if (!_initialized || ThemeCombo.SelectedItem is not ComboBoxItem item) return;
         _coordinator.SetTheme((string)item.Tag);
+    }
+
+    private async void InputDeviceCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (!_initialized || InputDeviceCombo.SelectedItem is not ComboBoxItem item) return;
+        string id = (string)item.Tag;
+        await _coordinator.SelectMicrophoneDeviceAsync(id.Length == 0 ? null : id);
     }
 }

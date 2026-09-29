@@ -75,3 +75,25 @@ fn shared_recording_library_rejects_path_traversal_and_deletes_completed_session
     assert!(library.list(&engine).unwrap().is_empty());
     engine.shutdown().unwrap();
 }
+
+#[test]
+fn persisted_recording_summary_preserves_transcription_failure_details() {
+    let (_root, engine, library, id) = persisted_recording();
+    let metadata_path = library.root().join(&id).join("session.json");
+    let mut metadata: serde_json::Value =
+        serde_json::from_slice(&fs::read(&metadata_path).unwrap()).unwrap();
+    metadata["snapshot"]["transcription"] = serde_json::json!({"status":"error"});
+    metadata["snapshot"]["last_error"] = serde_json::json!({
+        "code":"transcription_failed",
+        "message":"Silero VAD model is missing"
+    });
+    fs::write(&metadata_path, serde_json::to_vec(&metadata).unwrap()).unwrap();
+
+    let summary = library.get(&engine, &id).unwrap().summary;
+
+    assert_eq!(
+        summary.transcription_error.as_deref(),
+        Some("Silero VAD model is missing")
+    );
+    engine.shutdown().unwrap();
+}

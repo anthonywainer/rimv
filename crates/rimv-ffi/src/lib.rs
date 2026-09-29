@@ -66,6 +66,8 @@ fn initialize_diagnostics(path: Option<&std::path::Path>) {
         {
             let _ = tracing_subscriber::fmt()
                 .with_ansi(false)
+                .with_target(true)
+                .with_thread_names(true)
                 .with_max_level(tracing::Level::INFO)
                 .with_writer(file)
                 .try_init();
@@ -84,6 +86,7 @@ enum Request {
         timeout_ms: Option<u64>,
     },
     GetModels,
+    ListInputDevices,
     SelectModel {
         model_id: String,
         language: Option<String>,
@@ -152,10 +155,19 @@ fn start_model_install(engine: &RimvEngine, model_id: String) -> Result<(), Stri
         .descriptor(&model_id)
         .map_err(|e| e.to_string())?
         .clone();
-    if !engine_runtime::supports_asr_backend(&descriptor.backend) {
+    if !engine_runtime::supports_asr_backend(&descriptor.backend)
+        && !engine_runtime::supports_vad_backend(&descriptor.backend)
+    {
         return Err("this model backend is not available in the current RimV build".into());
     }
     if engine.models.state(&descriptor) == model_manager::ModelState::Ready {
+        let _ = engine.model_event_sender.try_send(ModelProgress {
+            model_id,
+            phase: "complete".into(),
+            downloaded_bytes: 0,
+            total_bytes: None,
+            error: None,
+        });
         return Ok(());
     }
     let cancelled = Arc::new(AtomicBool::new(false));
@@ -170,6 +182,7 @@ fn start_model_install(engine: &RimvEngine, model_id: String) -> Result<(), Stri
         operations.insert(model_id.clone(), cancelled.clone());
     }
     let manager = engine.models.clone();
+    tracing::info!(model_id=%model_id, "model installation started");
     let events = engine.model_event_sender.clone();
     let worker_id = model_id.clone();
     let operations = engine.model_operations.clone();
@@ -181,13 +194,18 @@ fn start_model_install(engine: &RimvEngine, model_id: String) -> Result<(), Stri
                           downloaded_bytes: u64,
                           total_bytes: Option<u64>,
                           error: Option<String>| {
-                let _ = events.try_send(ModelProgress {
+                let progress = ModelProgress {
                     model_id: worker_id.clone(),
                     phase,
                     downloaded_bytes,
                     total_bytes,
                     error,
-                });
+                };
+                if matches!(progress.phase.as_str(), "complete" | "failed" | "cancelled") {
+                    let _ = events.send(progress);
+                } else {
+                    let _ = events.try_send(progress);
+                }
             };
             let result = if descriptor.backend == "parakeet" {
                 manager.install_parakeet_with_phase(
@@ -217,6 +235,13 @@ fn start_model_install(engine: &RimvEngine, model_id: String) -> Result<(), Stri
                 Err(model_manager::ModelError::Cancelled) => ("cancelled", None),
                 Err(error) => ("failed", Some(error.to_string())),
             };
+            tracing::info!(
+                model_id=%worker_id,
+                phase=%phase,
+                downloaded_bytes=last_reported.get(),
+                succeeded=error.is_none(),
+                "model installation finished"
+            );
             report(phase.into(), last_reported.get(), None, error);
             operations
                 .lock()
@@ -326,13 +351,6 @@ pub unsafe extern "C" fn rimv_engine_create(
         if config.recordings_directory.as_os_str().is_empty() {
             return Err("recordings_directory must not be empty".into());
         }
-        let runtime = EngineRuntime::new(EngineConfig {
-            recordings_directory: config.recordings_directory.clone(),
-            ..Default::default()
-        })
-        .map_err(|e| e.to_string())?;
-        let events = runtime.subscribe().map_err(|e| e.to_string())?;
-        let (model_event_sender, model_events) = mpsc::sync_channel(128);
         let model_root = config.models_directory.unwrap_or_else(|| {
             config
                 .recordings_directory
@@ -340,11 +358,36 @@ pub unsafe extern "C" fn rimv_engine_create(
                 .unwrap_or(&config.recordings_directory)
                 .join("models")
         });
+        let models = ModelManager::new(model_root);
+        let vad_descriptor = models
+            .descriptor("silero-vad")
+            .map_err(|error| error.to_string())?;
+        let vad_file = vad_descriptor
+            .files
+            .first()
+            .ok_or_else(|| "Silero VAD catalog entry has no model file".to_owned())?;
+        let vad_path = std::env::var_os("RIMV_SILERO_VAD_MODEL")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| models.path(vad_descriptor, vad_file));
+        tracing::info!(
+            vad_model_configured = true,
+            vad_model_exists = vad_path.is_file(),
+            "Windows shared-core VAD path resolved"
+        );
+        let mut engine_config = EngineConfig {
+            recordings_directory: config.recordings_directory.clone(),
+            ..Default::default()
+        };
+        engine_config.transcription.vad.model_path = Some(vad_path);
+        engine_config.transcription.preflight_vad = true;
+        let runtime = EngineRuntime::new(engine_config).map_err(|e| e.to_string())?;
+        let events = runtime.subscribe().map_err(|e| e.to_string())?;
+        let (model_event_sender, model_events) = mpsc::sync_channel(128);
         let engine = Box::new(RimvEngine {
             runtime,
             events,
             recordings: RecordingLibrary::new(config.recordings_directory),
-            models: ModelManager::new(model_root),
+            models,
             selected_model_id: Mutex::new(None),
             model_operations: Arc::new(Mutex::new(HashMap::new())),
             model_workers: Mutex::new(Vec::new()),
@@ -464,7 +507,9 @@ pub unsafe extern "C" fn rimv_engine_request(
                     .iter()
                     .map(|descriptor| {
                         let selected = selected_model_id.as_deref() == Some(descriptor.id.as_str());
-                        let state = if !engine_runtime::supports_asr_backend(&descriptor.backend) {
+                        let supported = engine_runtime::supports_asr_backend(&descriptor.backend)
+                            || engine_runtime::supports_vad_backend(&descriptor.backend);
+                        let state = if !supported {
                             "unsupported"
                         } else if operations.contains_key(&descriptor.id) {
                             "downloading"
@@ -479,6 +524,27 @@ pub unsafe extern "C" fn rimv_engine_request(
                     })
                     .collect::<Vec<_>>();
                 serde_json::to_value(models).map_err(|e| e.to_string())?
+            }
+            Request::ListInputDevices => {
+                let devices = audio_capture::list_microphones().map_err(|e| e.to_string())?;
+                tracing::info!(
+                    device_count = devices.len(),
+                    default_count = devices.iter().filter(|device| device.is_default).count(),
+                    "microphone input devices enumerated"
+                );
+                serde_json::to_value(
+                    devices
+                        .into_iter()
+                        .map(|device| {
+                            serde_json::json!({
+                                "id": device.id,
+                                "name": device.name,
+                                "is_default": device.is_default,
+                            })
+                        })
+                        .collect::<Vec<_>>(),
+                )
+                .map_err(|e| e.to_string())?
             }
             Request::SelectModel { model_id, language } => {
                 if engine.runtime.snapshot().status != engine_runtime::EngineStatus::Idle {

@@ -207,7 +207,7 @@ public sealed partial class ShellWindow : Window
         StatusDot.Fill = statusBrush;
         StatusBadge.Background = (Brush)Microsoft.UI.Xaml.Application.Current.Resources[
             unavailable ? "RimVMenuPanelBrush" : "RimVMenuReadyBackgroundBrush"];
-        bool transition = state.Status is "starting" or "stopping";
+        bool transition = state.Status is "starting" or "stopping" || _coordinator.IsPreparingToListen;
         bool canListen = _coordinator.IsCoreAvailable && !transition;
         ListenButton.IsEnabled = canListen;
         ListenButton.Background = (Brush)Microsoft.UI.Xaml.Application.Current.Resources[
@@ -218,7 +218,8 @@ public sealed partial class ShellWindow : Window
         ListenIcon.Foreground = listenForeground;
         ListenLabel.Foreground = listenForeground;
         bool listening = state.Status is "recording" or "starting";
-        ListenLabel.Text = listening ? "Stop Listening" : "Start Listening";
+        ListenLabel.Text = _coordinator.IsPreparingToListen ? "Preparing speech detector…"
+            : listening ? "Stop Listening" : "Start Listening";
         ListenIcon.Glyph = listening ? "\uE71A" : "\uE768";
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(ListenButton, ListenLabel.Text);
         foreach (ToggleButton sourceButton in new[] { SystemSource, MicrophoneSource, BothSource })
@@ -231,10 +232,11 @@ public sealed partial class ShellWindow : Window
                 _ => state.Capabilities.MicrophoneCapture,
             };
             sourceButton.IsEnabled = _coordinator.IsCoreAvailable && state.Status == "idle" && available;
-            sourceButton.Background = (Brush)Microsoft.UI.Xaml.Application.Current.Resources[
-                sourceButton.IsEnabled ? "RimVMenuSurfaceBrush" : "RimVMenuDisabledBackgroundBrush"];
             bool selected = source == _coordinator.SelectedSource;
             sourceButton.IsChecked = selected;
+            sourceButton.Background = (Brush)Microsoft.UI.Xaml.Application.Current.Resources[
+                !sourceButton.IsEnabled ? "RimVMenuDisabledBackgroundBrush"
+                    : selected ? "RimVMenuSelectedBackgroundBrush" : "RimVMenuSurfaceBrush"];
             sourceButton.BorderThickness = new Thickness(selected ? 2 : 1);
             sourceButton.BorderBrush = (Brush)Microsoft.UI.Xaml.Application.Current.Resources[
                 selected ? "RimVMenuAccentBrush" : "RimVMenuBorderBrush"];
@@ -327,7 +329,7 @@ public sealed partial class ShellWindow : Window
             (placement, scale) => _recordingsWindow?.ApplyPopupPlacement(placement, scale));
     }
 
-    private void OpenModelManagerWindow()
+    public void OpenModelManagerWindow()
     {
         _popups.CloseForIndependentWindow();
         if (_modelManagerWindow is null)

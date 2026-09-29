@@ -25,6 +25,9 @@ pub fn supports_asr_backend(backend: &str) -> bool {
         _ => false,
     }
 }
+pub fn supports_vad_backend(backend: &str) -> bool {
+    backend == "vad" && speech_transcription::supports_vad()
+}
 pub type Result<T> = std::result::Result<T, EngineError>;
 
 pub(crate) fn lock<T>(mutex: &std::sync::Mutex<T>) -> std::sync::MutexGuard<'_, T> {

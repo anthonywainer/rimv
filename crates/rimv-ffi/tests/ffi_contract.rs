@@ -78,6 +78,19 @@ fn c_abi_version_lifecycle_and_structured_errors_match_the_header_contract() {
             assert_eq!(model["state"], "unsupported");
         }
     }
+    assert_ne!(
+        models["result"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|model| model["descriptor"]["id"] == "silero-vad")
+            .unwrap()["state"],
+        "unsupported",
+        "the required VAD dependency must be visible and installable on Windows"
+    );
+    let devices = engine.request(r#"{"type":"list_input_devices"}"#);
+    assert_eq!(devices["ok"], true);
+    assert!(devices["result"].is_array());
 
     let transcript = engine.request(r#"{"type":"get_transcript_state"}"#);
     assert_eq!(transcript["ok"], true);
@@ -102,6 +115,14 @@ fn c_abi_version_lifecycle_and_structured_errors_match_the_header_contract() {
     assert_eq!(
         changed_event["result"]["snapshot"]["microphone"]["enabled"],
         false
+    );
+    let selected_device = engine.request(
+        r#"{"type":"send","command":{"type":"set_microphone_device","device_id":"input:Test Mic:0"}}"#,
+    );
+    assert_eq!(selected_device["ok"], true);
+    assert_eq!(
+        selected_device["result"]["microphone"]["configured"]["device_id"],
+        "input:Test Mic:0"
     );
 
     for request in ["not-json", r#"{"type":"unknown_operation"}"#] {

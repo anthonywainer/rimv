@@ -83,7 +83,10 @@
                             </DataTemplate>
                         </ListView.ItemTemplate>
                     </ListView>
-                    <TextBlock x:Name="EmptyText" Text="Your transcript will appear here while listening." TextWrapping="Wrap" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="{ThemeResource RimVSecondaryTextBrush}" />
+                    <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="10" MaxWidth="440">
+                        <TextBlock x:Name="EmptyText" Text="Your transcript will appear here while listening." TextWrapping="Wrap" TextAlignment="Center" Foreground="{ThemeResource RimVSecondaryTextBrush}" />
+                        <Button x:Name="RecoveryButton" Content="Open Model Manager" Click="RecoveryButton_Click" HorizontalAlignment="Center" Visibility="Collapsed" />
+                    </StackPanel>
                 </Grid>
             </Border>
         </Grid>

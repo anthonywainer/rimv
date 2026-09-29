@@ -11,6 +11,7 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 engine-runtime.workspace = true
+audio-capture.workspace = true
 engine-protocol = { workspace = true, features = ["serde"] }
 model-manager.workspace = true
 serde.workspace = true

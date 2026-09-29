@@ -99,7 +99,8 @@ public sealed class PopupAndSelectorPolicyTests
         ModelRecord installed = TestModel("installed", "ready");
         ModelRecord downloading = TestModel("downloading", "new");
         ModelRecord incomplete = TestModel("incomplete", "partial");
-        ModelRecord[] catalog = [installed, downloading, incomplete];
+        ModelRecord vad = new() { State = "installed", Descriptor = new ModelDescriptor { Id = "silero-vad", Backend = "vad" } };
+        ModelRecord[] catalog = [installed, downloading, incomplete, vad];
 
         Assert.Equal("ready", Assert.Single(ModelSelectorPolicy.InstalledReady(catalog)).Descriptor.Id);
 
@@ -240,7 +241,8 @@ public sealed class PopupAndSelectorPolicyTests
             string? type = input.TryGetProperty("type", out System.Text.Json.JsonElement typeValue) ? typeValue.GetString() : null;
             object response;
             if (type == "get_state") response = Snapshot;
-            else if (type == "get_models") response = Models.ToList();
+        else if (type == "get_models") response = Models.ToList();
+            else if (type == "list_input_devices") response = new List<AudioInputDevice>();
             else if (type == "get_recordings") response = new List<RecordingSummary>();
             else if (type == "send")
             {

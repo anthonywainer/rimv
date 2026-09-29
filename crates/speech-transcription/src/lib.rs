@@ -47,6 +47,11 @@ pub const fn supports_backend(backend: AsrBackendKind) -> bool {
     }
 }
 
+/// Reports whether the Silero voice-activity detector is compiled in.
+pub const fn supports_vad() -> bool {
+    cfg!(feature = "silero-vad")
+}
+
 #[derive(Debug, Clone, Error)]
 pub enum SpeechError {
     #[error("model path is not configured")]

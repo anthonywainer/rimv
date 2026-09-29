@@ -57,6 +57,10 @@ pub struct SpeechConfig {
     pub step_ms: u64,
     pub queue_capacity: usize,
     pub vad: VadConfig,
+    /// Initialize Silero before reporting Ready. Windows enables this so it
+    /// can reject a missing detector before opening capture; other platforms
+    /// retain their established lazy-load behavior by default.
+    pub preflight_vad: bool,
 }
 
 impl Default for SpeechConfig {
@@ -72,6 +76,7 @@ impl Default for SpeechConfig {
             step_ms: 3_000,
             queue_capacity: 64,
             vad: VadConfig::default(),
+            preflight_vad: false,
         }
     }
 }
@@ -164,9 +169,11 @@ impl SpeechWorker {
             .name("speech-transcription".into())
             .spawn(move || {
                 let started = Instant::now();
+                tracing::info!("speech worker loading configured ASR backend");
                 let engine = match loader() {
                     Ok(engine) => engine,
                     Err(error) => {
+                        tracing::error!(error=%error, "ASR model initialization failed");
                         let _ = events.try_send(SpeechEvent::Error(error));
                         return;
                     }
@@ -175,6 +182,23 @@ impl SpeechWorker {
                     .lock()
                     .unwrap_or_else(|poisoned| poisoned.into_inner())
                     .model_load_ms = started.elapsed().as_millis() as u64;
+                // Native Windows preflights VAD before Ready. Other platform
+                // callers preserve lazy VAD initialization for compatibility.
+                let initial_vad = if config.preflight_vad {
+                    match load_source_vad(&config.vad) {
+                        Ok(vad) => {
+                            tracing::info!(vad_model_configured=true, vad_model_exists=true, "Silero VAD initialized");
+                            Some(vad)
+                        }
+                        Err(error) => {
+                            tracing::error!(vad_model_configured=config.vad.model_path.is_some(), error=%error, "Silero VAD initialization failed before capture");
+                            let _ = events.try_send(SpeechEvent::Error(error));
+                            return;
+                        }
+                    }
+                } else {
+                    None
+                };
                 let _ = events.try_send(SpeechEvent::Ready(engine.info()));
 
                 let decoder = crate::realtime::Decoder::start(
@@ -187,6 +211,7 @@ impl SpeechWorker {
                 let mut segmenters =
                     HashMap::<AudioSource, SpeechSegmenter<Box<dyn VoiceActivityGate>>>::new();
                 let mut vad_failures = HashSet::new();
+                let mut initial_vad = initial_vad;
 
                 while let Ok(input) = receiver.recv() {
                     match input {
@@ -218,6 +243,7 @@ impl SpeechWorker {
                             let rate = frame.format().sample_rate();
                             let preprocessor = match preprocessors.entry(source) {
                                 std::collections::hash_map::Entry::Vacant(entry) => {
+                                    tracing::info!(source=?source, sample_rate=rate, channels=frame.format().channels(), target_sample_rate=crate::ASR_SAMPLE_RATE, "audio preprocessing configured");
                                     match crate::Preprocessor::new(rate) {
                                         Ok(preprocessor) => entry.insert(preprocessor),
                                         Err(error) => {
@@ -240,7 +266,11 @@ impl SpeechWorker {
 
                             if !segmenters.contains_key(&source) && !vad_failures.contains(&source)
                             {
-                                match load_source_vad(&config.vad)
+                                let vad = initial_vad
+                                    .take()
+                                    .map(Ok)
+                                    .unwrap_or_else(|| load_source_vad(&config.vad));
+                                match vad
                                     .and_then(|vad| SpeechSegmenter::new(vad, config.vad.clone()))
                                 {
                                     Ok(segmenter) => {
@@ -367,18 +397,53 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     #[test]
-    fn backend_loader_runs_once_and_worker_reuses_the_backend() {
+    fn vad_failure_is_reported_before_worker_ready() {
+        let directory = tempfile::tempdir().unwrap();
         let loads = Arc::new(AtomicUsize::new(0));
         let worker_loads = loads.clone();
         let (events, receiver) = mpsc::sync_channel(4);
-        let mut worker =
-            SpeechWorker::start_with_loader(SpeechConfig::default(), events, move || {
+        let mut worker = SpeechWorker::start_with_loader(
+            SpeechConfig {
+                vad: VadConfig {
+                    model_path: Some(directory.path().join("missing-vad.onnx")),
+                    ..Default::default()
+                },
+                preflight_vad: true,
+                ..Default::default()
+            },
+            events,
+            move || {
                 worker_loads.fetch_add(1, Ordering::SeqCst);
                 Ok(MockAsrBackend::default())
-            })
-            .unwrap();
-        assert!(matches!(receiver.recv().unwrap(), SpeechEvent::Ready(_)));
+            },
+        )
+        .unwrap();
+        assert!(matches!(
+            receiver.recv().unwrap(),
+            SpeechEvent::Error(SpeechError::Vad(message)) if message.contains("does not exist")
+        ));
         worker.shutdown();
         assert_eq!(loads.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn lazy_vad_mode_preserves_ready_event_before_audio_arrives() {
+        let directory = tempfile::tempdir().unwrap();
+        let (events, receiver) = mpsc::sync_channel(4);
+        let mut worker = SpeechWorker::start_with_loader(
+            SpeechConfig {
+                vad: VadConfig {
+                    model_path: Some(directory.path().join("missing-vad.onnx")),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+            events,
+            || Ok(MockAsrBackend::default()),
+        )
+        .unwrap();
+
+        assert!(matches!(receiver.recv().unwrap(), SpeechEvent::Ready(_)));
+        worker.shutdown();
     }
 }

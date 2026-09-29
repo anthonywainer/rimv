@@ -29,6 +29,8 @@ pub struct RecordingSummary {
     pub state: String,
     pub sources: Vec<String>,
     pub has_transcript: bool,
+    #[serde(default)]
+    pub transcription_error: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -127,6 +129,13 @@ impl RecordingLibrary {
             .pointer("/snapshot/elapsed_ms")
             .and_then(serde_json::Value::as_u64)
             .unwrap_or_default();
+        let transcription_error = metadata
+            .pointer("/snapshot/transcription/status")
+            .and_then(serde_json::Value::as_str)
+            .filter(|status| *status == "error")
+            .and_then(|_| metadata.pointer("/snapshot/last_error/message"))
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_owned);
         let mut sources = metadata
             .get("recordings")
             .and_then(serde_json::Value::as_array)
@@ -152,6 +161,7 @@ impl RecordingLibrary {
             state: state.into(),
             sources,
             has_transcript: directory.join("transcript.json").is_file(),
+            transcription_error,
         }
     }
 

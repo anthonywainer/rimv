@@ -54,6 +54,9 @@ pub struct TranscriptionSettings {
     pub step_ms: u64,
     pub queue_capacity: usize,
     pub vad: speech_transcription::VadConfig,
+    /// Fail capture startup when the configured ASR or VAD runtime cannot be
+    /// loaded. Enabled by the native Windows FFI; false preserves other apps.
+    pub preflight_vad: bool,
 }
 impl Default for TranscriptionSettings {
     fn default() -> Self {
@@ -79,6 +82,7 @@ impl Default for TranscriptionSettings {
             step_ms: 3_000,
             queue_capacity: 64,
             vad,
+            preflight_vad: false,
         }
     }
 }
@@ -110,6 +114,7 @@ impl TranscriptionSettings {
             step_ms: self.step_ms,
             queue_capacity: self.queue_capacity,
             vad: self.vad.clone(),
+            preflight_vad: self.preflight_vad,
         }
     }
 }

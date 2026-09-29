@@ -41,5 +41,6 @@ public sealed class NullAppLog : IAppLog
 
 public sealed record UserPreferences(string? SelectedModelId, string? Language, string Source, string Theme)
 {
+    public string? MicrophoneDeviceId { get; init; }
     public static UserPreferences Default { get; } = new(null, null, "microphone", "system");
 }

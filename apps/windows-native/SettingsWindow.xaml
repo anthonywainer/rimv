@@ -4,7 +4,7 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     Title="RimV Settings">
     <Grid x:Name="RootGrid" Background="{ThemeResource RimVBackgroundBrush}" Padding="24" RowSpacing="18">
-        <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+        <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
         <StackPanel Spacing="4">
             <TextBlock Text="Settings" FontSize="24" FontWeight="SemiBold" />
             <TextBlock Text="RimV keeps capture and transcription on this device." Foreground="{ThemeResource RimVSecondaryTextBrush}" TextWrapping="Wrap" />
@@ -18,14 +18,20 @@
             </ComboBox>
             <TextBlock Text="High contrast follows your Windows accessibility settings." FontSize="12" Foreground="{ThemeResource RimVSecondaryTextBrush}" TextWrapping="Wrap" />
         </StackPanel>
-        <Border Grid.Row="2" Background="{ThemeResource RimVSurfaceBrush}" BorderBrush="{ThemeResource RimVBorderBrush}" BorderThickness="1" CornerRadius="12" Padding="16">
+        <StackPanel Grid.Row="2" Spacing="8">
+            <TextBlock Text="Microphone input" FontWeight="SemiBold" />
+            <ComboBox x:Name="InputDeviceCombo" SelectionChanged="InputDeviceCombo_SelectionChanged"
+                      AutomationProperties.Name="Microphone input device" />
+            <TextBlock Text="Use the Windows default input or choose a specific microphone. A saved device that is no longer connected falls back to Windows default." FontSize="12" TextWrapping="Wrap" Foreground="{ThemeResource RimVSecondaryTextBrush}" />
+        </StackPanel>
+        <Border Grid.Row="3" Background="{ThemeResource RimVSurfaceBrush}" BorderBrush="{ThemeResource RimVBorderBrush}" BorderThickness="1" CornerRadius="12" Padding="16">
             <StackPanel Spacing="6">
                 <TextBlock Text="Shared engine" FontWeight="SemiBold" />
                 <TextBlock Text="Speech recognition, model downloads, recordings and exports are provided by RimV's Rust core." TextWrapping="Wrap" Foreground="{ThemeResource RimVSecondaryTextBrush}" />
                 <TextBlock x:Name="DataLocation" FontSize="12" TextWrapping="Wrap" Foreground="{ThemeResource RimVSecondaryTextBrush}" />
             </StackPanel>
         </Border>
-        <StackPanel Grid.Row="3" VerticalAlignment="Bottom" Spacing="4">
+        <StackPanel Grid.Row="4" VerticalAlignment="Bottom" Spacing="4">
             <TextBlock x:Name="AppVersionText" />
             <TextBlock Text="The existing browser-based Windows app remains available separately." FontSize="12" TextWrapping="Wrap" Foreground="{ThemeResource RimVSecondaryTextBrush}" />
         </StackPanel>

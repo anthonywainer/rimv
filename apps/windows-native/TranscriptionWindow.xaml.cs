@@ -70,6 +70,7 @@ public sealed partial class TranscriptionWindow : Window
         FooterText.Text = "Viewer only · Closing this window does not stop recording.";
         EmptyText.Text = "Loading transcript…";
         EmptyText.Visibility = Visibility.Visible;
+        RecoveryButton.Visibility = Visibility.Collapsed;
         TranscriptList.Visibility = Visibility.Collapsed;
         AudioPlayer.Visibility = Visibility.Collapsed;
         LiveAudioText.Visibility = Visibility.Collapsed;
@@ -129,7 +130,7 @@ public sealed partial class TranscriptionWindow : Window
                             ApplyTranscriptUpdate(update, snapshot.Revision);
                     }
                 }
-                EmptyText.Text = "Speak to see your transcript here. Partial text is shown while it is being recognized.";
+                EmptyText.Text = "Transcription is initializing. Speak to see partial and finalized results here.";
             }
             else
             {
@@ -139,7 +140,13 @@ public sealed partial class TranscriptionWindow : Window
                     AddOrReplace(new TranscriptRow(key, line.StartMs, line.Text,
                         $"{line.StartMs / 1000d:0.0}s · {FriendlySource(line.Source)}", true));
                 }
-                EmptyText.Text = "There is no saved transcript for this recording.";
+                EmptyText.Text = details.Summary.TranscriptionError is { Length: > 0 } transcriptionError
+                    ? $"Transcription failed: {transcriptionError}\n\nThe saved audio is preserved. Check Silero VAD in Model Manager before starting another recording. This session is not automatically re-transcribed."
+                    : details.Transcript.Count == 0
+                        ? "No speech was detected in this recording. Check the selected input device and microphone level, then try another recording."
+                        : "";
+                RecoveryButton.Visibility = details.Summary.TranscriptionError is not null
+                    ? Visibility.Visible : Visibility.Collapsed;
                 await ConfigurePlaybackAsync(sessionId, generation);
             }
             if (!IsCurrentOpen(sessionId, generation)) return;
@@ -205,6 +212,19 @@ public sealed partial class TranscriptionWindow : Window
         if (_coordinator.Snapshot.Session?.Id != _sessionId) return;
         DurationText.Text = FormatDuration(_coordinator.Snapshot.ElapsedMs);
         AudioDescription.Text = CaptureSourceDescription();
+        if (_coordinator.Snapshot.Transcription.Status == "error" && _rows.Count == 0)
+        {
+            string detail = _coordinator.Snapshot.LastError?.Message
+                ?? _coordinator.LastErrorDetail
+                ?? "RimV could not initialize speech recognition.";
+            EmptyText.Text = $"Transcription failed: {detail}\n\nThe recording is continuing and its audio will be saved. Check Silero VAD in Model Manager before starting another recording.";
+            RecoveryButton.Visibility = Visibility.Visible;
+        }
+        else if (_rows.Count == 0 && _coordinator.Snapshot.Transcription.Status is "loading" or "ready")
+        {
+            EmptyText.Text = "Transcription is initializing. Speak to see partial and finalized results here.";
+            RecoveryButton.Visibility = Visibility.Collapsed;
+        }
         if (_coordinator.Snapshot.Status is "idle" or "error")
             _ = LoadSessionAsync(_sessionId, _viewerLifecycle.Generation);
     }
@@ -324,6 +344,8 @@ public sealed partial class TranscriptionWindow : Window
             ErrorInfo.IsOpen = true;
         }
     }
+
+    private void RecoveryButton_Click(object sender, RoutedEventArgs e) => App.CurrentApp.OpenModelManager();
 
     private string CaptureSourceDescription()
     {

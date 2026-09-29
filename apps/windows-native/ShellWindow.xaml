@@ -1,6 +1,7 @@
 <Window x:Class="RimV.Windows.ShellWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Title="RimV">
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="using:RimV.Windows" Title="RimV">
     <Grid x:Name="RootGrid" Background="Transparent" KeyDown="RootGrid_KeyDown">
         <Border x:Name="MenuSurface" Background="{ThemeResource RimVMenuSurfaceBrush}"
                 BorderBrush="{ThemeResource RimVMenuBorderBrush}" BorderThickness="1"
@@ -49,30 +50,30 @@
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="*"/>
                                 </Grid.ColumnDefinitions>
-                                <ToggleButton x:Name="SystemSource" Tag="system" Height="70"
+                                <local:HandCursorToggleButton x:Name="SystemSource" Tag="system" Height="70"
                                               Style="{StaticResource RimVSourceButtonStyle}" Click="SourceButton_Click"
                                               AutomationProperties.Name="System audio capture source">
                                     <StackPanel Spacing="5" HorizontalAlignment="Center">
                                         <FontIcon Glyph="&#xE7F4;" FontFamily="Segoe Fluent Icons" FontSize="20"/>
                                         <TextBlock Text="System" FontSize="13" HorizontalAlignment="Center"/>
                                     </StackPanel>
-                                </ToggleButton>
-                                <ToggleButton x:Name="MicrophoneSource" Grid.Column="1" Tag="microphone" Height="70"
+                                </local:HandCursorToggleButton>
+                                <local:HandCursorToggleButton x:Name="MicrophoneSource" Grid.Column="1" Tag="microphone" Height="70"
                                               Style="{StaticResource RimVSourceButtonStyle}" Click="SourceButton_Click"
                                               AutomationProperties.Name="Microphone capture source">
                                     <StackPanel Spacing="5" HorizontalAlignment="Center">
                                         <FontIcon Glyph="&#xE720;" FontFamily="Segoe Fluent Icons" FontSize="20"/>
                                         <TextBlock Text="Microphone" FontSize="13" HorizontalAlignment="Center"/>
                                     </StackPanel>
-                                </ToggleButton>
-                                <ToggleButton x:Name="BothSource" Grid.Column="2" Tag="both" Height="70"
+                                </local:HandCursorToggleButton>
+                                <local:HandCursorToggleButton x:Name="BothSource" Grid.Column="2" Tag="both" Height="70"
                                               Style="{StaticResource RimVSourceButtonStyle}" Click="SourceButton_Click"
                                               AutomationProperties.Name="System and microphone capture source">
                                     <StackPanel Spacing="5" HorizontalAlignment="Center">
                                         <FontIcon Glyph="&#xE9D9;" FontFamily="Segoe Fluent Icons" FontSize="20"/>
                                         <TextBlock Text="Both" FontSize="13" HorizontalAlignment="Center"/>
                                     </StackPanel>
-                                </ToggleButton>
+                                </local:HandCursorToggleButton>
                             </Grid>
                             <Button x:Name="ListenButton" Height="52" HorizontalAlignment="Stretch"
                                     Style="{StaticResource RimVMenuListenButtonStyle}" Click="ListenButton_Click"

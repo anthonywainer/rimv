@@ -256,6 +256,16 @@ impl Decoder {
                             language: None,
                             confidence: None,
                         };
+                        tracing::info!(
+                            source=?update.source,
+                            start_ms=update.start_ms,
+                            end_ms=update.end_ms,
+                            final_result=update.is_final,
+                            stable_chars=update.stable_text.chars().count(),
+                            unstable_chars=update.unstable_text.chars().count(),
+                            inference_ms=ms,
+                            "transcript update emitted"
+                        );
                         if let Err(
                             std::sync::mpsc::TrySendError::Full(SpeechEvent::Update(update))
                             | std::sync::mpsc::TrySendError::Disconnected(SpeechEvent::Update(
@@ -275,6 +285,7 @@ impl Decoder {
                         }
                     }
                     Err(error) => {
+                        tracing::error!(source=?work.source, final_result=work.final_result, error=%error, "speech inference failed");
                         if events.try_send(SpeechEvent::Error(error)).is_err() {
                             measured.lock().unwrap().dropped_events += 1;
                         }

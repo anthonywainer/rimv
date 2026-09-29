@@ -109,6 +109,7 @@ public sealed partial class ModelManagerWindow : Window
     {
         ModelDescriptor descriptor = model.Descriptor;
         bool installed = model.State == "installed";
+        bool requiredRuntime = descriptor.Backend == "vad";
         bool downloading = model.State == "downloading";
         bool unsupported = model.State == "unsupported";
         _progressByModel.TryGetValue(descriptor.Id, out ModelProgress? progress);
@@ -117,10 +118,16 @@ public sealed partial class ModelManagerWindow : Window
             .Select(file => file.ExpectedSizeBytes!.Value)
             .Aggregate<ulong, ulong?>(0, (total, next) => total + next);
         bool hasSize = totalBytes is > 0;
-        string size = hasSize ? FormatSize(totalBytes!.Value) : "Managed package";
+        string size = requiredRuntime ? "Required component" : hasSize ? FormatSize(totalBytes!.Value) : "Managed package";
         double percent = progress is null ? 0 : NativeWindowsPolicy.DownloadProgressPercent(progress);
         string state = progress?.Phase == "failed"
             ? $"Download failed · {progress.Error ?? "Retry to try again."}"
+            : requiredRuntime && installed ? "Required runtime installed and ready"
+            : requiredRuntime && model.State == "downloading"
+                ? progress?.TotalBytes is > 0
+                    ? $"Installing required speech detector · {percent:0}%"
+                    : "Downloading required speech detector…"
+            : requiredRuntime ? "Required for speech detection before listening"
             : model.State switch
             {
                 "installed" => "Installed and ready",
@@ -129,23 +136,27 @@ public sealed partial class ModelManagerWindow : Window
                 "unsupported" => "Unavailable in this Windows build",
                 _ => $"Supports {descriptor.Languages.Count} languages",
             };
-        string action = unsupported ? "Unavailable"
+        string action = requiredRuntime && installed ? "Required"
+            : unsupported ? "Unavailable"
             : downloading ? "Cancel download"
             : installed ? model.Selected ? "Selected" : "Use Model"
             : model.State == "incomplete" ? "Repair download" : "Download";
-        bool actionEnabled = downloading
+        bool actionEnabled = requiredRuntime && installed ? false
+            : downloading
             ? NativeWindowsPolicy.CanCancelModelInstall(model.State)
-            : installed
+                : installed && !requiredRuntime
                 ? !model.Selected && NativeWindowsPolicy.CanSelectModel(model.State, _coordinator.Snapshot.Status)
                 : NativeWindowsPolicy.CanInstallModel(model.State);
         bool canRemove = NativeWindowsPolicy.CanRemoveModel(model, _coordinator.Snapshot.Status);
         return new ModelCardRow(
             descriptor.Id,
             descriptor.DisplayName,
-            descriptor.InstallHint ?? $"{descriptor.Backend} speech recognition · {descriptor.Languages.Count} supported languages",
+            requiredRuntime
+                ? "Required by the shared Rust core to detect speech and segment real-time transcription."
+                : descriptor.InstallHint ?? $"{descriptor.Backend} speech recognition · {descriptor.Languages.Count} supported languages",
             size,
             state,
-            model.Selected ? "Selected" : string.Empty,
+            model.Selected ? "Selected" : requiredRuntime ? "Speech detection dependency" : string.Empty,
             action,
             actionEnabled,
             installed ? Visibility.Visible : Visibility.Collapsed,
@@ -160,7 +171,7 @@ public sealed partial class ModelManagerWindow : Window
         ModelRecord? model = _coordinator.Models.FirstOrDefault(item => item.Descriptor.Id == id);
         if (model is null) return;
         if (model.State == "downloading") await _coordinator.CancelModelInstallAsync(id);
-        else if (model.State == "installed") await _coordinator.SelectModelAsync(id);
+        else if (model.State == "installed" && model.Descriptor.Backend != "vad") await _coordinator.SelectModelAsync(id);
         else await _coordinator.InstallModelAsync(id);
         await _coordinator.RefreshModelsAsync();
     }

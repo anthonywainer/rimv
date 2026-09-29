@@ -40,6 +40,35 @@ public sealed class AppCoordinatorTests
     }
 
     [Fact]
+    public async Task ListeningInstallsRequiredVadBeforeStartingWhenTranscriptionIsEnabled()
+    {
+        using var temporary = new TemporaryDirectory();
+        var factory = new FakeCoreFactory
+        {
+            Snapshot = new CoreSnapshot
+            {
+                Transcription = new TranscriptionState { Enabled = true },
+                Capabilities = new EngineCapabilities { MicrophoneCapture = true, SystemAudioCapture = true },
+            },
+            Models = [new ModelRecord
+            {
+                State = "available",
+                Descriptor = new ModelDescriptor { Id = "silero-vad", Backend = "vad", DisplayName = "Silero VAD" },
+            }],
+        };
+        var coordinator = CreateCoordinator(temporary.Path, factory, UserPreferences.Default);
+        await coordinator.InitializeAsync();
+
+        await coordinator.StartOrStopAsync();
+
+        int install = factory.Client.Requests.FindIndex(request => Type(request) == "install_model");
+        int start = factory.Client.Requests.FindIndex(request => Command(request) == "start_capture");
+        Assert.True(install >= 0 && start > install);
+        Assert.Equal("recording", coordinator.Snapshot.Status);
+        await coordinator.ShutdownAsync();
+    }
+
+    [Fact]
     public async Task StartupDropsSavedLanguageNotSupportedByInstalledModel()
     {
         using var temporary = new TemporaryDirectory();
@@ -90,6 +119,25 @@ public sealed class AppCoordinatorTests
 
         Assert.Equal(priorCommands, factory.Client.Requests.Count(request => Type(request) == "send"));
         Assert.Contains("isn't available", coordinator.ErrorMessage, StringComparison.Ordinal);
+        await coordinator.ShutdownAsync();
+    }
+
+    [Fact]
+    public async Task MicrophoneDeviceSelectionUsesTheSharedCoreAndPersistsTheDeviceId()
+    {
+        using var temporary = new TemporaryDirectory();
+        var factory = new FakeCoreFactory
+        {
+            InputDevices = [new AudioInputDevice { Id = "input:USB Microphone:0", Name = "USB Microphone", IsDefault = false }],
+        };
+        var coordinator = CreateCoordinator(temporary.Path, factory, UserPreferences.Default);
+        await coordinator.InitializeAsync();
+
+        await coordinator.SelectMicrophoneDeviceAsync("input:USB Microphone:0");
+
+        Assert.Equal("input:USB Microphone:0", coordinator.SelectedMicrophoneDeviceId);
+        Assert.Contains(factory.Client.Requests, request => Command(request) == "set_microphone_device"
+            && request.GetProperty("command").GetProperty("device_id").GetString() == "input:USB Microphone:0");
         await coordinator.ShutdownAsync();
     }
 
@@ -175,12 +223,14 @@ public sealed class AppCoordinatorTests
             Capabilities = new EngineCapabilities { MicrophoneCapture = true, SystemAudioCapture = true },
         };
         public IReadOnlyList<ModelRecord> Models { get; init; } = [];
+        public IReadOnlyList<AudioInputDevice> InputDevices { get; init; } = [];
         public FakeCoreClient Client { get; } = new();
 
         public ISharedCoreClient Create(string recordingsDirectory, string modelsDirectory)
         {
             Client.Snapshot = Snapshot;
             Client.Models = Models;
+            Client.InputDevices = InputDevices;
             return Client;
         }
     }
@@ -191,6 +241,7 @@ public sealed class AppCoordinatorTests
         private readonly Channel<CoreEvent> _events = Channel.CreateUnbounded<CoreEvent>();
         public CoreSnapshot Snapshot { get; set; } = new();
         public IReadOnlyList<ModelRecord> Models { get; set; } = [];
+        public IReadOnlyList<AudioInputDevice> InputDevices { get; set; } = [];
         public List<JsonElement> Requests { get; } = [];
         public bool ShutdownCalled { get; private set; }
 
@@ -204,8 +255,10 @@ public sealed class AppCoordinatorTests
             {
                 "get_state" => Snapshot,
                 "get_models" => Models.ToList(),
+                "list_input_devices" => InputDevices.ToList(),
                 "get_recordings" => new List<RecordingSummary>(),
                 "remove_model" => RemoveModel(input),
+                "install_model" => InstallModel(input),
                 "send" => ApplyCommand(input),
                 _ => JsonDocument.Parse("null").RootElement.Clone(),
             };
@@ -224,6 +277,20 @@ public sealed class AppCoordinatorTests
         {
             string? id = input.GetProperty("model_id").GetString();
             Models = Models.Where(model => model.Descriptor.Id != id).ToArray();
+            return JsonDocument.Parse("null").RootElement.Clone();
+        }
+
+        private JsonElement InstallModel(JsonElement input)
+        {
+            string? id = input.GetProperty("model_id").GetString();
+            Models = Models.Select(model => model.Descriptor.Id == id
+                ? new ModelRecord { State = "installed", Descriptor = model.Descriptor }
+                : model).ToArray();
+            using JsonDocument payload = JsonDocument.Parse(JsonSerializer.Serialize(new
+            {
+                progress = new { model_id = id, phase = "complete", downloaded_bytes = 0, total_bytes = (ulong?)null, error = (string?)null },
+            }, SerializerOptions));
+            _events.Writer.TryWrite(new CoreEvent("model_progress", payload.RootElement.Clone()));
             return JsonDocument.Parse("null").RootElement.Clone();
         }
 

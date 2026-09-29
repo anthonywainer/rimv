@@ -25,6 +25,8 @@ public partial class App : Microsoft.UI.Xaml.Application
     public DispatcherQueue UiQueue { get; private set; } = null!;
     public bool IsShuttingDown { get; private set; }
 
+    internal void OpenModelManager() => _shell?.OpenModelManagerWindow();
+
     public App()
     {
         InitializeComponent();
