@@ -573,7 +573,7 @@ static NSString *elapsed(uint64_t milliseconds) {
     if (!self.statusItem) return;
     NSColor *primary = [self color:17 green:20 blue:24 darkRed:244 green:247 blue:250];
     NSColor *secondary = [self color:94 green:100 blue:117 darkRed:203 green:213 blue:225];
-    NSColor *action = [self color:11 green:110 blue:105 darkRed:11 green:110 blue:105];
+    NSColor *action = [self color:19 green:141 blue:132 darkRed:11 green:110 blue:105];
     NSColor *selectedSurface = [self color:229 green:245 blue:243 darkRed:23 green:59 blue:57];
     NSColor *liveText = [self color:6 green:95 blue:70 darkRed:134 green:239 blue:172];
     NSColor *errorText = [self color:153 green:27 blue:27 darkRed:252 green:165 blue:165];
@@ -647,7 +647,7 @@ static NSString *elapsed(uint64_t milliseconds) {
                                          groupSize.width, groupSize.height);
     self.capture.contentTintColor = captureForeground;
     self.capture.layer.backgroundColor = captureBackground.CGColor;
-    self.capture.font = [NSFont systemFontOfSize:14 weight:NSFontWeightSemibold];
+    self.capture.font = [NSFont systemFontOfSize:14 weight:NSFontWeightBold];
     self.capture.enabled = !transitioning && !self.quitting;
     NSDictionary *capabilities = snapshot[@"capabilities"];
     self.microphone.enabled = !transitioning && !self.quitting && [capabilities[@"microphone_capture"] boolValue];

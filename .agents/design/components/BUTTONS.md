@@ -24,7 +24,7 @@
 
 ## Primary green-teal contrast
 
-RimV uses green-teal for brand and primary actions. `action-solid` `#0B6E69` provides approximately 6.1:1 contrast with white in light mode and remains the solid action base in dark mode. Purple is reserved for explicitly AI-generated information; red remains reserved for error, destructive and Stop treatments. Accent-outline buttons are an optional alternate pattern, not a mandatory replacement for primary actions.
+RimV uses green-teal for brand and primary actions. The light-mode primary action uses `#138D84` with a large bold white label/icon (approximately 4.1:1; above the 3:1 large-text threshold). Keep smaller text on the darker `#0B6E69`; dark-mode primary action also remains `#0B6E69`. Purple is reserved for explicitly AI-generated information; red remains reserved for error, destructive and Stop treatments. Accent-outline buttons are an optional alternate pattern, not a mandatory replacement for primary actions.
 
 ## State contract
 

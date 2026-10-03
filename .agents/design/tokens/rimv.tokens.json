@@ -68,15 +68,15 @@
       },
       "action-solid": {
         "$type": "color",
-        "$value": "#0B6E69"
+        "$value": "#138D84"
       },
       "action-solid-hover": {
         "$type": "color",
-        "$value": "#095F5B"
+        "$value": "#0F817C"
       },
       "action-solid-pressed": {
         "$type": "color",
-        "$value": "#084C49"
+        "$value": "#0B6E69"
       },
       "on-action": {
         "$type": "color",

@@ -19,9 +19,9 @@
 --brand: #138D84;
 --brand-hover: #0F817C;
 --brand-pressed: #095F5B;
---action-solid: #0B6E69;
---action-solid-hover: #095F5B;
---action-solid-pressed: #084C49;
+--action-solid: #138D84;
+--action-solid-hover: #0F817C;
+--action-solid-pressed: #0B6E69;
 --on-action: #FFFFFF;
 --ai: #7C3AED;
 --live: #16A34A;
@@ -57,7 +57,7 @@ button,input,select{font:inherit}button{cursor:pointer}button:focus-visible,inpu
 .app{max-width:1380px;margin:auto;padding:24px}.top{display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap;margin-bottom:24px}
 h1{font-size:30px;line-height:36px;margin:0;font-weight:600}.subtitle{margin:8px 0;color:var(--text-secondary)}
 .actions{display:flex;flex-wrap:wrap;gap:8px}.button{min-height:40px;display:inline-flex;align-items:center;gap:8px;border-radius:12px;padding:8px 15px;border:1px solid var(--border);background:var(--surface-secondary);color:var(--text-primary);font-weight:600;transition:background .14s ease,transform .12s ease}
-.button:hover{background:var(--surface-tertiary)}.button:active{transform:scale(.98)}.button.primary{background:var(--action-solid);color:var(--on-action);border-color:var(--action-solid)}.button.primary:hover{background:var(--action-solid-hover)}.button.ghost{background:transparent}
+.button:hover{background:var(--surface-tertiary)}.button:active{transform:scale(.98)}.button.primary{background:var(--action-solid);color:var(--on-action);border-color:var(--action-solid);font-size:19px;font-weight:700}.button.primary:hover{background:var(--action-solid-hover)}.button.ghost{background:transparent}
 .grid{display:grid;grid-template-columns:250px minmax(0,1fr) 310px;gap:20px;align-items:start}.panel{background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:24px;min-width:0}.stack{display:grid;gap:12px}h2{font-size:18px;line-height:24px;margin:0 0 16px}.eyebrow{font-size:12px;letter-spacing:.055em;font-weight:700;text-transform:uppercase;color:var(--text-secondary);margin:0 0 12px}
 .card{background:var(--surface-secondary);border:1px solid var(--border);border-radius:16px;padding:16px;min-width:0}.card.active{background:var(--surface-tertiary);border-color:var(--border-strong)}.card h3{font-size:14px;margin:0 0 5px}.card p{margin:0;color:var(--text-secondary)}
 .input{height:40px;width:100%;padding:0 12px;background:var(--surface-secondary);color:var(--text-primary);border:1px solid var(--border);border-radius:12px}.input::placeholder{color:var(--text-secondary)}
@@ -78,7 +78,7 @@ footer{margin:22px 0 4px;color:var(--text-secondary);font-size:12px} @media(max-
 </div><footer>Demo interactions: theme switch + simulated recording state only. Tokens are proposed; they do not modify RimV’s existing application styles.</footer></div>
 <script>
 const root=document.body;const el=id=>document.getElementById(id);
-const colorSets={"light":{"background":"#EEF2FA","surface":"#FFFFFF","surface-secondary":"#F6F7FB","surface-tertiary":"#E5F5F3","border":"#E3E6EF","border-strong":"#D7DDED","text-primary":"#171827","text-secondary":"#5E6475","text-muted":"#9AA3B5","icon-primary":"#171827","icon-secondary":"#7A8194","brand":"#138D84","brand-hover":"#0F817C","brand-pressed":"#0B6E69","action-solid":"#0B6E69","action-solid-hover":"#095F5B","action-solid-pressed":"#084C49","on-action":"#FFFFFF","ai":"#7C3AED","live":"#16A34A","warning":"#B45309","error":"#DC2626","focus":"#0B6E69"},"dark":{"background":"#0B0F19","surface":"#111827","surface-secondary":"#172033","surface-tertiary":"#173B39","border":"#263244","border-strong":"#374151","text-primary":"#F9FAFB","text-secondary":"#CBD5E1","text-muted":"#94A3B8","icon-primary":"#F9FAFB","icon-secondary":"#CBD5E1","brand":"#72D7D0","brand-hover":"#94E5DF","brand-pressed":"#4FC7BF","action-solid":"#0B6E69","action-solid-hover":"#0F817C","action-solid-pressed":"#095F5B","on-action":"#F9FAFB","ai":"#A78BFA","live":"#22C55E","warning":"#FBBF24","error":"#F87171","focus":"#72D7D0"}};
+const colorSets={"light":{"background":"#EEF2FA","surface":"#FFFFFF","surface-secondary":"#F6F7FB","surface-tertiary":"#E5F5F3","border":"#E3E6EF","border-strong":"#D7DDED","text-primary":"#171827","text-secondary":"#5E6475","text-muted":"#9AA3B5","icon-primary":"#171827","icon-secondary":"#7A8194","brand":"#138D84","brand-hover":"#0F817C","brand-pressed":"#0B6E69","action-solid":"#138D84","action-solid-hover":"#0F817C","action-solid-pressed":"#0B6E69","on-action":"#FFFFFF","ai":"#7C3AED","live":"#16A34A","warning":"#B45309","error":"#DC2626","focus":"#0B6E69"},"dark":{"background":"#0B0F19","surface":"#111827","surface-secondary":"#172033","surface-tertiary":"#173B39","border":"#263244","border-strong":"#374151","text-primary":"#F9FAFB","text-secondary":"#CBD5E1","text-muted":"#94A3B8","icon-primary":"#F9FAFB","icon-secondary":"#CBD5E1","brand":"#72D7D0","brand-hover":"#94E5DF","brand-pressed":"#4FC7BF","action-solid":"#0B6E69","action-solid-hover":"#0F817C","action-solid-pressed":"#095F5B","on-action":"#F9FAFB","ai":"#A78BFA","live":"#22C55E","warning":"#FBBF24","error":"#F87171","focus":"#72D7D0"}};
 function updateTheme(t){root.dataset.theme=t;el('light').setAttribute('aria-pressed',t==='light');el('dark').setAttribute('aria-pressed',t==='dark');el('swatches').innerHTML=Object.entries(colorSets[t]).filter(([k])=>['background','surface','surface-secondary','surface-tertiary','brand','action-solid','live','ai','warning','error','text-primary','border'].includes(k)).map(([name,color])=>`<div class="swatch"><div class="fill" style="background:${color}"></div><span>${name}<br>${color}</span></div>`).join('');}
 el('light').addEventListener('click',()=>updateTheme('light'));el('dark').addEventListener('click',()=>updateTheme('dark'));
 let live=false;el('record').addEventListener('click',()=>{live=!live;el('record').textContent=live?'Stop listening':'Start listening';el('status-text').textContent=live?'Recording (simulated)':'Idle';el('status').className=live?'chip live':'chip';});updateTheme('light');

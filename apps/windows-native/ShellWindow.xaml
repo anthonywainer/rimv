@@ -81,8 +81,8 @@
                                 <StackPanel Orientation="Horizontal" Spacing="10" HorizontalAlignment="Center">
                                     <FontIcon x:Name="ListenIcon" Glyph="&#xE768;" FontFamily="Segoe Fluent Icons" FontSize="17"
                                               Foreground="{ThemeResource RimVMenuActionForegroundBrush}"/>
-                                    <TextBlock x:Name="ListenLabel" Text="Start Listening" FontSize="16" FontWeight="SemiBold"
-                                               Foreground="{ThemeResource RimVMenuActionForegroundBrush}"/>
+                                    <TextBlock x:Name="ListenLabel" Text="Start Listening" FontSize="19" FontWeight="Bold"
+                                               Foreground="{ThemeResource RimVMenuPrimaryActionForegroundBrush}"/>
                                 </StackPanel>
                             </local:HandCursorButton>
                         </StackPanel>

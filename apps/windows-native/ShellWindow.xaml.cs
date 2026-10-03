@@ -217,10 +217,10 @@ public sealed partial class ShellWindow : Window
         ListenButton.IsEnabled = canListen;
         ListenButton.Background = (Brush)Microsoft.UI.Xaml.Application.Current.Resources[
             !canListen ? "RimVMenuDisabledBackgroundBrush"
-                : listening ? "RimVMenuStopBackgroundBrush" : "RimVMenuAccentBrush"];
+                : listening ? "RimVMenuStopBackgroundBrush" : "RimVMenuPrimaryActionBrush"];
         Brush listenForeground = (Brush)Microsoft.UI.Xaml.Application.Current.Resources[
             !canListen ? "RimVMenuDisabledTextBrush"
-                : listening ? "RimVMenuStopTextBrush" : "RimVMenuActionForegroundBrush"];
+                : listening ? "RimVMenuStopTextBrush" : "RimVMenuPrimaryActionForegroundBrush"];
         ListenButton.Foreground = listenForeground;
         ListenIcon.Foreground = listenForeground;
         ListenLabel.Foreground = listenForeground;

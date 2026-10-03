@@ -24,6 +24,8 @@
             <SolidColorBrush x:Key="RimVMenuDisabledTextBrush" Color="#596365" />
             <SolidColorBrush x:Key="RimVMenuDisabledBackgroundBrush" Color="#E7EBEB" />
             <SolidColorBrush x:Key="RimVMenuActionForegroundBrush" Color="#FFFFFF" />
+            <SolidColorBrush x:Key="RimVMenuPrimaryActionBrush" Color="#138D84" />
+            <SolidColorBrush x:Key="RimVMenuPrimaryActionForegroundBrush" Color="#FFFFFF" />
             <SolidColorBrush x:Key="RimVMenuSelectedBackgroundBrush" Color="#E5F5F3" />
             <SolidColorBrush x:Key="RimVMenuHoverBackgroundBrush" Color="#F6F7FB" />
             <SolidColorBrush x:Key="RimVMenuPressedBackgroundBrush" Color="#084C49" />
@@ -56,6 +58,8 @@
             <SolidColorBrush x:Key="RimVMenuDisabledTextBrush" Color="#C3CCCE" />
             <SolidColorBrush x:Key="RimVMenuDisabledBackgroundBrush" Color="#3A4649" />
             <SolidColorBrush x:Key="RimVMenuActionForegroundBrush" Color="#FFFFFF" />
+            <SolidColorBrush x:Key="RimVMenuPrimaryActionBrush" Color="#0B6E69" />
+            <SolidColorBrush x:Key="RimVMenuPrimaryActionForegroundBrush" Color="#F9FAFB" />
             <SolidColorBrush x:Key="RimVMenuSelectedBackgroundBrush" Color="#173B39" />
             <SolidColorBrush x:Key="RimVMenuHoverBackgroundBrush" Color="#0F817C" />
             <SolidColorBrush x:Key="RimVMenuPressedBackgroundBrush" Color="#095F5B" />
@@ -88,6 +92,8 @@
             <SolidColorBrush x:Key="RimVMenuDisabledTextBrush" Color="{ThemeResource SystemColorGrayTextColor}" />
             <SolidColorBrush x:Key="RimVMenuDisabledBackgroundBrush" Color="{ThemeResource SystemColorWindowColor}" />
             <SolidColorBrush x:Key="RimVMenuActionForegroundBrush" Color="{ThemeResource SystemColorHighlightTextColor}" />
+            <SolidColorBrush x:Key="RimVMenuPrimaryActionBrush" Color="{ThemeResource SystemColorHighlightColor}" />
+            <SolidColorBrush x:Key="RimVMenuPrimaryActionForegroundBrush" Color="{ThemeResource SystemColorHighlightTextColor}" />
             <SolidColorBrush x:Key="RimVMenuSelectedBackgroundBrush" Color="{ThemeResource SystemColorWindowColor}" />
             <SolidColorBrush x:Key="RimVMenuHoverBackgroundBrush" Color="{ThemeResource SystemColorHighlightColor}" />
             <SolidColorBrush x:Key="RimVMenuPressedBackgroundBrush" Color="{ThemeResource SystemColorHighlightColor}" />
@@ -100,9 +106,10 @@
         </ResourceDictionary>
     </ResourceDictionary.ThemeDictionaries>
     <Style x:Key="RimVPrimaryButtonStyle" TargetType="Button">
-        <Setter Property="Background" Value="{ThemeResource RimVMenuAccentBrush}" />
-        <Setter Property="Foreground" Value="{ThemeResource RimVMenuActionForegroundBrush}" />
-        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="Background" Value="{ThemeResource RimVMenuPrimaryActionBrush}" />
+        <Setter Property="Foreground" Value="{ThemeResource RimVMenuPrimaryActionForegroundBrush}" />
+        <Setter Property="FontSize" Value="19" />
+        <Setter Property="FontWeight" Value="Bold" />
     </Style>
     <Style x:Key="RimVSourceButtonStyle" TargetType="ToggleButton">
         <Setter Property="Background" Value="{ThemeResource RimVMenuSurfaceBrush}" />
@@ -116,8 +123,8 @@
         <Setter Property="UseSystemFocusVisuals" Value="True" />
     </Style>
     <Style x:Key="RimVMenuListenButtonStyle" TargetType="Button">
-        <Setter Property="Background" Value="{ThemeResource RimVMenuAccentBrush}" />
-        <Setter Property="Foreground" Value="{ThemeResource RimVMenuActionForegroundBrush}" />
+        <Setter Property="Background" Value="{ThemeResource RimVMenuPrimaryActionBrush}" />
+        <Setter Property="Foreground" Value="{ThemeResource RimVMenuPrimaryActionForegroundBrush}" />
         <Setter Property="BorderThickness" Value="0" />
         <Setter Property="CornerRadius" Value="9" />
         <Setter Property="HorizontalContentAlignment" Value="Center" />
