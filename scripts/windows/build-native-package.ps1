@@ -199,15 +199,30 @@ try {
     $identityPackage = Join-Path $payloadDirectory 'RimV.Identity.msix'
     & $makeAppx.FullName pack /o /d $identityDirectory /nv /p $identityPackage
     if ($LASTEXITCODE -ne 0) { throw 'MakeAppx failed to create RimV.Identity.msix.' }
-    & $signTool.FullName sign /fd SHA256 /a /f $env:RIMV_IDENTITY_CERTIFICATE /p $env:RIMV_IDENTITY_CERTIFICATE_PASSWORD $identityPackage
-    if ($LASTEXITCODE -ne 0) { throw 'SignTool failed to sign RimV.Identity.msix with the trusted publisher certificate.' }
     $certificatePassword = ConvertTo-SecureString $env:RIMV_IDENTITY_CERTIFICATE_PASSWORD -AsPlainText -Force
     $publisherCertificate = Get-PfxCertificate -FilePath $env:RIMV_IDENTITY_CERTIFICATE -Password $certificatePassword
     if ($publisherCertificate.Subject -ne 'CN=RimV') {
         throw "The identity certificate subject '$($publisherCertificate.Subject)' does not match Package.appxmanifest Publisher='CN=RimV'."
     }
+    Import-PfxCertificate -FilePath $env:RIMV_IDENTITY_CERTIFICATE -CertStoreLocation 'Cert:\CurrentUser\My' -Password $certificatePassword | Out-Null
+    $storedPublisherCertificate = Get-ChildItem -LiteralPath 'Cert:\CurrentUser\My' |
+        Where-Object { $_.Thumbprint -eq $publisherCertificate.Thumbprint -and $_.HasPrivateKey } |
+        Select-Object -First 1
+    if (-not $storedPublisherCertificate) {
+        throw 'The identity publisher certificate with its private key could not be loaded into the current-user signing store.'
+    }
+    # SignTool's /a can select a different valid publisher when a PFX/store
+    # contains multiple candidates. Sign by the exact thumbprint so the
+    # packaged certificate we trust is the certificate that signed the MSIX.
+    & $signTool.FullName sign /fd SHA256 /sha1 $publisherCertificate.Thumbprint $identityPackage
+    if ($LASTEXITCODE -ne 0) { throw 'SignTool failed to sign RimV.Identity.msix with the configured publisher certificate.' }
+    $packageSignature = Get-AuthenticodeSignature -FilePath $identityPackage
+    $packageSigner = $packageSignature.SignerCertificate
+    if (-not $packageSigner -or $packageSigner.Thumbprint -ne $publisherCertificate.Thumbprint) {
+        throw 'The signed identity package signer does not match the configured RimV publisher certificate.'
+    }
     $publisherCertificatePath = Join-Path $artifactDirectory "RimV-$appVersion-identity-publisher.cer"
-    Export-Certificate -Cert $publisherCertificate -FilePath $publisherCertificatePath | Out-Null
+    Export-Certificate -Cert $packageSigner -FilePath $publisherCertificatePath | Out-Null
     Copy-Item -LiteralPath $publisherCertificatePath -Destination (Join-Path $payloadDirectory 'RimV.Identity.cer')
 
     $icon = Join-Path $repoRoot 'apps\windows\icons\icon.ico'
