@@ -29,25 +29,15 @@ $numericMatch = [regex]::Match($appVersion, '^(?<major>\d+)\.(?<minor>\d+)\.(?<p
 if (-not $numericMatch.Success) { throw "Unsupported application version: $appVersion" }
 $numericVersion = '{0}.{1}.{2}.0' -f $numericMatch.Groups['major'].Value, $numericMatch.Groups['minor'].Value, $numericMatch.Groups['patch'].Value
 
-if ($env:RIMV_IDENTITY_CERTIFICATE_BASE64) {
-    $certificatePath = Join-Path $env:RUNNER_TEMP 'RimV-identity-publisher.pfx'
-    [IO.File]::WriteAllBytes($certificatePath, [Convert]::FromBase64String($env:RIMV_IDENTITY_CERTIFICATE_BASE64))
-    $env:RIMV_IDENTITY_CERTIFICATE = $certificatePath
-}
-
-if (-not $env:RIMV_IDENTITY_CERTIFICATE -or -not (Test-Path -LiteralPath $env:RIMV_IDENTITY_CERTIFICATE -PathType Leaf)) {
-    throw 'Set RIMV_IDENTITY_CERTIFICATE to the trusted publisher PFX required to sign the Windows AI identity package.'
-}
-if (-not $env:RIMV_IDENTITY_CERTIFICATE_PASSWORD) {
-    throw 'Set RIMV_IDENTITY_CERTIFICATE_PASSWORD for the trusted publisher PFX.'
-}
-
 if (-not $IsWindows) { throw 'The native Windows release package must be built on Windows.' }
 if ([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture -ne [System.Runtime.InteropServices.Architecture]::X64) {
     throw 'The v0.1 native installer target is Windows x64 only.'
 }
 if (-not (Get-Command cargo -ErrorAction SilentlyContinue)) { throw 'Install the pinned Rust toolchain before packaging.' }
 if (-not (Get-Command dotnet -ErrorAction SilentlyContinue)) { throw 'Install the .NET 10 SDK before packaging.' }
+
+$ephemeralPublisherCertificate = $null
+$ephemeralPublisherPfx = $null
 
 $projectXml = [xml](Get-Content -LiteralPath $projectFile -Raw)
 $projectVersion = $projectXml.Project.PropertyGroup.Version | Select-Object -First 1
@@ -78,6 +68,34 @@ New-Item -ItemType Directory -Path $payloadDirectory, $artifactDirectory -Force 
 
 $previousCargoTarget = $env:CARGO_TARGET_DIR
 try {
+    if ($env:RIMV_IDENTITY_CERTIFICATE_BASE64) {
+        $certificatePath = Join-Path $env:RUNNER_TEMP 'RimV-identity-publisher.pfx'
+        [IO.File]::WriteAllBytes($certificatePath, [Convert]::FromBase64String($env:RIMV_IDENTITY_CERTIFICATE_BASE64))
+        $env:RIMV_IDENTITY_CERTIFICATE = $certificatePath
+    }
+    elseif (-not $env:RIMV_IDENTITY_CERTIFICATE -and $env:RIMV_ALLOW_EPHEMERAL_IDENTITY_CERTIFICATE -eq 'true') {
+        $ephemeralPublisherPfx = Join-Path $env:RUNNER_TEMP 'RimV-ephemeral-ci-identity-publisher.pfx'
+        $ephemeralPublisherCertificate = New-SelfSignedCertificate `
+            -Type CodeSigningCert `
+            -Subject 'CN=RimV' `
+            -CertStoreLocation 'Cert:\CurrentUser\My' `
+            -KeyLength 2048 `
+            -HashAlgorithm SHA256 `
+            -NotAfter (Get-Date).AddDays(2)
+        $ephemeralPassword = ConvertTo-SecureString ([Guid]::NewGuid().ToString('N')) -AsPlainText -Force
+        Export-PfxCertificate -Cert $ephemeralPublisherCertificate -FilePath $ephemeralPublisherPfx -Password $ephemeralPassword | Out-Null
+        $env:RIMV_IDENTITY_CERTIFICATE = $ephemeralPublisherPfx
+        $env:RIMV_IDENTITY_CERTIFICATE_PASSWORD = [System.Net.NetworkCredential]::new('', $ephemeralPassword).Password
+        Write-Host 'Using a temporary self-signed CN=RimV identity certificate for CI packaging validation.'
+    }
+
+    if (-not $env:RIMV_IDENTITY_CERTIFICATE -or -not (Test-Path -LiteralPath $env:RIMV_IDENTITY_CERTIFICATE -PathType Leaf)) {
+        throw 'Set RIMV_IDENTITY_CERTIFICATE to the trusted publisher PFX, or explicitly enable RIMV_ALLOW_EPHEMERAL_IDENTITY_CERTIFICATE for CI validation.'
+    }
+    if (-not $env:RIMV_IDENTITY_CERTIFICATE_PASSWORD) {
+        throw 'Set RIMV_IDENTITY_CERTIFICATE_PASSWORD for the identity publisher PFX.'
+    }
+
     $env:CARGO_TARGET_DIR = $cargoTargetDirectory
     Push-Location $repoRoot
     try {
@@ -263,7 +281,8 @@ try {
             [ordered]@{ id = 'whisper-base'; sizeBytes = $whisperBaseSizeBytes; approximateDownloadMegabytes = $whisperBaseSizeMb }
         )
         signed = $false
-        windowsAiIdentityPackage = 'RimV.Identity.msix (signed with trusted publisher certificate)'
+        windowsAiIdentityPackage = 'RimV.Identity.msix'
+        identityPackageSigning = if ($ephemeralPublisherCertificate) { 'ephemeral CI certificate' } else { 'trusted publisher certificate' }
         nativeRuntimeDlls = $nativeDllNames
         files = $payloadFiles
     }
@@ -347,6 +366,12 @@ try {
     Write-Host "Created the x64 installer, manifest and size audit under $artifactDirectory (unsigned unless Authenticode is configured separately)."
 }
 finally {
+    if ($ephemeralPublisherCertificate) {
+        Remove-Item -LiteralPath "Cert:\CurrentUser\My\$($ephemeralPublisherCertificate.Thumbprint)" -Force -ErrorAction SilentlyContinue
+    }
+    if ($ephemeralPublisherPfx -and (Test-Path -LiteralPath $ephemeralPublisherPfx)) {
+        Remove-Item -LiteralPath $ephemeralPublisherPfx -Force -ErrorAction SilentlyContinue
+    }
     if ($null -eq $previousCargoTarget) { Remove-Item Env:CARGO_TARGET_DIR -ErrorAction SilentlyContinue }
     else { $env:CARGO_TARGET_DIR = $previousCargoTarget }
 }

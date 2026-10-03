@@ -163,6 +163,7 @@ jobs:
         env:
           RIMV_IDENTITY_CERTIFICATE_BASE64: ${{ secrets.RIMV_IDENTITY_CERTIFICATE_BASE64 }}
           RIMV_IDENTITY_CERTIFICATE_PASSWORD: ${{ secrets.RIMV_IDENTITY_CERTIFICATE_PASSWORD }}
+          RIMV_ALLOW_EPHEMERAL_IDENTITY_CERTIFICATE: 'true'
         run: ./scripts/windows/build-native-package.ps1
 
       - name: Publish native Windows size audit
