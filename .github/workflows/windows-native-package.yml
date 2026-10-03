@@ -229,7 +229,7 @@ jobs:
           if (-not $manifest -or -not $installer) { throw 'The downloaded installer or manifest is missing.' }
           $publisherCertificate = Get-ChildItem (Join-Path $env:RUNNER_TEMP 'rimv-native-artifact/*-identity-publisher.cer') | Select-Object -First 1
           if (-not $publisherCertificate) { throw 'The identity package publisher certificate is missing.' }
-          Import-Certificate -FilePath $publisherCertificate.FullName -CertStoreLocation Cert:\CurrentUser\TrustedPeople | Out-Null
+          Import-Certificate -FilePath $publisherCertificate.FullName -CertStoreLocation Cert:\LocalMachine\TrustedPeople | Out-Null
           $installDirectory = Join-Path $env:RUNNER_TEMP 'RimV Native Windows Install With Spaces'
           try {
             ./apps/windows-native.packaging-tests/Test-NativePackage.ps1 `

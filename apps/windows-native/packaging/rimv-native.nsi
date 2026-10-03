@@ -83,19 +83,18 @@ Section "RimV Native Windows (required)" SecMain
     Goto register_identity
   ${EndIf}
 
-  ; A silent install is an explicit request to complete setup without UI.
-  ; Trust the bundled publisher certificate for this user, then attempt the
-  ; sparse package registration just as an interactive user can approve.
-  IfSilent trust_identity
-  MessageBox MB_YESNO|MB_ICONQUESTION "Enable Windows Native Speech? RimV needs to trust its identity-package signing certificate (CN=RimV) in the Current User Trusted People store. This applies only to your Windows account." IDYES trust_identity
+  ; Silent installs cannot display either the trust confirmation or UAC.
+  ; They register Native Speech only when its publisher is already trusted.
+  IfSilent identity_unavailable
+  MessageBox MB_YESNO|MB_ICONQUESTION "Enable Windows Native Speech? Windows requires RimV's identity-package signing certificate (CN=RimV) in this PC's Trusted People store. Windows may ask for administrator approval. The certificate is not added to Trusted Root." IDYES trust_identity
   DetailPrint "Publisher certificate trust declined; Windows Native Speech will remain unavailable."
   Goto identity_unavailable
 
   trust_identity:
   IfFileExists "$INSTDIR\RimV.Identity.cer" 0 identity_trust_failed
-  ExecWait '"$SYSDIR\certutil.exe" -user -addstore TrustedPeople "$INSTDIR\RimV.Identity.cer"' $0
+  ExecWait '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$INSTDIR\Register-Identity.ps1" -Action TrustPublisher -InstallLocation "$INSTDIR"' $0
   ${If} $0 != 0
-    DetailPrint "Could not add RimV's publisher certificate to the current user's Trusted People store (error $0)."
+    DetailPrint "Could not add RimV's publisher certificate to this PC's Trusted People store (error $0)."
     Goto identity_unavailable
   ${EndIf}
 

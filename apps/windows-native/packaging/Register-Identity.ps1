@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory = $true)][ValidateSet('CheckPublisherTrust', 'Install', 'Uninstall')][string] $Action,
+    [Parameter(Mandatory = $true)][ValidateSet('CheckPublisherTrust', 'TrustPublisher', 'Install', 'Uninstall')][string] $Action,
     [Parameter(Mandatory = $true)][string] $InstallLocation
 )
 
@@ -15,17 +15,42 @@ if ($Action -eq 'CheckPublisherTrust') {
 
     $certificate = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new($certificatePath)
     $thumbprint = $certificate.Thumbprint
-    foreach ($storePath in @('Cert:\CurrentUser\TrustedPeople', 'Cert:\LocalMachine\TrustedPeople')) {
-        if (Get-ChildItem -LiteralPath $storePath -ErrorAction SilentlyContinue |
-            Where-Object Thumbprint -eq $thumbprint | Select-Object -First 1) {
-            exit 0
-        }
+    if (Get-ChildItem -LiteralPath 'Cert:\LocalMachine\TrustedPeople' -ErrorAction SilentlyContinue |
+        Where-Object Thumbprint -eq $thumbprint | Select-Object -First 1) {
+        exit 0
     }
 
     $chain = [System.Security.Cryptography.X509Certificates.X509Chain]::new()
     $chain.ChainPolicy.RevocationMode = [System.Security.Cryptography.X509Certificates.X509RevocationMode]::NoCheck
-    if ($chain.Build($certificate)) { exit 0 }
+    if ($certificate.Subject -ne $certificate.Issuer -and $chain.Build($certificate)) { exit 0 }
     exit 1
+}
+elseif ($Action -eq 'TrustPublisher') {
+    $certificatePath = Join-Path $InstallLocation 'RimV.Identity.cer'
+    if (-not (Test-Path -LiteralPath $certificatePath -PathType Leaf)) {
+        throw "The RimV identity publisher certificate is missing: $certificatePath"
+    }
+
+    $certificate = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new($certificatePath)
+    $trustedCertificate = Get-ChildItem -LiteralPath 'Cert:\LocalMachine\TrustedPeople' -ErrorAction SilentlyContinue |
+        Where-Object Thumbprint -eq $certificate.Thumbprint | Select-Object -First 1
+    if ($trustedCertificate) { exit 0 }
+
+    try {
+        $certutil = Join-Path $env:WINDIR 'System32\certutil.exe'
+        $quotedCertificatePath = '"' + $certificatePath + '"'
+        $process = Start-Process -FilePath $certutil -Verb RunAs `
+            -ArgumentList "-addstore -f TrustedPeople $quotedCertificatePath" `
+            -Wait -PassThru
+        if ($process.ExitCode -ne 0) { exit $process.ExitCode }
+    }
+    catch {
+        exit 1
+    }
+    $trustedCertificate = Get-ChildItem -LiteralPath 'Cert:\LocalMachine\TrustedPeople' -ErrorAction SilentlyContinue |
+        Where-Object Thumbprint -eq $certificate.Thumbprint | Select-Object -First 1
+    if (-not $trustedCertificate) { exit 1 }
+    exit 0
 }
 elseif ($Action -eq 'Install') {
     $packagePath = Join-Path $InstallLocation 'RimV.Identity.msix'
