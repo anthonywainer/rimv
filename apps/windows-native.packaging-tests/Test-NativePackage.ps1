@@ -106,10 +106,12 @@ function Assert-Payload([string] $root, $manifest) {
 
 function Invoke-Installer([string] $path, [string] $arguments, [string] $label) {
     $process = Start-Process -FilePath $path -ArgumentList $arguments -PassThru
-    if (-not $process.WaitForExit(180000)) {
+    # Hosted Windows runners can take several minutes to extract the WinUI
+    # runtime and register the sparse MSIX package, especially on a cold run.
+    if (-not $process.WaitForExit(600000)) {
         $process.Kill($true)
         $process.WaitForExit(10000) | Out-Null
-        throw "$label did not finish within three minutes."
+        throw "$label did not finish within ten minutes."
     }
     Assert-Condition ($process.ExitCode -eq 0) "$label exited with code $($process.ExitCode)."
 }
