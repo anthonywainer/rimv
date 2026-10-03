@@ -17,6 +17,21 @@ static void RimvCopy(NSString *value, char *output, size_t capacity) {
     snprintf(output, capacity, "%s", utf8);
 }
 
+static NSString *RimvPreferredLocale(NSArray<NSString *> *usableLocales) {
+    for (NSString *preference in NSLocale.preferredLanguages) {
+        NSString *canonical = [preference stringByReplacingOccurrencesOfString:@"_" withString:@"-"];
+        for (NSString *candidate in usableLocales) {
+            if ([candidate caseInsensitiveCompare:canonical] == NSOrderedSame) return candidate;
+        }
+        NSString *language = [[canonical componentsSeparatedByString:@"-"] firstObject];
+        for (NSString *candidate in usableLocales) {
+            NSString *candidateLanguage = [[candidate componentsSeparatedByString:@"-"] firstObject];
+            if ([candidateLanguage caseInsensitiveCompare:language] == NSOrderedSame) return candidate;
+        }
+    }
+    return usableLocales.firstObject;
+}
+
 bool rimv_apple_speech_available(const char *locale_id) {
     @autoreleasepool {
         SFSpeechRecognizerAuthorizationStatus authorization = SFSpeechRecognizer.authorizationStatus;
@@ -26,6 +41,41 @@ bool rimv_apple_speech_available(const char *locale_id) {
         SFSpeechRecognizer *recognizer = [[SFSpeechRecognizer alloc]
             initWithLocale:[[NSLocale alloc] initWithLocaleIdentifier:identifier]];
         return recognizer != nil && recognizer.isAvailable && recognizer.supportsOnDeviceRecognition;
+    }
+}
+
+int32_t rimv_apple_speech_supported_locales(char *output, size_t output_capacity) {
+    @autoreleasepool {
+        if (!output || output_capacity == 0) return 0;
+        NSMutableArray<NSString *> *supported = [NSMutableArray array];
+        NSMutableArray<NSString *> *onDevice = [NSMutableArray array];
+        NSMutableArray<NSString *> *usableOnDevice = [NSMutableArray array];
+        for (NSLocale *locale in [SFSpeechRecognizer supportedLocales]) {
+            NSString *identifier = [locale.localeIdentifier stringByReplacingOccurrencesOfString:@"_" withString:@"-"];
+            SFSpeechRecognizer *recognizer = [[SFSpeechRecognizer alloc] initWithLocale:locale];
+            if (identifier.length > 0 && recognizer) {
+                [supported addObject:identifier];
+                if (recognizer.supportsOnDeviceRecognition) {
+                    [onDevice addObject:identifier];
+                    if (recognizer.isAvailable) [usableOnDevice addObject:identifier];
+                }
+            }
+        }
+        [supported sortUsingSelector:@selector(compare:)];
+        [onDevice sortUsingSelector:@selector(compare:)];
+        [usableOnDevice sortUsingSelector:@selector(compare:)];
+        NSString *preferredLocale = RimvPreferredLocale(usableOnDevice);
+        NSDictionary *catalog = @{
+            @"supported": supported,
+            @"on_device": onDevice,
+            @"usable_on_device": usableOnDevice,
+            @"preferred_locale": preferredLocale ?: NSNull.null,
+        };
+        NSData *json = [NSJSONSerialization dataWithJSONObject:catalog options:0 error:NULL];
+        if (!json || json.length + 1 > output_capacity) return -1;
+        memcpy(output, json.bytes, json.length);
+        output[json.length] = '\0';
+        return (int32_t)usableOnDevice.count;
     }
 }
 

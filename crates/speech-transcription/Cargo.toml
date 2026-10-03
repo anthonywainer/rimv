@@ -19,6 +19,7 @@ thiserror.workspace = true
 tracing.workspace = true
 rubato = "0.16"
 serde.workspace = true
+serde_json.workspace = true
 whisper-rs = { version = "0.16", optional = true, features = ["tracing_backend"] }
 # The maintained macOS static archive for 1.13.8 omits libonnxruntime.a.
 # Use the upstream shared package instead; its build script copies the required

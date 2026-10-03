@@ -132,7 +132,7 @@ public sealed class PopupAndSelectorPolicyTests
     private static ModelRecord TestModel(string state, string id) => new()
     {
         State = state,
-        Descriptor = new ModelDescriptor { Id = id, DisplayName = id },
+        Descriptor = new ModelDescriptor { Id = id, Backend = "parakeet", DisplayName = id },
     };
 
     [Fact]

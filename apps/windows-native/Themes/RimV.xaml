@@ -124,7 +124,7 @@
     </Style>
     <Style x:Key="RimVMenuListenButtonStyle" TargetType="Button">
         <Setter Property="Background" Value="{ThemeResource RimVMenuPrimaryActionBrush}" />
-        <Setter Property="Foreground" Value="{ThemeResource RimVMenuPrimaryActionForegroundBrush}" />
+        <Setter Property="Foreground" Value="{ThemeResource RimVMenuActionForegroundBrush}" />
         <Setter Property="BorderThickness" Value="0" />
         <Setter Property="CornerRadius" Value="9" />
         <Setter Property="HorizontalContentAlignment" Value="Center" />

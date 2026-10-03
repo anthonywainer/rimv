@@ -19,7 +19,10 @@ pub use recording_library::{
 pub use runtime::EngineRuntime;
 pub use speech_transcription::AsrBackendKind;
 #[cfg(all(target_os = "macos", feature = "apple-speech"))]
-pub use speech_transcription::{apple_locale, apple_speech_authorized, apple_speech_available};
+pub use speech_transcription::{
+    AppleSpeechLocaleCatalog, apple_locale, apple_speech_authorized, apple_speech_available,
+    apple_speech_default_locale, apple_speech_locale_catalog,
+};
 pub fn supports_asr_backend(backend: &str) -> bool {
     match backend {
         "parakeet" => speech_transcription::supports_backend(AsrBackendKind::Parakeet),

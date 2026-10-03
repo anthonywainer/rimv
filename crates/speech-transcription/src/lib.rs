@@ -17,7 +17,10 @@ mod whisper;
 mod worker;
 
 #[cfg(all(target_os = "macos", feature = "apple-speech"))]
-pub use apple_speech::{apple_locale, apple_speech_authorized, apple_speech_available};
+pub use apple_speech::{
+    AppleSpeechLocaleCatalog, apple_locale, apple_speech_authorized, apple_speech_available,
+    apple_speech_locale_catalog, default_locale as apple_speech_default_locale,
+};
 pub use audio::{Mono16k, Preprocessor};
 #[cfg(feature = "parakeet")]
 pub use parakeet::{ParakeetEngine, ParakeetModelLayout};
@@ -128,7 +131,7 @@ pub fn load_configured_backend(config: SpeechConfig) -> Result<Box<dyn SpeechToT
             #[cfg(all(target_os = "macos", feature = "apple-speech"))]
             {
                 Ok(Box::new(apple_speech::AppleSpeechEngine::new(
-                    config.language.as_deref().unwrap_or("en-US"),
+                    config.language.as_deref().unwrap_or("system"),
                 )?))
             }
             #[cfg(not(all(target_os = "macos", feature = "apple-speech")))]

@@ -21,6 +21,47 @@ const FRAME_SAMPLES: usize = 1_024;
 const FRAME_MILLIS: u64 = 64;
 
 #[test]
+fn apple_speech_locale_capability_diagnostic() {
+    let catalog = engine_runtime::apple_speech_locale_catalog();
+    let supported = catalog.supported;
+    let on_device = catalog.supports_on_device;
+    let usable_on_device = catalog.usable_on_device;
+    println!("Apple Speech supported locales:");
+    for locale in &supported {
+        println!("    {locale}");
+    }
+    println!("Apple Speech on-device locales:");
+    for locale in &on_device {
+        println!("    {locale}");
+    }
+    println!("Apple Speech currently usable on-device locales:");
+    for locale in &usable_on_device {
+        println!("    {locale}");
+    }
+    println!(
+        "Apple Speech locale counts: supported={}, supports-on-device={}, currently-usable-on-device={}",
+        supported.len(),
+        on_device.len(),
+        usable_on_device.len()
+    );
+    for locale in ["en-US", "es-ES"] {
+        println!(
+            "Apple Speech on-device {locale}: {}",
+            if on_device.iter().any(|candidate| candidate == locale) {
+                if usable_on_device.iter().any(|candidate| candidate == locale) {
+                    "supported and currently usable"
+                } else {
+                    "supports on-device, but is currently unavailable"
+                }
+            } else {
+                "does not support on-device recognition"
+            }
+        );
+    }
+    assert!(on_device.iter().all(|locale| supported.contains(locale)));
+}
+
+#[test]
 #[ignore = "requires macOS Apple Speech runtime, on-device en-US support, and Speech permission"]
 fn existing_english_fixture_streams_through_native_apple_and_updates_live_state() {
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));

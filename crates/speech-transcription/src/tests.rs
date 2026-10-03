@@ -19,14 +19,6 @@ fn backend_capabilities_match_compiled_features() {
     );
 }
 
-#[cfg(all(target_os = "macos", feature = "apple-speech"))]
-#[test]
-fn apple_locale_mapping_is_explicit_and_rejects_unknown_languages() {
-    assert_eq!(crate::apple_locale("es"), Some("es-ES"));
-    assert_eq!(crate::apple_locale("pt"), Some("pt-BR"));
-    assert_eq!(crate::apple_locale("xx"), None);
-}
-
 #[test]
 fn mock_backend_is_deterministic() {
     let mut backend = MockAsrBackend::default();

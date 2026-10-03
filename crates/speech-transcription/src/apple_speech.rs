@@ -3,10 +3,14 @@ use crate::{
     SpeechToTextEngine, VoiceActivityGate,
 };
 use engine_protocol::AudioSource;
-use std::ffi::{CStr, CString, c_char};
+use std::{
+    ffi::{CStr, CString, c_char},
+    sync::OnceLock,
+};
 
 unsafe extern "C" {
     fn rimv_apple_speech_available(locale_id: *const c_char) -> bool;
+    fn rimv_apple_speech_supported_locales(output: *mut c_char, output_capacity: usize) -> i32;
     fn rimv_apple_speech_authorized() -> bool;
     fn rimv_apple_speech_prepare(
         locale_id: *const c_char,
@@ -47,11 +51,30 @@ impl VoiceActivityGate for AppleSpeechVad {
 
 impl AppleSpeechEngine {
     pub(crate) fn new(locale: &str) -> Result<Self> {
-        let locale_id = apple_locale(locale).ok_or_else(|| {
-            SpeechError::ModelLoad(format!("unsupported Apple Speech locale: {locale}"))
+        let resolved = resolve_locale(locale).ok_or_else(|| {
+            let catalog = locale_catalog();
+            let canonical = locale.replace('_', "-");
+            let is_supported = catalog
+                .supported
+                .iter()
+                .any(|candidate| candidate.eq_ignore_ascii_case(&canonical));
+            let supports_on_device = catalog
+                .supports_on_device
+                .iter()
+                .any(|candidate| candidate.eq_ignore_ascii_case(&canonical));
+            let detail = if locale == "auto" || locale == "system" {
+                "no preferred Apple Speech locale is currently usable on-device".to_owned()
+            } else if !is_supported {
+                format!("Apple Speech does not support locale {locale}")
+            } else if !supports_on_device {
+                format!("Apple Speech supports {locale}, but not on-device recognition")
+            } else {
+                format!("Apple Speech on-device assets are currently unavailable for {locale}")
+            };
+            SpeechError::ModelLoad(detail)
         })?;
-        let locale_id =
-            CString::new(locale_id).map_err(|error| SpeechError::ModelLoad(error.to_string()))?;
+        let locale_id = CString::new(resolved.as_str())
+            .map_err(|error| SpeechError::ModelLoad(error.to_string()))?;
         let mut error = vec![0_i8; 2 * 1024];
         // SAFETY: locale_id and the writable error buffer remain alive for the
         // synchronous availability and permission check.
@@ -64,6 +87,13 @@ impl AppleSpeechEngine {
                 "Apple Speech unavailable: {detail}"
             )));
         }
+        tracing::debug!(
+            engine = "native_apple",
+            requested_locale = locale,
+            resolved_locale = resolved,
+            on_device = true,
+            "Apple Speech recognizer prepared"
+        );
         Ok(Self { locale_id })
     }
 
@@ -149,7 +179,7 @@ impl SpeechToTextEngine for AppleSpeechEngine {
 }
 
 pub(crate) fn available(locale: &str) -> bool {
-    let Some(locale_id) = apple_locale(locale) else {
+    let Some(locale_id) = resolve_locale(locale) else {
         return false;
     };
     let Ok(locale_id) = CString::new(locale_id) else {
@@ -157,6 +187,82 @@ pub(crate) fn available(locale: &str) -> bool {
     };
     // SAFETY: valid locale string, synchronously inspected by the native API.
     unsafe { rimv_apple_speech_available(locale_id.as_ptr()) }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+/// Runtime Apple Speech locale capabilities reported for the current Mac.
+pub struct AppleSpeechLocaleCatalog {
+    /// Locales advertised by `SFSpeechRecognizer.supportedLocales()`.
+    pub supported: Vec<String>,
+    /// Supported locales whose recognizer reports `supportsOnDeviceRecognition`.
+    pub supports_on_device: Vec<String>,
+    /// On-device locales that also report `isAvailable` now.
+    pub usable_on_device: Vec<String>,
+    /// The first system preferred locale that is currently usable on-device.
+    pub preferred_locale: Option<String>,
+}
+
+static LOCALE_CATALOG: OnceLock<AppleSpeechLocaleCatalog> = OnceLock::new();
+
+pub(crate) fn locale_catalog() -> AppleSpeechLocaleCatalog {
+    LOCALE_CATALOG.get_or_init(read_locale_catalog).clone()
+}
+
+fn read_locale_catalog() -> AppleSpeechLocaleCatalog {
+    let mut output = vec![0_i8; 64 * 1024];
+    // SAFETY: native code writes a NUL-terminated JSON catalog within this
+    // fixed buffer or returns an error without exposing a partial result.
+    let count = unsafe { rimv_apple_speech_supported_locales(output.as_mut_ptr(), output.len()) };
+    if count < 0 {
+        return AppleSpeechLocaleCatalog::default();
+    }
+    // SAFETY: successful native calls NUL-terminate the JSON output.
+    let value = unsafe { CStr::from_ptr(output.as_ptr()) }.to_string_lossy();
+    let catalog: serde_json::Value = match serde_json::from_str(&value) {
+        Ok(catalog) => catalog,
+        Err(_) => return AppleSpeechLocaleCatalog::default(),
+    };
+    let parse = |key: &str| {
+        catalog[key]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(serde_json::Value::as_str)
+            .map(|locale| locale.replace('_', "-"))
+            .collect()
+    };
+    AppleSpeechLocaleCatalog {
+        supported: parse("supported"),
+        supports_on_device: parse("on_device"),
+        usable_on_device: parse("usable_on_device"),
+        preferred_locale: catalog["preferred_locale"]
+            .as_str()
+            .map(|locale| locale.replace('_', "-")),
+    }
+}
+
+pub fn apple_speech_locale_catalog() -> AppleSpeechLocaleCatalog {
+    locale_catalog()
+}
+
+pub fn default_locale() -> Option<String> {
+    locale_catalog().preferred_locale
+}
+
+fn resolve_locale(locale: &str) -> Option<String> {
+    if locale == "auto" || locale == "system" {
+        return default_locale();
+    }
+    if locale.contains('-') || locale.contains('_') {
+        let canonical = locale.replace('_', "-");
+        locale_catalog()
+            .usable_on_device
+            .iter()
+            .find(|candidate| candidate.eq_ignore_ascii_case(&canonical))
+            .cloned()
+    } else {
+        apple_locale(locale).map(str::to_owned)
+    }
 }
 
 pub fn apple_locale(language: &str) -> Option<&'static str> {
