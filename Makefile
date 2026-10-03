@@ -206,7 +206,7 @@ menu-build:
 	@test "$$(uname -s)" = Darwin || { echo 'The menu-bar app requires macOS.'; exit 1; }
 	@if pgrep -x rimv-menu-bar >/dev/null; then echo 'Quit rimv before rebuilding its app bundle.'; exit 1; fi
 	$(CARGO) build --profile $(APP_PROFILE) --locked -p rimv-menu-bar
-	@mkdir -p "$(APP_DIR)/Contents/MacOS"
+	@mkdir -p "$(APP_DIR)/Contents/MacOS" "$(APP_DIR)/Contents/Resources"
 	cp "target/$(APP_PROFILE)/rimv-menu-bar" "$(APP_DIR)/Contents/MacOS/rimv-menu-bar"
 	@for dylib in target/$(APP_PROFILE)/*.dylib; do \
 		[ -e "$$dylib" ] || continue; \
@@ -216,6 +216,16 @@ menu-build:
 		install_name_tool -add_rpath @loader_path "$(APP_DIR)/Contents/MacOS/rimv-menu-bar"; \
 	fi
 	cp apps/menu-bar/Info.plist "$(APP_DIR)/Contents/Info.plist"
+	xcrun actool resources/Assets.xcassets \
+	  --compile "$(APP_DIR)/Contents/Resources" \
+	  --platform macosx \
+	  --minimum-deployment-target 13.0 \
+	  --app-icon AppIcon \
+	  --accent-color AccentColor \
+	  --product-type com.apple.product-type.application \
+	  --output-partial-info-plist "$(APP_DIR)/Contents/assetcatalog-info.plist"
+	/usr/libexec/PlistBuddy -c "Merge $(APP_DIR)/Contents/assetcatalog-info.plist" "$(APP_DIR)/Contents/Info.plist"
+	rm "$(APP_DIR)/Contents/assetcatalog-info.plist"
 	codesign --force --deep --sign - --identifier dev.rimv.menu "$(APP_DIR)"
 
 menu: menu-build
