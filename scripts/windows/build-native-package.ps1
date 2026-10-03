@@ -189,7 +189,7 @@ try {
     New-Item -ItemType Directory -Path $identityDirectory -Force | Out-Null
     $identityManifestText = Get-Content -LiteralPath $identityManifest -Raw
     $identityManifestText = $identityManifestText.Replace('__PACKAGE_VERSION__', $numericVersion)
-    Set-Content -LiteralPath (Join-Path $identityDirectory 'Package.appxmanifest') -Value $identityManifestText -Encoding utf8
+    Set-Content -LiteralPath (Join-Path $identityDirectory 'AppxManifest.xml') -Value $identityManifestText -Encoding utf8
     $windowsKitBin = Join-Path ${env:ProgramFiles(x86)} 'Windows Kits\10\bin'
     $makeAppx = Get-ChildItem -LiteralPath $windowsKitBin -Filter MakeAppx.exe -File -Recurse |
         Where-Object { $_.Directory.Name -eq 'x64' } | Sort-Object FullName -Descending | Select-Object -First 1
