@@ -324,6 +324,32 @@ pub extern "C" fn rimv_api_version() -> u32 {
     API_VERSION
 }
 
+/// Presents provider language IDs with RimV's shared names, regions, flags,
+/// canonical display locales and search terms. The IDs in the result remain
+/// unchanged and are the only values clients should send back to the provider.
+///
+/// # Safety
+/// `languages_json` must point to a valid NUL-terminated UTF-8 JSON array of
+/// strings for the duration of this call. The returned UTF-8 string is owned
+/// by the caller and must be released with `rimv_string_free`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn rimv_language_presentations(languages_json: *const c_char) -> *mut c_char {
+    let result = catch_unwind(AssertUnwindSafe(|| {
+        let input = unsafe { read_utf8(languages_json) }?;
+        let languages: Vec<String> = serde_json::from_str(input)
+            .map_err(|error| format!("invalid language list: {error}"))?;
+        let presentations = model_manager::present_languages(&languages);
+        serde_json::to_string(&presentations).map_err(|error| error.to_string())
+    }));
+    match result {
+        Ok(Ok(value)) => CString::new(value).map_or(ptr::null_mut(), CString::into_raw),
+        Ok(Err(error)) => CString::new(error).map_or(ptr::null_mut(), CString::into_raw),
+        Err(_) => {
+            CString::new("language presentation failed").map_or(ptr::null_mut(), CString::into_raw)
+        }
+    }
+}
+
 /// Creates the shared runtime and returns a JSON status envelope. On success,
 /// `out_engine` receives an opaque handle; the host owns it until destroy.
 ///

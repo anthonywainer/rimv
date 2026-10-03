@@ -11,6 +11,9 @@ typedef struct RimvEngine RimvEngine;
 
 /* UTF-8 JSON string; caller frees all returned strings with rimv_string_free. */
 uint32_t rimv_api_version(void);
+/* JSON array of provider language IDs to shared presentation metadata. The
+   returned UTF-8 JSON string follows the same ownership rule as other calls. */
+char *rimv_language_presentations(const char *languages_json);
 char *rimv_engine_create(const char *config_json, RimvEngine **out_engine);
 char *rimv_engine_request(RimvEngine *engine, const char *request_json);
 void rimv_string_free(char *value);

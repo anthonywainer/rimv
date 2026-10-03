@@ -94,6 +94,18 @@ public sealed class ModelCapabilities
     [JsonPropertyName("supports_language_detection")] public bool SupportsLanguageDetection { get; init; }
 }
 
+public sealed class LanguagePresentation
+{
+    [JsonPropertyName("id")] public string Id { get; init; } = "";
+    [JsonPropertyName("locale")] public string Locale { get; init; } = "";
+    [JsonPropertyName("canonical_locale")] public string CanonicalLocale { get; init; } = "";
+    [JsonPropertyName("language_name")] public string LanguageName { get; init; } = "";
+    [JsonPropertyName("region_code")] public string? RegionCode { get; init; }
+    [JsonPropertyName("region_name")] public string? RegionName { get; init; }
+    [JsonPropertyName("flag")] public string Flag { get; init; } = "🌐";
+    [JsonPropertyName("search_terms")] public List<string> SearchTerms { get; init; } = [];
+}
+
 public sealed class ModelFile
 {
     [JsonPropertyName("filename")] public string Filename { get; init; } = "";

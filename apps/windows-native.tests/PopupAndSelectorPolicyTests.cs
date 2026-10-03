@@ -64,34 +64,84 @@ public sealed class PopupAndSelectorPolicyTests
     }
 
     [Fact]
-    public void LanguagesAreFilteredAndSortedFromSharedModelCapabilities()
+    public void LanguagePresentationKeepsCanonicalRegionAndSearchMetadata()
     {
-        string[] supported = ["ja", "es", "en", "fr"];
+        LanguagePresentation english = Presentation("en", "en-US", "en-US", "English", "US", "United States", "🇺🇸");
+        LanguagePresentation british = Presentation("en-GB", "en-GB", "en-US", "English", "GB", "United Kingdom", "🇬🇧");
+        LanguagePresentation spanish = Presentation("es", "es-ES", "es-ES", "Spanish", "ES", "Spain", "🇪🇸");
 
-        Assert.Equal(["en", "es", "fr", "ja"], LanguageSelectorPolicy.OrderSupported(supported));
-        Assert.Equal("Spanish", Assert.Single(LanguageSelectorPolicy.Search(supported, "span")).Name);
-        Assert.Equal("jp", LanguageSelectorPolicy.GetFlagRegion("ja"));
-        Assert.Equal("gb", LanguageSelectorPolicy.GetFlagRegion("en-GB"));
-        Assert.Equal("mx", LanguageSelectorPolicy.GetFlagRegion("es-MX"));
-        Assert.Equal("br", LanguageSelectorPolicy.GetFlagRegion("pt-BR"));
-        Assert.Null(LanguageSelectorPolicy.GetFlagRegion("unknown"));
+        LanguageSelectorSections sections = LanguageSelectorPolicy.Build(
+            [english, british, spanish], "united kingdom", true, false, "en-GB");
+
+        Assert.True(sections.IsSearching);
+        Assert.Equal("en-GB", Assert.Single(sections.Popular).Code);
+        Assert.Equal("English", sections.Popular[0].Name);
+        Assert.Equal("United Kingdom", sections.Popular[0].RegionName);
+        Assert.Equal("🇬🇧", sections.Popular[0].Flag);
     }
 
     [Fact]
-    public void SharedParakeetLanguageOptionsHaveBundledWindowsFlagAssets()
+    public void LanguageSectionsPutUniquePopularItemsBeforeAllRemainingAndKeepOneSelection()
     {
-        string[] supported = [
-            "bg", "hr", "cs", "da", "nl", "en", "et", "fi", "fr", "de", "el", "hu", "it",
-            "lv", "lt", "mt", "pl", "pt", "ro", "sk", "sl", "es", "sv", "ru", "uk",
+        LanguagePresentation[] supported = [
+            Presentation("es", "es-ES", "es-ES", "Spanish", "ES", "Spain", "🇪🇸"),
+            Presentation("en-GB", "en-GB", "en-US", "English", "GB", "United Kingdom", "🇬🇧"),
+            Presentation("en", "en-US", "en-US", "English", "US", "United States", "🇺🇸"),
+            Presentation("fr", "fr-FR", "fr-FR", "French", "FR", "France", "🇫🇷"),
+            Presentation("ja", "ja-JP", "ja-JP", "Japanese", "JP", "Japan", "🇯🇵"),
+            Presentation("en", "en-US", "en-US", "English", "US", "United States", "🇺🇸"),
         ];
 
-        foreach (LanguageOption option in LanguageSelectorPolicy.Search(supported, null))
-        {
-            Assert.NotNull(option.FlagRegion);
-            Assert.True(File.Exists(Path.Combine(AppContext.BaseDirectory, "Assets", "Flags", $"{option.FlagRegion}.svg")),
-                $"Missing bundled flag for {option.Code} mapped to {option.FlagRegion}.");
-        }
+        LanguageSelectorSections compact = LanguageSelectorPolicy.Build(supported, null, true, false, "en-GB");
+        LanguageSelectorSections expanded = LanguageSelectorPolicy.Build(supported, null, true, true, "en-GB");
+        string[] allIds = expanded.Popular.Concat(expanded.Remaining).Select(option => option.Code).ToArray();
+
+        Assert.Equal(new[] { "auto", "en-GB", "es", "fr", "ja" }, compact.Popular.Select(option => option.Code));
+        Assert.Equal(new[] { "auto", "en-GB", "es", "fr", "ja", "en" }, allIds);
+        Assert.Equal(allIds.Length, allIds.Distinct(StringComparer.OrdinalIgnoreCase).Count());
+        Assert.Equal("en-GB", expanded.Popular[1].Code);
+        Assert.Equal("en", expanded.Remaining.Single().Code);
+        Assert.Equal("United Kingdom", expanded.Popular[1].RegionName);
+        Assert.Equal(1, allIds.Count(code => code.Equals("en-GB", StringComparison.OrdinalIgnoreCase)));
     }
+
+    [Fact]
+    public void ProviderSwitchRebuildsLanguageRowsFromTheNewProviderCapabilities()
+    {
+        LanguageSelectorSections parakeet = LanguageSelectorPolicy.Build([
+            Presentation("en", "en-US", "en-US", "English", "US", "United States", "🇺🇸"),
+            Presentation("es", "es-ES", "es-ES", "Spanish", "ES", "Spain", "🇪🇸"),
+        ], null, true, true, "en");
+        LanguageSelectorSections native = LanguageSelectorPolicy.Build([
+            Presentation("en-US", "en-US", "en-US", "English", "US", "United States", "🇺🇸"),
+            Presentation("en-GB", "en-GB", "en-US", "English", "GB", "United Kingdom", "🇬🇧"),
+            Presentation("es-ES", "es-ES", "es-ES", "Spanish", "ES", "Spain", "🇪🇸"),
+        ], null, false, true, "en-GB");
+        LanguageSelectorSections whisper = LanguageSelectorPolicy.Build([
+            Presentation("fr", "fr-FR", "fr-FR", "French", "FR", "France", "🇫🇷"),
+            Presentation("de", "de-DE", "de-DE", "German", "DE", "Germany", "🇩🇪"),
+            Presentation("en", "en-US", "en-US", "English", "US", "United States", "🇺🇸"),
+        ], null, true, true, "auto");
+
+        Assert.Equal(new[] { "auto", "en", "es" }, parakeet.Popular.Select(option => option.Code));
+        Assert.DoesNotContain(native.Popular.Concat(native.Remaining), option => option.Code == "en");
+        Assert.Contains(native.Popular.Concat(native.Remaining), option => option.Code == "en-GB" && option.Flag == "🇬🇧");
+        Assert.Equal(new[] { "auto", "en", "fr", "de" }, whisper.Popular.Select(option => option.Code));
+        Assert.Equal(1, whisper.Popular.Count(option => option.Code == "auto"));
+    }
+
+    private static LanguagePresentation Presentation(string id, string locale, string canonicalLocale,
+        string languageName, string? regionCode, string? regionName, string flag) => new()
+    {
+        Id = id,
+        Locale = locale,
+        CanonicalLocale = canonicalLocale,
+        LanguageName = languageName,
+        RegionCode = regionCode,
+        RegionName = regionName,
+        Flag = flag,
+        SearchTerms = [id, locale, languageName, regionName ?? ""],
+    };
 
     [Fact]
     public void CompactModelSelectorOnlyShowsCoreReadyModelsAndRefreshesAfterInstallation()

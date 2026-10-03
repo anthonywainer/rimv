@@ -1,6 +1,6 @@
 use rimv_core_ffi::{
     API_VERSION, RimvEngine, rimv_api_version, rimv_engine_create, rimv_engine_destroy,
-    rimv_engine_request, rimv_string_free,
+    rimv_engine_request, rimv_language_presentations, rimv_string_free,
 };
 use serde_json::{Value, json};
 use std::{
@@ -53,6 +53,24 @@ fn create_engine(root: &Path) -> (Engine, Value) {
         OwnedResponse(unsafe { rimv_engine_create(config.as_ptr(), &mut handle) }).json();
     assert!(!handle.is_null());
     (Engine(handle), response)
+}
+
+#[test]
+fn language_presentation_abi_returns_shared_metadata_and_preserves_provider_ids() {
+    let input = CString::new(r#"["en","en-GB","es"]"#).unwrap();
+    // SAFETY: the input is a valid NUL-terminated JSON string and the returned
+    // value is owned by this test and released through the stable string ABI.
+    let presentations = unsafe { rimv_language_presentations(input.as_ptr()) };
+    let values = OwnedResponse(presentations).json();
+    assert_eq!(values[0]["id"], "en");
+    assert_eq!(values[0]["locale"], "en-US");
+    assert_eq!(values[0]["region_name"], "United States");
+    assert_eq!(values[0]["flag"], "🇺🇸");
+    assert_eq!(values[1]["id"], "en-GB");
+    assert_eq!(values[1]["locale"], "en-GB");
+    assert_eq!(values[1]["region_name"], "United Kingdom");
+    assert_eq!(values[1]["flag"], "🇬🇧");
+    assert_eq!(values[2]["id"], "es");
 }
 
 #[test]

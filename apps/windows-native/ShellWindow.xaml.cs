@@ -5,7 +5,6 @@ using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using System.Diagnostics;
-using System.Globalization;
 using Windows.System;
 using WinRT.Interop;
 
@@ -276,8 +275,11 @@ public sealed partial class ShellWindow : Window
 
         ModelRecord? model = _coordinator.Models.FirstOrDefault(item => item.Descriptor.Id == _coordinator.SelectedModelId);
         ModelName.Text = model?.Descriptor.DisplayName ?? "Choose a model";
-        LanguageName.Text = DisplayLanguage(_coordinator.SelectedLanguage,
-            model?.Descriptor.Capabilities.SupportsLanguageDetection == true);
+        bool supportsLanguageDetection = model?.Descriptor.Capabilities.SupportsLanguageDetection == true;
+        LanguagePresentation? languagePresentation = PresentLanguage(_coordinator.SelectedLanguage);
+        LanguageName.Text = languagePresentation?.LanguageName
+            ?? (supportsLanguageDetection ? "Auto Detect" : "Default");
+        LanguageFlag.Text = languagePresentation?.Flag ?? (supportsLanguageDetection ? "✨" : "🌐");
         ErrorMessage.Text = _coordinator.ErrorMessage ?? "";
         ErrorCard.Visibility = visibleError ? Visibility.Visible : Visibility.Collapsed;
         ModelInfo.Message = !_coordinator.IsCoreAvailable
@@ -291,12 +293,10 @@ public sealed partial class ShellWindow : Window
             || model is null || model.State != "installed";
     }
 
-    private static string DisplayLanguage(string? code, bool supportsDetection)
-    {
-        if (string.IsNullOrWhiteSpace(code) || code == "auto") return supportsDetection ? "Auto Detect" : "Default";
-        try { return CultureInfo.GetCultureInfo(code).EnglishName; }
-        catch (CultureNotFoundException) { return code; }
-    }
+    private static LanguagePresentation? PresentLanguage(string? code) =>
+        string.IsNullOrWhiteSpace(code) || code == "auto"
+            ? null
+            : CoreClient.PresentLanguages([code]).FirstOrDefault();
 
     private async void ListenButton_Click(object sender, RoutedEventArgs e) => await _coordinator.StartOrStopAsync();
     private void DismissError_Click(object sender, RoutedEventArgs e) => _coordinator.ClearError();

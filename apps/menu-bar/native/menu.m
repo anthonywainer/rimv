@@ -830,9 +830,7 @@ static NSString *elapsed(uint64_t milliseconds) {
     NSString *sharedTitle = presentation[@"language_name"];
     NSString *sharedRegion = presentation[@"region_name"];
     if (sharedTitle.length) {
-        NSString *languagePart = [code stringByReplacingOccurrencesOfString:@"_" withString:@"-"];
-        BOOL isRegionalLocale = [languagePart containsString:@"-"];
-        if (isRegionalLocale && sharedRegion.length) {
+        if (sharedRegion.length) {
             return [NSString stringWithFormat:@"%@ (%@)", sharedTitle, sharedRegion];
         }
         return sharedTitle;
@@ -920,7 +918,9 @@ static NSString *elapsed(uint64_t milliseconds) {
     scroll.hasVerticalScroller = YES;
     scroll.autohidesScrollers = YES;
     scroll.drawsBackground = NO;
-    self.languageListDocument = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 300, 1)];
+    // The scroll view's document must share the selector's top-down coordinate
+    // system or later sections are laid out above earlier ones when displayed.
+    self.languageListDocument = [[RimvFlippedContentView alloc] initWithFrame:NSMakeRect(0, 0, 300, 1)];
     scroll.documentView = self.languageListDocument;
     [self.languagePopoverView addSubview:scroll];
     self.allLanguagesButton = [RimvHandCursorButton buttonWithTitle:@"All supported languages  ›" target:self action:@selector(toggleAllLanguages:)];
@@ -1714,7 +1714,14 @@ bool rimv_menu_self_test(void) {
         [menu toggleAllLanguages:nil];
         NSMutableArray<NSString *> *expandedCodes = [NSMutableArray array];
         NSInteger expandedSelectedCount = 0;
+        NSTextField *popularHeader = nil;
+        NSTextField *allHeader = nil;
         for (NSView *view in menu.languageListDocument.subviews) {
+            if ([view isKindOfClass:NSTextField.class]) {
+                NSTextField *label = (NSTextField *)view;
+                if ([label.stringValue isEqualToString:@"POPULAR LANGUAGES"]) popularHeader = label;
+                if ([label.stringValue isEqualToString:@"ALL SUPPORTED LANGUAGES"]) allHeader = label;
+            }
             if (![view isKindOfClass:NSButton.class]) continue;
             NSButton *option = (NSButton *)view;
             if (!option.identifier.length) continue;
@@ -1724,6 +1731,8 @@ bool rimv_menu_self_test(void) {
         passed &= expandedCodes.count == menu.supportedLanguages.count;
         passed &= [NSSet setWithArray:expandedCodes].count == expandedCodes.count;
         passed &= expandedSelectedCount == 1;
+        passed &= popularHeader != nil && allHeader != nil
+            && popularHeader.frame.origin.y < allHeader.frame.origin.y;
         passed &= [menu.allLanguagesButton.title isEqualToString:@"Show fewer languages  ⌃"];
         menu.languageSearch.stringValue = @"united kingdom";
         [menu reloadLanguageOptions];

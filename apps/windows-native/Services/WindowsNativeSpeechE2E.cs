@@ -81,7 +81,7 @@ internal static class WindowsNativeSpeechE2E
             $"Actual: {actual}",
             $"WER: {accuracy.Wer:F3}; CER: {accuracy.Cer:F3}",
             "Duplicate final text: " + duplicateFinalText,
-        ]);
+        });
         bool partialPrecedesFinal = firstPartial is { } partialTime
             && firstFinal is { } finalTime
             && partialTime < finalTime;

@@ -3,8 +3,6 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
-using Microsoft.UI.Xaml.Media.Imaging;
-using Microsoft.UI.Xaml.Shapes;
 
 namespace RimV.Windows;
 
@@ -12,7 +10,7 @@ public sealed class LanguageSelectorRow
 {
     public string Code { get; init; } = "";
     public string Name { get; init; } = "";
-    public ImageSource? Flag { get; init; }
+    public string Flag { get; init; } = "";
     public Visibility FlagVisibility { get; init; }
     public Visibility AutoDetectVisibility { get; init; }
     public string Checkmark { get; init; } = "";
@@ -22,9 +20,9 @@ public sealed class LanguageSelectorRow
 
 public sealed partial class LanguageWindow : Window
 {
-    private static readonly Dictionary<string, ImageSource> FlagSources = new(StringComparer.OrdinalIgnoreCase);
     private readonly AppCoordinator _coordinator;
     private List<string> _languages = [];
+    private IReadOnlyList<LanguagePresentation> _presentations = [];
     private bool _supportsDetection;
     private bool _showAll;
     private bool _updating;
@@ -62,9 +60,10 @@ public sealed partial class LanguageWindow : Window
         ModelRecord? selected = _coordinator.Models.FirstOrDefault(item => item.Descriptor.Id == _coordinator.SelectedModelId);
         bool installed = selected?.State == "installed";
         _languages = installed ? selected!.Descriptor.Languages : [];
+        _presentations = _languages.Count > 0 ? CoreClient.PresentLanguages(_languages) : [];
         _supportsDetection = installed && selected!.Descriptor.Capabilities.SupportsLanguageDetection;
         CurrentLanguage.Text = _coordinator.SelectedLanguage is { Length: > 0 } code
-            ? LanguageSelectorPolicy.GetName(code)
+            ? PresentTitle(code)
             : _supportsDetection ? "Auto Detect" : "Default";
         _updating = true;
         RebuildList();
@@ -74,37 +73,35 @@ public sealed partial class LanguageWindow : Window
     private void RebuildList()
     {
         string query = SearchBox.Text;
-        IEnumerable<LanguageOption> options = LanguageSelectorPolicy.Search(_languages, query);
-        LanguageOption[] all = options.ToArray();
         string selectedCode = _coordinator.SelectedLanguage ?? "auto";
-        List<LanguageOption> popular = [];
-        bool searching = !string.IsNullOrWhiteSpace(query);
-        bool autoMatches = !searching || "auto detect".Contains(query.Trim(), StringComparison.CurrentCultureIgnoreCase);
-        if (_supportsDetection && autoMatches) popular.Add(new LanguageOption("auto", "Auto Detect", null));
-        popular.AddRange(all.Take(10));
-        List<LanguageOption> remaining = all.Skip(10).ToList();
-        bool showAll = searching || _showAll;
-        if (searching)
-        {
-            popular.Clear();
-            if (_supportsDetection && autoMatches) popular.Add(new LanguageOption("auto", "Auto Detect", null));
-            popular.AddRange(all);
-        }
-
-        PopularList.ItemsSource = popular.Select(item => ToRow(item, selectedCode)).ToList();
-        bool hasRemaining = !searching && remaining.Count > 0;
-        AllHeader.Visibility = showAll && hasRemaining ? Visibility.Visible : Visibility.Collapsed;
-        AllList.Visibility = showAll && hasRemaining ? Visibility.Visible : Visibility.Collapsed;
-        AllList.ItemsSource = hasRemaining ? remaining.Select(item => ToRow(item, selectedCode)).ToList() : [];
-        AllLanguagesButton.Visibility = !searching && hasRemaining ? Visibility.Visible : Visibility.Collapsed;
-        AllLanguagesButton.Content = _showAll ? "Popular languages  ⌃" : "All supported languages  ›";
-        PopularHeader.Text = searching ? "SUPPORTED LANGUAGES" : "POPULAR LANGUAGES";
-        EmptyText.Visibility = popular.Count == 0 && remaining.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        LanguageSelectorSections sections = LanguageSelectorPolicy.Build(
+            _presentations, query, _supportsDetection, _showAll, selectedCode);
+        bool searching = sections.IsSearching;
+        bool hasRemaining = !searching && sections.HasRemaining;
+        PopularHeader.Text = searching ? "SEARCH RESULTS" : "POPULAR LANGUAGES";
+        PopularHeader.Visibility = sections.Popular.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        PopularList.ItemsSource = sections.Popular.Select(item => ToRow(item, selectedCode)).ToList();
+        AllHeader.Visibility = _showAll && hasRemaining ? Visibility.Visible : Visibility.Collapsed;
+        AllList.Visibility = _showAll && hasRemaining ? Visibility.Visible : Visibility.Collapsed;
+        AllList.ItemsSource = _showAll && hasRemaining
+            ? sections.Remaining.Select(item => ToRow(item, selectedCode)).ToList() : [];
+        AllLanguagesButton.Visibility = hasRemaining ? Visibility.Visible : Visibility.Collapsed;
+        AllLanguagesButton.Content = _showAll ? "Show fewer languages  ⌃" : "Show all supported languages  ⌄";
+        EmptyText.Visibility = sections.Popular.Count == 0 && sections.Remaining.Count == 0
+            ? Visibility.Visible : Visibility.Collapsed;
         if (_languages.Count == 0)
             EmptyText.Text = _coordinator.SelectedModelId is null
                 ? "Choose and install a model before selecting a language."
                 : "The selected model does not report supported languages.";
         else EmptyText.Text = "No supported languages match this search.";
+    }
+
+    private string PresentTitle(string code)
+    {
+        LanguagePresentation? presentation = _presentations.FirstOrDefault(item =>
+            item.Id.Equals(code, StringComparison.OrdinalIgnoreCase));
+        return presentation is null ? code : presentation.RegionName is { Length: > 0 } region
+            ? $"{presentation.LanguageName} ({region})" : presentation.LanguageName;
     }
 
     private LanguageSelectorRow ToRow(LanguageOption option, string selectedCode)
@@ -116,25 +113,16 @@ public sealed partial class LanguageWindow : Window
                 ? global::Windows.UI.Color.FromArgb(255, 23, 59, 57)
                 : global::Windows.UI.Color.FromArgb(255, 229, 245, 243)
             : Colors.Transparent;
-        string accessibleName = selected ? $"{option.Name}, selected" : option.Name;
-        string? flagRegion = option.FlagRegion;
-        ImageSource? flag = null;
-        if (flagRegion is not null)
-        {
-            if (!FlagSources.TryGetValue(flagRegion, out flag))
-            {
-                string flagPath = global::System.IO.Path.Combine(AppContext.BaseDirectory, "Assets", "Flags", $"{flagRegion}.svg");
-                flag = new SvgImageSource(new Uri(global::System.IO.Path.GetFullPath(flagPath)));
-                FlagSources.Add(flagRegion, flag);
-            }
-        }
+        string displayName = option.Code == "auto" ? option.Name
+            : option.RegionName is { Length: > 0 } region ? $"{option.Name} ({region})" : option.Name;
+        string accessibleName = selected ? $"{displayName}, selected" : displayName;
         bool autoDetect = option.Code == "auto";
         return new LanguageSelectorRow
         {
             Code = option.Code,
-            Name = option.Name,
-            Flag = flag,
-            FlagVisibility = flag is null ? Visibility.Collapsed : Visibility.Visible,
+            Name = displayName,
+            Flag = autoDetect ? "" : option.Flag,
+            FlagVisibility = autoDetect ? Visibility.Collapsed : Visibility.Visible,
             AutoDetectVisibility = autoDetect ? Visibility.Visible : Visibility.Collapsed,
             Checkmark = selected ? "✓" : "",
             AccessibleName = accessibleName,

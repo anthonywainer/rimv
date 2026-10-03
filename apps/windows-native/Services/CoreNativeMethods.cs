@@ -8,6 +8,9 @@ internal static class CoreNativeMethods
     [DllImport("rimv_core_ffi", EntryPoint = "rimv_api_version", CallingConvention = CallingConvention.Cdecl)]
     internal static extern uint ApiVersion();
 
+    [DllImport("rimv_core_ffi", EntryPoint = "rimv_language_presentations", CallingConvention = CallingConvention.Cdecl)]
+    internal static extern nint LanguagePresentations(nint languagesJson);
+
     [DllImport("rimv_core_ffi", EntryPoint = "rimv_engine_create", CallingConvention = CallingConvention.Cdecl)]
     internal static extern nint EngineCreate(nint configuration, out nint handle);
 

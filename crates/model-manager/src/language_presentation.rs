@@ -1,10 +1,13 @@
+//! Shared display metadata for provider-supplied transcription language IDs.
+//!
+//! `id` is always preserved verbatim for provider selection. `locale` is a
+//! presentation locale and may use a canonical region when the provider gives
+//! a language-level identifier such as `en`.
 use serde::Serialize;
+use std::collections::HashSet;
 
-/// Provider-independent language metadata passed to the native selector.
-/// `id` remains the exact identifier accepted by the selected provider; the
-/// locale is only used for display and region-sensitive search.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub(crate) struct LanguagePresentation {
+pub struct LanguagePresentation {
     pub id: String,
     pub locale: String,
     pub canonical_locale: String,
@@ -13,20 +16,22 @@ pub(crate) struct LanguagePresentation {
     pub region_name: Option<String>,
     pub flag: String,
     pub search_terms: Vec<String>,
-    pub supports_auto_detect: bool,
 }
 
-pub(crate) fn present_languages(
-    ids: &[String],
-    supports_auto_detect: bool,
-) -> Vec<LanguagePresentation> {
+pub fn present_languages(ids: &[String]) -> Vec<LanguagePresentation> {
+    let mut seen = HashSet::new();
     ids.iter()
-        .filter(|id| !id.eq_ignore_ascii_case("auto"))
-        .map(|id| present_language(id, supports_auto_detect))
+        .filter_map(|id| {
+            if id.eq_ignore_ascii_case("auto") || !seen.insert(id.to_ascii_lowercase()) {
+                None
+            } else {
+                Some(present_language(id))
+            }
+        })
         .collect()
 }
 
-pub(crate) fn present_language(id: &str, supports_auto_detect: bool) -> LanguagePresentation {
+pub fn present_language(id: &str) -> LanguagePresentation {
     let normalized = id.replace('_', "-");
     let mut parts = normalized.split('-');
     let language = parts.next().unwrap_or(&normalized).to_ascii_lowercase();
@@ -43,7 +48,7 @@ pub(crate) fn present_language(id: &str, supports_auto_detect: bool) -> Language
             .map(|(_, region)| region.to_owned())
     });
     let locale = if normalized.contains('-') {
-        normalized.clone()
+        normalized
     } else {
         canonical_locale.to_owned()
     };
@@ -76,7 +81,6 @@ pub(crate) fn present_language(id: &str, supports_auto_detect: bool) -> Language
         region_name,
         flag,
         search_terms,
-        supports_auto_detect,
     }
 }
 
@@ -194,48 +198,54 @@ mod tests {
     use super::*;
 
     #[test]
-    fn language_level_capabilities_get_shared_canonical_presentation() {
-        let expected = [
-            ("en", "English", "en-US", "🇺🇸"),
-            ("es", "Spanish", "es-ES", "🇪🇸"),
-            ("fr", "French", "fr-FR", "🇫🇷"),
-            ("de", "German", "de-DE", "🇩🇪"),
-            ("it", "Italian", "it-IT", "🇮🇹"),
-            ("pt", "Portuguese", "pt-PT", "🇵🇹"),
-        ];
-        for (id, name, locale, flag) in expected {
-            let presentation = present_language(id, true);
+    fn language_level_ids_get_canonical_regions_without_changing_provider_ids() {
+        for (id, name, locale, flag, region) in [
+            ("en", "English", "en-US", "🇺🇸", "United States"),
+            ("es", "Spanish", "es-ES", "🇪🇸", "Spain"),
+            ("fr", "French", "fr-FR", "🇫🇷", "France"),
+            ("de", "German", "de-DE", "🇩🇪", "Germany"),
+            ("it", "Italian", "it-IT", "🇮🇹", "Italy"),
+            ("pt", "Portuguese", "pt-PT", "🇵🇹", "Portugal"),
+        ] {
+            let presentation = present_language(id);
             assert_eq!(presentation.id, id);
             assert_eq!(presentation.language_name, name);
             assert_eq!(presentation.locale, locale);
+            assert_eq!(presentation.region_name.as_deref(), Some(region));
             assert_eq!(presentation.flag, flag);
-            assert!(presentation.supports_auto_detect);
         }
     }
 
     #[test]
-    fn regional_provider_locale_is_preserved_and_base_language_does_not_leak_it() {
-        let native = present_language("en-GB", false);
-        let parakeet = present_language("en", true);
-        assert_eq!(native.id, "en-GB");
-        assert_eq!(native.locale, "en-GB");
-        assert_eq!(native.canonical_locale, "en-US");
-        assert_eq!(native.flag, "🇬🇧");
-        assert_eq!(parakeet.id, "en");
-        assert_eq!(parakeet.locale, "en-US");
-        assert_eq!(parakeet.canonical_locale, "en-US");
-        assert_eq!(parakeet.flag, "🇺🇸");
+    fn native_bcp47_locales_keep_their_region() {
+        for (id, name, flag) in [("en-GB", "United Kingdom", "🇬🇧"), ("es-ES", "Spain", "🇪🇸")]
+        {
+            let presentation = present_language(id);
+            assert_eq!(presentation.id, id);
+            assert_eq!(presentation.locale, id);
+            assert_eq!(presentation.region_name.as_deref(), Some(name));
+            assert_eq!(presentation.flag, flag);
+        }
+    }
+
+    #[test]
+    fn search_terms_include_region_and_duplicate_provider_ids_are_removed() {
+        let ids = ["en".to_owned(), "EN".to_owned(), "en-GB".to_owned()];
+        let presentations = present_languages(&ids);
+        assert_eq!(presentations.len(), 2);
+        assert_eq!(presentations[0].id, "en");
+        assert_eq!(presentations[1].id, "en-GB");
         assert!(
-            parakeet
+            presentations[0]
                 .search_terms
                 .iter()
                 .any(|term| term == "United States")
         );
-        let latin_american_spanish = present_language("es-419", false);
-        assert_eq!(
-            latin_american_spanish.region_name.as_deref(),
-            Some("Latin America")
+        assert!(
+            presentations[1]
+                .search_terms
+                .iter()
+                .any(|term| term == "United Kingdom")
         );
-        assert_eq!(latin_american_spanish.flag, "🌐");
     }
 }

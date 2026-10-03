@@ -1,11 +1,10 @@
-#[cfg(test)]
-use crate::language_presentation::present_language;
-use crate::language_presentation::present_languages;
 use engine_runtime::{
     AsrBackendKind, EngineCommand, EngineConfig, EngineEvent, EngineRuntime, EngineSnapshot,
     SubscriptionError,
 };
-use model_manager::{ModelDescriptor, ModelManager, ModelState};
+#[cfg(test)]
+use model_manager::present_language;
+use model_manager::{ModelDescriptor, ModelManager, ModelState, present_languages};
 use std::{
     ffi::{CStr, CString, c_char},
     path::PathBuf,
@@ -665,7 +664,7 @@ fn update_selector_state(model: Option<&ModelDescriptor>, native: bool) {
     };
     let supports_auto_detect =
         !native && model.is_some_and(|model| model.capabilities.supports_language_detection);
-    let language_presentations = present_languages(&languages, supports_auto_detect);
+    let language_presentations = present_languages(&languages);
     let state = serde_json::json!({
         "model": if native { "Native" } else { model.map(|model| model.display_name.as_str()).unwrap_or("No model") },
         "languages": languages,
@@ -977,7 +976,7 @@ mod recording_metadata_tests {
         let language_after_switch =
             selected_language_for_model(Some("en-GB".into()), Some(parakeet));
         assert_eq!(language_after_switch, "en");
-        let presentation = present_language(&language_after_switch, true);
+        let presentation = present_language(&language_after_switch);
         assert_eq!(presentation.locale, "en-US");
         assert_eq!(presentation.flag, "🇺🇸");
         assert_eq!(
@@ -1002,10 +1001,7 @@ mod recording_metadata_tests {
             .map(str::to_owned)
             .collect::<Vec<_>>()
         );
-        let parakeet_presentations = present_languages(
-            &parakeet.languages,
-            parakeet.capabilities.supports_language_detection,
-        );
+        let parakeet_presentations = present_languages(&parakeet.languages);
         for (id, flag) in [
             ("en", "🇺🇸"),
             ("es", "🇪🇸"),
@@ -1019,16 +1015,12 @@ mod recording_metadata_tests {
                 .find(|presentation| presentation.id == id)
                 .unwrap();
             assert_eq!(presentation.flag, flag);
-            assert!(presentation.supports_auto_detect);
         }
 
         let whisper = models.descriptor("whisper-tiny").unwrap();
         assert_eq!(whisper.languages, ["en", "es", "ru"].map(str::to_owned));
         assert!(whisper.capabilities.supports_language_detection);
-        let whisper_presentations = present_languages(
-            &whisper.languages,
-            whisper.capabilities.supports_language_detection,
-        );
+        let whisper_presentations = present_languages(&whisper.languages);
         assert_eq!(
             whisper_presentations
                 .iter()

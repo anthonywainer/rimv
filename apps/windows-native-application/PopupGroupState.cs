@@ -73,72 +73,67 @@ public static class SelectorPopupPositioner
     }
 }
 
-public sealed record LanguageOption(string Code, string Name, string? FlagRegion);
+public sealed record LanguageOption(
+    string Code, string Name, string Locale, string CanonicalLocale,
+    string? RegionName, string? RegionCode, string Flag, IReadOnlyList<string> SearchTerms);
+
+public sealed record LanguageSelectorSections(
+    IReadOnlyList<LanguageOption> Popular, IReadOnlyList<LanguageOption> Remaining, bool IsSearching)
+{
+    public bool HasRemaining => Remaining.Count > 0;
+}
 
 public static class LanguageSelectorPolicy
 {
-    private static readonly string[] PopularCodes = ["en", "es", "fr", "de", "pt", "it", "nl", "pl", "ru", "uk"];
-    private static readonly HashSet<string> FlagRegions = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "bg", "hr", "cz", "dk", "nl", "us", "gb", "mx", "br", "ca", "au", "ee", "fi", "fr", "de",
-        "gr", "hu", "it", "lv", "lt", "mt", "pl", "pt", "ro", "sk", "si", "es", "se", "ru", "ua",
-        "jp", "cn", "tw", "kr", "sa", "in", "tr", "no", "il", "th", "vn", "id", "my",
-    };
+    private static readonly string[] PopularLanguages = ["en", "es", "fr", "de", "it", "pt", "ja", "zh", "ko"];
 
-    public static IReadOnlyList<string> OrderSupported(IEnumerable<string> supported) =>
-        supported.Distinct(StringComparer.OrdinalIgnoreCase)
-            .OrderBy(PopularIndex)
-            .ThenBy(code => code, StringComparer.OrdinalIgnoreCase)
-            .ToArray();
-
-    private static int PopularIndex(string code)
-    {
-        string language = code.Split('-', 2)[0].ToLowerInvariant();
-        int index = Array.IndexOf(PopularCodes, language);
-        return index >= 0 ? index : int.MaxValue;
-    }
-
-    public static IEnumerable<LanguageOption> Search(IEnumerable<string> supported, string? query)
+    public static LanguageSelectorSections Build(IEnumerable<LanguagePresentation> supported,
+        string? query, bool supportsAutoDetect, bool showAll, string? selectedCode)
     {
         string normalized = query?.Trim() ?? "";
-        foreach (string code in OrderSupported(supported))
+        bool searching = normalized.Length > 0;
+        List<LanguageOption> all = supported
+            .Where(item => !string.IsNullOrWhiteSpace(item.Id) && !item.Id.Equals("auto", StringComparison.OrdinalIgnoreCase))
+            .GroupBy(item => item.Id, StringComparer.OrdinalIgnoreCase)
+            .Select(group => group.First())
+            .Select(ToOption)
+            .OrderBy(item => item.Name, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(item => item.RegionName, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(item => item.Code, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (searching)
         {
-            string name = GetName(code);
-            if (normalized.Length == 0 || code.Contains(normalized, StringComparison.CurrentCultureIgnoreCase)
-                || name.Contains(normalized, StringComparison.CurrentCultureIgnoreCase))
-                yield return new LanguageOption(code, name, GetFlagRegion(code));
+            all = all.Where(item => item.Code.Contains(normalized, StringComparison.OrdinalIgnoreCase)
+                || item.Name.Contains(normalized, StringComparison.OrdinalIgnoreCase)
+                || (item.RegionName?.Contains(normalized, StringComparison.OrdinalIgnoreCase) ?? false)
+                || item.SearchTerms.Any(term => term.Contains(normalized, StringComparison.OrdinalIgnoreCase))).ToList();
+            if (supportsAutoDetect && "auto detect".Contains(normalized, StringComparison.OrdinalIgnoreCase))
+                return new([AutoDetect], all, true);
+            return new(all, [], true);
         }
-    }
 
-    public static string GetName(string code)
-    {
-        string language = code.Split('-', 2)[0];
-        try { return System.Globalization.CultureInfo.GetCultureInfo(language).EnglishName; }
-        catch (System.Globalization.CultureNotFoundException) { return code; }
-    }
-
-    /// <summary>Maps a language tag to its display flag region; language and country codes are distinct.</summary>
-    public static string? GetFlagRegion(string code)
-    {
-        string[] subtags = code.Split('-', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        string language = subtags.FirstOrDefault()?.ToLowerInvariant() ?? "";
-        if (language == "zh" && subtags.Skip(1).Any(tag => tag.Equals("Hant", StringComparison.OrdinalIgnoreCase)))
-            return "tw";
-        string? explicitRegion = subtags.Skip(1).FirstOrDefault(tag => tag.Length == 2 && tag.All(char.IsAsciiLetter));
-        if (explicitRegion is not null && FlagRegions.Contains(explicitRegion)) return explicitRegion.ToLowerInvariant();
-
-        return language switch
+        List<LanguageOption> popular = [];
+        if (supportsAutoDetect) popular.Add(AutoDetect);
+        List<LanguageOption> remaining = [.. all];
+        foreach (string language in PopularLanguages)
         {
-            "bg" => "bg", "hr" => "hr", "cs" => "cz", "da" => "dk", "nl" => "nl",
-            "en" => "us", "et" => "ee", "fi" => "fi", "fr" => "fr", "de" => "de",
-            "el" => "gr", "hu" => "hu", "it" => "it", "lv" => "lv", "lt" => "lt",
-            "mt" => "mt", "pl" => "pl", "pt" => "pt", "ro" => "ro", "sk" => "sk",
-            "sl" => "si", "es" => "es", "sv" => "se", "ru" => "ru", "uk" => "ua",
-            "ja" => "jp", "zh" => "cn", "ko" => "kr", "ar" => "sa", "hi" => "in",
-            "tr" => "tr", "no" => "no", "he" => "il", "th" => "th", "vi" => "vn",
-            "id" => "id", "ms" => "my", _ => null,
-        };
+            LanguageOption[] candidates = all.Where(item => BaseLanguage(item.Code) == language).ToArray();
+            if (candidates.Length == 0) continue;
+            LanguageOption preferred = candidates.FirstOrDefault(item =>
+                    item.Code.Equals(selectedCode, StringComparison.OrdinalIgnoreCase))
+                ?? candidates.FirstOrDefault(item => item.Locale.Equals(item.CanonicalLocale, StringComparison.OrdinalIgnoreCase))
+                ?? candidates[0];
+            popular.Add(preferred);
+            remaining.RemoveAll(item => item.Code.Equals(preferred.Code, StringComparison.OrdinalIgnoreCase));
+        }
+        return new(popular, remaining, false);
     }
+
+    private static LanguageOption ToOption(LanguagePresentation item) => new(item.Id, item.LanguageName,
+        item.Locale, item.CanonicalLocale, item.RegionName, item.RegionCode, item.Flag, item.SearchTerms);
+    private static string BaseLanguage(string code) => code.Split('-', 2)[0].ToLowerInvariant();
+    private static LanguageOption AutoDetect { get; } = new("auto", "Auto Detect", "", "", null, null, "✨", ["auto", "auto detect"]);
 }
 
 public static class ModelSelectorPolicy

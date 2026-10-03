@@ -20,6 +20,23 @@ internal sealed class CoreClient : ISharedCoreClient
         PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
     };
 
+    internal static IReadOnlyList<LanguagePresentation> PresentLanguages(IEnumerable<string> languages)
+    {
+        string json = JsonSerializer.Serialize(languages);
+        nint input = Marshal.StringToCoTaskMemUTF8(json);
+        try
+        {
+            nint response = CoreNativeMethods.LanguagePresentations(input);
+            if (response == 0) throw new InvalidOperationException("The shared language presentation service failed.");
+            string payload;
+            try { payload = Marshal.PtrToStringUTF8(response) ?? "[]"; }
+            finally { CoreNativeMethods.StringFree(response); }
+            return JsonSerializer.Deserialize<List<LanguagePresentation>>(payload, JsonOptions)
+                ?? throw new InvalidOperationException("The shared language presentation response was empty.");
+        }
+        finally { Marshal.FreeCoTaskMem(input); }
+    }
+
     public static CoreClient Create(string recordingsDirectory, string modelsDirectory, IAppLog log)
     {
         uint version = CoreNativeMethods.ApiVersion();
