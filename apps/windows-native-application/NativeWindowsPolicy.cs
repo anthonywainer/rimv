@@ -24,6 +24,16 @@ public static class NativeWindowsPolicy
         _ => "start_capture",
     };
 
+    public static string CaptureActionLabel(string status, bool preparingSpeechDetector, bool visibleError) =>
+        preparingSpeechDetector ? "Preparing speech detector…" : status switch
+        {
+            "starting" => "Starting…",
+            "stopping" => "Stopping…",
+            "recording" => "Stop Listening",
+            "error" when visibleError => "Retry Listening",
+            _ => "Start Listening",
+        };
+
     public static bool ShouldAcceptSnapshot(ulong currentRevision, ulong incomingRevision) =>
         incomingRevision >= currentRevision;
 

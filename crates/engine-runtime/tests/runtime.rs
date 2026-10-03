@@ -246,41 +246,57 @@ fn repeated_commands_return_errors_and_publish_them() {
 }
 
 #[test]
-fn partial_failure_keeps_healthy_source_and_can_retry() {
-    let (engine, _directory, controls) = setup();
+fn both_rolls_back_microphone_when_system_fails_then_retries_cleanly() {
+    let (engine, directory, controls) = setup();
     controls.lock().unwrap()[1].fail_start = true;
     engine.set_system_audio_enabled(true).unwrap();
-    let snapshot = engine.start_capture().unwrap();
-    assert_eq!(snapshot.status, EngineStatus::Recording);
-    assert!(snapshot.microphone.active);
-    assert!(snapshot.system_audio.enabled && !snapshot.system_audio.active);
-    assert_eq!(
-        snapshot.system_audio.last_error.unwrap().code,
-        EngineErrorCode::PermissionDenied
-    );
+    let error = engine.start_capture().unwrap_err();
+    assert_eq!(error.code, EngineErrorCode::NoActiveSource);
+    let failed = engine.snapshot();
+    assert_eq!(failed.status, EngineStatus::Error);
+    assert!(failed.session.is_none());
+    assert!(!failed.microphone.active && !failed.system_audio.active);
+    assert_eq!(controls.lock().unwrap()[0].stops, 1);
+    assert!(directory.path().read_dir().unwrap().next().is_none());
+
     controls.lock().unwrap()[1].fail_start = false;
-    let snapshot = engine.set_system_audio_enabled(true).unwrap();
-    assert!(snapshot.system_audio.active);
-    assert!(snapshot.system_audio.last_error.is_none());
+    let snapshot = engine.start_capture().unwrap();
+    assert!(snapshot.microphone.active && snapshot.system_audio.active);
+    assert_eq!(directory.path().read_dir().unwrap().count(), 1);
     engine.shutdown().unwrap();
 }
 
 #[test]
-fn all_start_failures_end_in_error_and_next_start_recovers() {
-    let (engine, _directory, controls) = setup();
+fn both_rolls_back_system_when_microphone_fails() {
+    let (engine, directory, controls) = setup();
     controls.lock().unwrap()[0].fail_start = true;
+    engine.set_system_audio_enabled(true).unwrap();
     assert_eq!(
         engine.start_capture().unwrap_err().code,
         EngineErrorCode::NoActiveSource
     );
-    assert_eq!(engine.snapshot().status, EngineStatus::Error);
-    let failed_id = engine.snapshot().session.unwrap().id;
-    controls.lock().unwrap()[0].fail_start = false;
-    let recovered = engine.start_capture().unwrap();
-    assert_eq!(recovered.status, EngineStatus::Recording);
-    assert_ne!(recovered.session.unwrap().id, failed_id);
-    assert_eq!(recovered.dropped_microphone_blocks, 0);
-    engine.shutdown().unwrap();
+    let failed = engine.snapshot();
+    assert_eq!(failed.status, EngineStatus::Error);
+    assert!(failed.session.is_none());
+    assert!(!failed.microphone.active && !failed.system_audio.active);
+    assert_eq!(controls.lock().unwrap()[1].opens, 1);
+    assert_eq!(controls.lock().unwrap()[1].stops, 1);
+    assert!(directory.path().read_dir().unwrap().next().is_none());
+}
+
+#[test]
+fn repeated_failed_starts_leave_no_sessions_or_files() {
+    let (engine, directory, controls) = setup();
+    controls.lock().unwrap()[0].fail_start = true;
+    for _ in 0..3 {
+        assert_eq!(
+            engine.start_capture().unwrap_err().code,
+            EngineErrorCode::NoActiveSource
+        );
+        assert!(engine.snapshot().session.is_none());
+        assert!(directory.path().read_dir().unwrap().next().is_none());
+    }
+    assert_eq!(controls.lock().unwrap()[0].opens, 3);
 }
 
 #[test]

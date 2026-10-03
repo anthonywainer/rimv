@@ -22,6 +22,7 @@ public sealed class CoreSnapshot
 public sealed class CoreError
 {
     [JsonPropertyName("code")] public string Code { get; init; } = "";
+    [JsonPropertyName("user_message")] public string UserMessage { get; init; } = "";
     [JsonPropertyName("message")] public string Message { get; init; } = "";
 }
 

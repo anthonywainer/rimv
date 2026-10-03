@@ -10,7 +10,7 @@
             <SolidColorBrush x:Key="RimVTextBrush" Color="#171827" />
             <SolidColorBrush x:Key="RimVSecondaryTextBrush" Color="#5E6475" />
             <SolidColorBrush x:Key="RimVPartialTranscriptBrush" Color="#707887" />
-            <SolidColorBrush x:Key="RimVBrandBrush" Color="#6D4DE6" />
+            <SolidColorBrush x:Key="RimVBrandBrush" Color="#0B6E69" />
             <SolidColorBrush x:Key="RimVPrimaryForegroundBrush" Color="#FFFFFF" />
             <SolidColorBrush x:Key="RimVLiveBrush" Color="#16A34A" />
             <SolidColorBrush x:Key="RimVErrorBrush" Color="#DC2626" />
@@ -19,18 +19,20 @@
             <SolidColorBrush x:Key="RimVMenuBorderBrush" Color="#D8DEDE" />
             <SolidColorBrush x:Key="RimVMenuTextBrush" Color="#17191A" />
             <SolidColorBrush x:Key="RimVMenuSecondaryTextBrush" Color="#656B6D" />
-            <SolidColorBrush x:Key="RimVMenuAccentBrush" Color="#0F817C" />
+            <SolidColorBrush x:Key="RimVMenuAccentBrush" Color="#0B6E69" />
             <SolidColorBrush x:Key="RimVMenuSelectionTextBrush" Color="#0B6E69" />
             <SolidColorBrush x:Key="RimVMenuDisabledTextBrush" Color="#596365" />
             <SolidColorBrush x:Key="RimVMenuDisabledBackgroundBrush" Color="#E7EBEB" />
             <SolidColorBrush x:Key="RimVMenuActionForegroundBrush" Color="#FFFFFF" />
             <SolidColorBrush x:Key="RimVMenuSelectedBackgroundBrush" Color="#E5F5F3" />
-            <SolidColorBrush x:Key="RimVMenuHoverBackgroundBrush" Color="#EEF7F6" />
-            <SolidColorBrush x:Key="RimVMenuPressedBackgroundBrush" Color="#0F817C" />
-            <SolidColorBrush x:Key="RimVMenuReadyBackgroundBrush" Color="#DDF2E6" />
-            <SolidColorBrush x:Key="RimVMenuReadyTextBrush" Color="#087D3C" />
-            <SolidColorBrush x:Key="RimVMenuLiveBackgroundBrush" Color="#FFF0F1" />
-            <SolidColorBrush x:Key="RimVMenuLiveTextBrush" Color="#C53C4A" />
+            <SolidColorBrush x:Key="RimVMenuHoverBackgroundBrush" Color="#F6F7FB" />
+            <SolidColorBrush x:Key="RimVMenuPressedBackgroundBrush" Color="#084C49" />
+            <SolidColorBrush x:Key="RimVMenuReadyBackgroundBrush" Color="#D1FAE5" />
+            <SolidColorBrush x:Key="RimVMenuReadyTextBrush" Color="#065F46" />
+            <SolidColorBrush x:Key="RimVMenuLiveBackgroundBrush" Color="#D1FAE5" />
+            <SolidColorBrush x:Key="RimVMenuLiveTextBrush" Color="#065F46" />
+            <SolidColorBrush x:Key="RimVMenuStopBackgroundBrush" Color="#FEE2E2" />
+            <SolidColorBrush x:Key="RimVMenuStopTextBrush" Color="#991B1B" />
         </ResourceDictionary>
         <ResourceDictionary x:Key="Dark">
             <SolidColorBrush x:Key="RimVBackgroundBrush" Color="#0B0F19" />
@@ -40,7 +42,7 @@
             <SolidColorBrush x:Key="RimVTextBrush" Color="#F9FAFB" />
             <SolidColorBrush x:Key="RimVSecondaryTextBrush" Color="#CBD5E1" />
             <SolidColorBrush x:Key="RimVPartialTranscriptBrush" Color="#AEBAC9" />
-            <SolidColorBrush x:Key="RimVBrandBrush" Color="#A78BFA" />
+            <SolidColorBrush x:Key="RimVBrandBrush" Color="#72D7D0" />
             <SolidColorBrush x:Key="RimVPrimaryForegroundBrush" Color="#0B0F19" />
             <SolidColorBrush x:Key="RimVLiveBrush" Color="#22C55E" />
             <SolidColorBrush x:Key="RimVErrorBrush" Color="#F87171" />
@@ -49,18 +51,20 @@
             <SolidColorBrush x:Key="RimVMenuBorderBrush" Color="#3A4649" />
             <SolidColorBrush x:Key="RimVMenuTextBrush" Color="#F7FAFA" />
             <SolidColorBrush x:Key="RimVMenuSecondaryTextBrush" Color="#C3CCCE" />
-            <SolidColorBrush x:Key="RimVMenuAccentBrush" Color="#0F817C" />
+            <SolidColorBrush x:Key="RimVMenuAccentBrush" Color="#0B6E69" />
             <SolidColorBrush x:Key="RimVMenuSelectionTextBrush" Color="#72D7D0" />
             <SolidColorBrush x:Key="RimVMenuDisabledTextBrush" Color="#C3CCCE" />
             <SolidColorBrush x:Key="RimVMenuDisabledBackgroundBrush" Color="#3A4649" />
             <SolidColorBrush x:Key="RimVMenuActionForegroundBrush" Color="#FFFFFF" />
             <SolidColorBrush x:Key="RimVMenuSelectedBackgroundBrush" Color="#173B39" />
-            <SolidColorBrush x:Key="RimVMenuHoverBackgroundBrush" Color="#253638" />
-            <SolidColorBrush x:Key="RimVMenuPressedBackgroundBrush" Color="#0F817C" />
-            <SolidColorBrush x:Key="RimVMenuReadyBackgroundBrush" Color="#174B34" />
-            <SolidColorBrush x:Key="RimVMenuReadyTextBrush" Color="#84E1A7" />
-            <SolidColorBrush x:Key="RimVMenuLiveBackgroundBrush" Color="#4B232E" />
-            <SolidColorBrush x:Key="RimVMenuLiveTextBrush" Color="#FF9198" />
+            <SolidColorBrush x:Key="RimVMenuHoverBackgroundBrush" Color="#0F817C" />
+            <SolidColorBrush x:Key="RimVMenuPressedBackgroundBrush" Color="#095F5B" />
+            <SolidColorBrush x:Key="RimVMenuReadyBackgroundBrush" Color="#14532D" />
+            <SolidColorBrush x:Key="RimVMenuReadyTextBrush" Color="#86EFAC" />
+            <SolidColorBrush x:Key="RimVMenuLiveBackgroundBrush" Color="#14532D" />
+            <SolidColorBrush x:Key="RimVMenuLiveTextBrush" Color="#86EFAC" />
+            <SolidColorBrush x:Key="RimVMenuStopBackgroundBrush" Color="#7F1D1D" />
+            <SolidColorBrush x:Key="RimVMenuStopTextBrush" Color="#FCA5A5" />
         </ResourceDictionary>
         <ResourceDictionary x:Key="HighContrast">
             <SolidColorBrush x:Key="RimVBackgroundBrush" Color="{ThemeResource SystemColorWindowColor}" />
@@ -91,6 +95,8 @@
             <SolidColorBrush x:Key="RimVMenuReadyTextBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
             <SolidColorBrush x:Key="RimVMenuLiveBackgroundBrush" Color="{ThemeResource SystemColorWindowColor}" />
             <SolidColorBrush x:Key="RimVMenuLiveTextBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
+            <SolidColorBrush x:Key="RimVMenuStopBackgroundBrush" Color="{ThemeResource SystemColorWindowColor}" />
+            <SolidColorBrush x:Key="RimVMenuStopTextBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
         </ResourceDictionary>
     </ResourceDictionary.ThemeDictionaries>
     <Style x:Key="RimVPrimaryButtonStyle" TargetType="Button">

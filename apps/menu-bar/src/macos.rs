@@ -541,6 +541,18 @@ fn show_error(error: &str) {
     }
 }
 
+fn show_engine_error(error: &engine_runtime::EngineError) {
+    eprintln!("{error}");
+    let message = if error.user_message.is_empty() {
+        "RimV could not start listening. Try again."
+    } else {
+        &error.user_message
+    };
+    if let Ok(text) = CString::new(message) {
+        unsafe { rimv_menu_error(text.as_ptr()) };
+    }
+}
+
 fn update(snapshot: &engine_runtime::EngineSnapshot) {
     if let Ok(json) = serde_json::to_string(snapshot)
         && let Ok(text) = CString::new(json)
@@ -895,6 +907,10 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     config.transcription.language =
         (selected_language != "auto").then_some(selected_language.clone());
     config.transcription_enabled = selected_model.is_some();
+    // A selected speech engine is part of Start Listening's transaction on
+    // macOS: don't begin capture and persist an empty recording if it fails
+    // to initialize. Native Apple Speech will use the same preflight path.
+    config.transcription.preflight_vad = true;
     if let Some(selected) = selected.filter(|path| path.exists()) {
         config.transcription.model_path = Some(selected);
     }
@@ -971,7 +987,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
                         let next_source =
                             capture_source_after_command(saved_capture_source(&support), &command);
                         match controller_engine.send(command) {
-                            Err(error) => show_error(&error.to_string()),
+                            Err(error) => show_engine_error(&error),
                             Ok(_) => {
                                 if next_source != saved_capture_source(&support)
                                     && let Err(error) =
@@ -1155,7 +1171,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             loop {
                 match events.recv() {
                     Ok(EngineEvent::Snapshot { snapshot }) => update(&snapshot),
-                    Ok(EngineEvent::Error { error }) => show_error(&error.to_string()),
+                    Ok(EngineEvent::Error { error }) => show_engine_error(&error),
                     Ok(EngineEvent::TranscriptUpdate { update }) => {
                         update_transcription_window(&listener_engine, &update)
                     }
@@ -1164,7 +1180,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
                     // events here, or the live window could duplicate text.
                     Ok(EngineEvent::TranscriptPartial { .. })
                     | Ok(EngineEvent::TranscriptFinal { .. }) => {}
-                    Ok(EngineEvent::TranscriptionError { error }) => show_error(&error.to_string()),
+                    Ok(EngineEvent::TranscriptionError { error }) => show_engine_error(&error),
                     Err(SubscriptionError::Lagged { .. }) => update(&listener_engine.snapshot()),
                     Err(SubscriptionError::Closed) => break,
                     Err(SubscriptionError::Timeout) => {}

@@ -270,38 +270,25 @@ impl Controller {
             if let Err(error) = self.wait_for_transcription_initialization()
                 && self.config.transcription.preflight_vad
             {
-                if let Some(mut session) = self.session.take() {
-                    if let Some((mut worker, _)) = session.transcription.take() {
-                        worker.shutdown();
-                    }
-                    let _ = std::fs::remove_dir_all(&session.directory);
-                }
-                self.state.session = None;
-                self.state.elapsed_ms = 0;
-                self.state.status = EngineStatus::Error;
-                self.publish();
+                self.rollback_failed_start();
                 return Err(error);
             }
         }
+        let mut start_error = None;
         for source in SOURCES {
             if self.source(source).enabled
                 && let Err(error) = self.activate(source)
             {
-                self.report(error);
+                self.report(error.clone());
+                start_error.get_or_insert(error);
             }
         }
-        let active = self
-            .session
-            .as_ref()
-            .is_some_and(|s| s.microphone.active() || s.system.active());
-        if !active {
-            let error = EngineError::new(
+        if start_error.is_some() {
+            self.rollback_failed_start();
+            return Err(EngineError::new(
                 EngineErrorCode::NoActiveSource,
-                "all selected sources failed; see source errors",
-            );
-            self.report(error.clone());
-            let _ = self.finish(EngineStatus::Error);
-            return Err(error);
+                "one or more selected sources failed to start; see source errors",
+            ));
         }
         // The session timer starts when best-effort startup finishes. Source
         // clocks remain independent; this is not hardware synchronization.
@@ -313,6 +300,39 @@ impl Controller {
         self.next_tick = Instant::now() + self.config.snapshot_interval;
         self.publish();
         Ok(())
+    }
+
+    fn rollback_failed_start(&mut self) {
+        tracing::info!("rolling back failed capture session");
+        let Some(mut session) = self.session.take() else {
+            self.state.status = EngineStatus::Error;
+            self.state.session = None;
+            self.state.elapsed_ms = 0;
+            return;
+        };
+        if let Some((mut worker, _)) = session.transcription.take() {
+            worker.shutdown();
+        }
+        for source in SOURCES {
+            if let Err(error) = session.slot(source).rollback() {
+                tracing::warn!(%error, source=?error.source, "failed-start source rollback reported an error");
+            }
+        }
+        let directory = session.directory.clone();
+        drop(session);
+        if let Err(error) = std::fs::remove_dir_all(&directory) {
+            tracing::error!(%error, path=%directory.display(), "failed to remove attempted session directory");
+        } else {
+            tracing::info!(path=%directory.display(), "temporary capture session removed");
+        }
+        self.state.microphone.active = false;
+        self.state.system_audio.active = false;
+        self.state.session = None;
+        self.state.elapsed_ms = 0;
+        self.state.dropped_microphone_blocks = 0;
+        self.state.dropped_system_blocks = 0;
+        self.state.status = EngineStatus::Error;
+        tracing::info!("engine returned to error state after startup rollback");
     }
 
     fn start_transcription(&mut self) {

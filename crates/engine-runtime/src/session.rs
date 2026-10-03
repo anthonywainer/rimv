@@ -39,6 +39,7 @@ impl SourceSlot {
         let mut stream = backend.open(self.source, config)?;
         stream.start()?;
         if !stream.is_running() {
+            let _ = stream.stop();
             return Err(EngineError::new(
                 EngineErrorCode::CaptureFailed,
                 "backend did not enter running state",
@@ -145,6 +146,11 @@ impl SourceSlot {
                 .map_err(|e| e.for_source(self.source)),
             None => Ok(None),
         }
+    }
+
+    pub fn rollback(&mut self) -> Result<()> {
+        self.recording = None;
+        self.deactivate().map(|_| ())
     }
 }
 

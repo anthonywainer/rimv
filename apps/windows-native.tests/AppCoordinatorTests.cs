@@ -161,6 +161,27 @@ public sealed class AppCoordinatorTests
     }
 
     [Fact]
+    public async Task EngineErrorsUseSharedUserCopyAndKeepTechnicalDetailOutOfTheUi()
+    {
+        using var temporary = new TemporaryDirectory();
+        var factory = new FakeCoreFactory();
+        var coordinator = CreateCoordinator(temporary.Path, factory, UserPreferences.Default);
+        await coordinator.InitializeAsync();
+        using JsonDocument payload = JsonDocument.Parse("""
+            {"error":{"code":"transcription_failed","user_message":"Speech engine could not start.","message":"Silero VAD model path is not configured"}}
+            """);
+
+        await factory.Client.PublishAsync(new CoreEvent("error", payload.RootElement.Clone()));
+        await Task.Delay(20);
+
+        Assert.Equal("Speech engine could not start.", coordinator.ErrorMessage);
+        Assert.Contains("Silero VAD", coordinator.LastErrorDetail, StringComparison.Ordinal);
+        coordinator.ClearError();
+        Assert.Null(coordinator.ErrorMessage);
+        await coordinator.ShutdownAsync();
+    }
+
+    [Fact]
     public async Task ModelRemovalUsesSharedCoreCommandAndRefreshesCatalog()
     {
         using var temporary = new TemporaryDirectory();

@@ -44,7 +44,7 @@ Each platform exposes **semantic names** to components and maps those names to s
   --rimv-text-primary: #171827;
   --rimv-live: #16A34A;
   --rimv-ai: #7C3AED;
-  --rimv-action: #6D4DE6;
+  --rimv-action: #0B6E69;
   --rimv-on-action: #FFFFFF;
 }
 @media (prefers-color-scheme: dark) {
@@ -54,7 +54,7 @@ Each platform exposes **semantic names** to components and maps those names to s
     --rimv-text-primary: #F9FAFB;
     --rimv-live: #22C55E;
     --rimv-ai: #A78BFA;
-    --rimv-action: #2F3747;
+    --rimv-action: #0B6E69;
     --rimv-on-action: #F9FAFB;
   }
 }

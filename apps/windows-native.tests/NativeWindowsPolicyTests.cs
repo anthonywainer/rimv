@@ -41,6 +41,16 @@ public sealed class NativeWindowsPolicyTests
         Assert.Equal(expected, NativeWindowsPolicy.ListeningCommand(status));
 
     [Theory]
+    [InlineData("idle", false, false, "Start Listening")]
+    [InlineData("starting", false, false, "Starting…")]
+    [InlineData("starting", true, false, "Preparing speech detector…")]
+    [InlineData("recording", false, false, "Stop Listening")]
+    [InlineData("stopping", false, false, "Stopping…")]
+    [InlineData("error", false, true, "Retry Listening")]
+    public void CaptureActionLabelMatchesEngineState(string status, bool preparing, bool visibleError, string expected) =>
+        Assert.Equal(expected, NativeWindowsPolicy.CaptureActionLabel(status, preparing, visibleError));
+
+    [Theory]
     [InlineData(4UL, 3UL, false)]
     [InlineData(4UL, 4UL, true)]
     [InlineData(4UL, 5UL, true)]
@@ -125,6 +135,9 @@ public sealed class NativeWindowsPolicyTests
             Assert.True(MenuContrastPolicy.ContrastRatio(Color("RimVMenuSecondaryTextBrush"), Color("RimVMenuSurfaceBrush")) >= 4.5);
             Assert.True(MenuContrastPolicy.ContrastRatio(Color("RimVMenuDisabledTextBrush"), Color("RimVMenuDisabledBackgroundBrush")) >= 4.5);
             Assert.True(MenuContrastPolicy.ContrastRatio(Color("RimVMenuActionForegroundBrush"), Color("RimVMenuAccentBrush")) >= 4.5);
+            Assert.True(MenuContrastPolicy.ContrastRatio(Color("RimVMenuLiveTextBrush"), Color("RimVMenuLiveBackgroundBrush")) >= 4.5);
+            Assert.True(MenuContrastPolicy.ContrastRatio(Color("RimVMenuStopTextBrush"), Color("RimVMenuStopBackgroundBrush")) >= 4.5);
+            Assert.True(MenuContrastPolicy.ContrastRatio(Color("RimVMenuReadyTextBrush"), Color("RimVMenuReadyBackgroundBrush")) >= 4.5);
             Assert.True(MenuContrastPolicy.ContrastRatio(Color("RimVMenuSelectionTextBrush"), Color("RimVMenuSelectedBackgroundBrush")) >= 4.5);
         }
 

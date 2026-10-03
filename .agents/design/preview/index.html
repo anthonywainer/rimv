@@ -8,7 +8,7 @@
 :root { --background: #EEF2FA;
 --surface: #FFFFFF;
 --surface-secondary: #F6F7FB;
---surface-tertiary: #ECE9FF;
+--surface-tertiary: #E5F5F3;
 --border: #E3E6EF;
 --border-strong: #D7DDED;
 --text-primary: #171827;
@@ -16,22 +16,22 @@
 --text-muted: #9AA3B5;
 --icon-primary: #171827;
 --icon-secondary: #7A8194;
---brand: #8B6FF6;
---brand-hover: #7C5EF0;
---brand-pressed: #6D4DE6;
---action-solid: #6D4DE6;
---action-solid-hover: #6241D0;
---action-solid-pressed: #5638BB;
+--brand: #0B6E69;
+--brand-hover: #0F817C;
+--brand-pressed: #095F5B;
+--action-solid: #0B6E69;
+--action-solid-hover: #095F5B;
+--action-solid-pressed: #084C49;
 --on-action: #FFFFFF;
 --ai: #7C3AED;
 --live: #16A34A;
 --warning: #B45309;
 --error: #DC2626;
---focus: #6D4DE6; }
+--focus: #0B6E69; }
 [data-theme="dark"] { --background: #0B0F19;
 --surface: #111827;
 --surface-secondary: #172033;
---surface-tertiary: #1F2937;
+--surface-tertiary: #173B39;
 --border: #263244;
 --border-strong: #374151;
 --text-primary: #F9FAFB;
@@ -39,18 +39,18 @@
 --text-muted: #94A3B8;
 --icon-primary: #F9FAFB;
 --icon-secondary: #CBD5E1;
---brand: #A78BFA;
---brand-hover: #C4B5FD;
---brand-pressed: #8B5CF6;
---action-solid: #2F3747;
---action-solid-hover: #3A4558;
---action-solid-pressed: #242C3A;
+--brand: #72D7D0;
+--brand-hover: #94E5DF;
+--brand-pressed: #4FC7BF;
+--action-solid: #0B6E69;
+--action-solid-hover: #0F817C;
+--action-solid-pressed: #095F5B;
 --on-action: #F9FAFB;
 --ai: #A78BFA;
 --live: #22C55E;
 --warning: #FBBF24;
 --error: #F87171;
---focus: #C4B5FD; }
+--focus: #72D7D0; }
 * {box-sizing:border-box} html,body{min-height:100%;margin:0}
 body {background:var(--background);color:var(--text-primary);font:14px/1.6 Inter,system-ui,-apple-system,"Segoe UI",sans-serif;transition:background .18s ease,color .18s ease}
 button,input,select{font:inherit}button{cursor:pointer}button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid var(--focus);outline-offset:3px}
@@ -70,15 +70,15 @@ footer{margin:22px 0 4px;color:var(--text-secondary);font-size:12px} @media(max-
 </head>
 <body data-theme="light">
 <div class="app">
-<header class="top"><div><p class="eyebrow">Part 4A· Visual proposal</p><h1>RimV Design System</h1><p class="subtitle">Neutral workspace, accessible purple actions, green live status and clear AI distinction.</p></div><div class="actions"><button id="light" class="button" aria-pressed="true">☀ Light</button><button id="dark" class="button" aria-pressed="false">☾ Dark</button></div></header>
+<header class="top"><div><p class="eyebrow">Part 4A· Visual proposal</p><h1>RimV Design System</h1><p class="subtitle">Neutral workspace, accessible green-teal actions, green live status and clear purple AI distinction.</p></div><div class="actions"><button id="light" class="button" aria-pressed="true">☀ Light</button><button id="dark" class="button" aria-pressed="false">☾ Dark</button></div></header>
 <div class="grid">
 <aside class="panel stack"><div><h2>Sessions</h2><label class="small" for="search">Search recordings</label><input class="input" id="search" placeholder="Search sessions…"></div><div class="card active"><h3>Design preview session</h3><p>Today · Illustrative data</p></div><div class="card"><h3>Previous session</h3><p>Yesterday · Illustrative data</p></div><div class="small">This is a static visual prototype, not a working transcription application.</div></aside>
 <main class="panel"><div class="eyebrow">Primary workspace</div><h2>Audio transcription</h2><div class="bar"><span id="status" class="chip"><span class="dot" style="color:var(--text-secondary)"></span><span id="status-text">Idle</span></span><span class="chip ai"><span class="dot"></span>AI available</span></div><div class="actions" style="margin-bottom:20px"><button id="record" class="button primary">Start listening</button><button class="button" disabled>Pause</button><button class="button ghost" title="This is only a visual demo">Settings</button></div><div class="card"><div class="meta">Speaker 1 · 00:12 · Final</div><div class="transcript">This sample transcript demonstrates RimV’s high-readability text and quiet surface hierarchy. It is demonstration text, not a real recording.</div></div><div class="card" style="margin-top:12px"><div class="meta">Speaker 1 · 00:24 · Partial</div><div class="transcript">New speech will appear here while the transcription engine is processing…</div></div><h2 style="margin-top:24px">Palette preview</h2><div id="swatches" class="swatches"></div></main>
-<aside class="panel side"><div class="eyebrow">Context panel</div><h2>AI insights</h2><div class="stack"><div class="card accent"><h3 style="color:var(--ai)">AI summary</h3><p>Generated content is always labeled and visually separate from the source transcript.</p></div><div class="card"><h3>Recording status</h3><p>Green is reserved for active audio capture or meaningful success states.</p></div><div class="card accent warning"><h3 style="color:var(--warning)">Attention</h3><p>Warnings explain the issue and what the user can do next.</p></div></div></aside>
+<aside class="panel side"><div class="eyebrow">Context panel</div><h2>AI insights</h2><div class="stack"><div class="card accent"><h3 style="color:var(--ai)">AI summary</h3><p>Generated content is always labeled and visually separate from the source transcript.</p></div><div class="card"><h3>Recording status</h3><p>Green-teal carries RimV brand and action emphasis; live capture always includes an explicit text or icon state.</p></div><div class="card accent warning"><h3 style="color:var(--warning)">Attention</h3><p>Warnings explain the issue and what the user can do next.</p></div></div></aside>
 </div><footer>Demo interactions: theme switch + simulated recording state only. Tokens are proposed; they do not modify RimV’s existing application styles.</footer></div>
 <script>
 const root=document.body;const el=id=>document.getElementById(id);
-const colorSets={"light":{"background":"#EEF2FA","surface":"#FFFFFF","surface-secondary":"#F6F7FB","surface-tertiary":"#ECE9FF","border":"#E3E6EF","border-strong":"#D7DDED","text-primary":"#171827","text-secondary":"#5E6475","text-muted":"#9AA3B5","icon-primary":"#171827","icon-secondary":"#7A8194","brand":"#8B6FF6","brand-hover":"#7C5EF0","brand-pressed":"#6D4DE6","action-solid":"#6D4DE6","action-solid-hover":"#6241D0","action-solid-pressed":"#5638BB","on-action":"#FFFFFF","ai":"#7C3AED","live":"#16A34A","warning":"#B45309","error":"#DC2626","focus":"#6D4DE6"},"dark":{"background":"#0B0F19","surface":"#111827","surface-secondary":"#172033","surface-tertiary":"#1F2937","border":"#263244","border-strong":"#374151","text-primary":"#F9FAFB","text-secondary":"#CBD5E1","text-muted":"#94A3B8","icon-primary":"#F9FAFB","icon-secondary":"#CBD5E1","brand":"#A78BFA","brand-hover":"#C4B5FD","brand-pressed":"#8B5CF6","action-solid":"#2F3747","action-solid-hover":"#3A4558","action-solid-pressed":"#242C3A","on-action":"#F9FAFB","ai":"#A78BFA","live":"#22C55E","warning":"#FBBF24","error":"#F87171","focus":"#C4B5FD"}};
+const colorSets={"light":{"background":"#EEF2FA","surface":"#FFFFFF","surface-secondary":"#F6F7FB","surface-tertiary":"#E5F5F3","border":"#E3E6EF","border-strong":"#D7DDED","text-primary":"#171827","text-secondary":"#5E6475","text-muted":"#9AA3B5","icon-primary":"#171827","icon-secondary":"#7A8194","brand":"#0B6E69","brand-hover":"#0F817C","brand-pressed":"#095F5B","action-solid":"#0B6E69","action-solid-hover":"#095F5B","action-solid-pressed":"#084C49","on-action":"#FFFFFF","ai":"#7C3AED","live":"#16A34A","warning":"#B45309","error":"#DC2626","focus":"#0B6E69"},"dark":{"background":"#0B0F19","surface":"#111827","surface-secondary":"#172033","surface-tertiary":"#173B39","border":"#263244","border-strong":"#374151","text-primary":"#F9FAFB","text-secondary":"#CBD5E1","text-muted":"#94A3B8","icon-primary":"#F9FAFB","icon-secondary":"#CBD5E1","brand":"#72D7D0","brand-hover":"#94E5DF","brand-pressed":"#4FC7BF","action-solid":"#0B6E69","action-solid-hover":"#0F817C","action-solid-pressed":"#095F5B","on-action":"#F9FAFB","ai":"#A78BFA","live":"#22C55E","warning":"#FBBF24","error":"#F87171","focus":"#72D7D0"}};
 function updateTheme(t){root.dataset.theme=t;el('light').setAttribute('aria-pressed',t==='light');el('dark').setAttribute('aria-pressed',t==='dark');el('swatches').innerHTML=Object.entries(colorSets[t]).filter(([k])=>['background','surface','surface-secondary','surface-tertiary','brand','action-solid','live','ai','warning','error','text-primary','border'].includes(k)).map(([name,color])=>`<div class="swatch"><div class="fill" style="background:${color}"></div><span>${name}<br>${color}</span></div>`).join('');}
 el('light').addEventListener('click',()=>updateTheme('light'));el('dark').addEventListener('click',()=>updateTheme('dark'));
 let live=false;el('record').addEventListener('click',()=>{live=!live;el('record').textContent=live?'Stop listening':'Start listening';el('status-text').textContent=live?'Recording (simulated)':'Idle';el('status').className=live?'chip live':'chip';});updateTheme('light');

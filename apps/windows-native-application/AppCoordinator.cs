@@ -423,10 +423,14 @@ public sealed class AppCoordinator
                     break;
                 case "error":
                 case "transcription_error":
-                    string message = item.Payload.TryGetProperty("error", out JsonElement error) && error.TryGetProperty("message", out JsonElement text)
+                    JsonElement error = item.Payload.TryGetProperty("error", out JsonElement payloadError)
+                        ? payloadError : default;
+                    string message = error.ValueKind == JsonValueKind.Object && error.TryGetProperty("message", out JsonElement text)
                         ? text.GetString() ?? "RimV encountered a recoverable error."
                         : "RimV encountered a recoverable error.";
-                    SetError(ToFriendlyError(message), message);
+                    string userMessage = error.ValueKind == JsonValueKind.Object && error.TryGetProperty("user_message", out JsonElement userText)
+                        ? userText.GetString() ?? "" : "";
+                    SetError(string.IsNullOrWhiteSpace(userMessage) ? ToFriendlyError(message) : userMessage, message);
                     break;
             }
             CoreEventReceived?.Invoke(item);
@@ -486,6 +490,7 @@ public sealed class AppCoordinator
     {
         ErrorMessage = null;
         LastErrorDetail = null;
+        NotifyChanged();
     }
 
     private void SetError(string message, string detail)

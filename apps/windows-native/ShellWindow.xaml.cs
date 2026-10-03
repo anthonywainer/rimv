@@ -4,6 +4,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
+using System.Diagnostics;
 using System.Globalization;
 using Windows.System;
 using WinRT.Interop;
@@ -190,17 +191,20 @@ public sealed partial class ShellWindow : Window
     private void Render()
     {
         CoreSnapshot state = _coordinator.Snapshot;
+        bool visibleError = _coordinator.ErrorMessage is not null;
         string status = state.Status switch
         {
             "idle" => "Ready",
             "starting" => "Starting",
             "recording" => "Listening",
             "stopping" => "Stopping",
-            "error" => "Error",
+            "error" when visibleError => "Error",
+            "error" => "Ready",
             _ => state.Status,
         };
         StatusText.Text = _coordinator.IsCoreAvailable ? status : "Unavailable";
-        bool unavailable = !_coordinator.IsCoreAvailable || state.Status == "error";
+        BrandSubtitle.Text = visibleError ? "Capture needs attention" : "Real-time transcription";
+        bool unavailable = !_coordinator.IsCoreAvailable || visibleError;
         Brush statusBrush = (Brush)Microsoft.UI.Xaml.Application.Current.Resources[
             unavailable ? "RimVErrorBrush" : "RimVMenuReadyTextBrush"];
         StatusText.Foreground = statusBrush;
@@ -209,18 +213,20 @@ public sealed partial class ShellWindow : Window
             unavailable ? "RimVMenuPanelBrush" : "RimVMenuReadyBackgroundBrush"];
         bool transition = state.Status is "starting" or "stopping" || _coordinator.IsPreparingToListen;
         bool canListen = _coordinator.IsCoreAvailable && !transition;
+        bool listening = state.Status is "recording" or "starting";
         ListenButton.IsEnabled = canListen;
         ListenButton.Background = (Brush)Microsoft.UI.Xaml.Application.Current.Resources[
-            canListen ? "RimVMenuAccentBrush" : "RimVMenuDisabledBackgroundBrush"];
+            !canListen ? "RimVMenuDisabledBackgroundBrush"
+                : listening ? "RimVMenuStopBackgroundBrush" : "RimVMenuAccentBrush"];
         Brush listenForeground = (Brush)Microsoft.UI.Xaml.Application.Current.Resources[
-            canListen ? "RimVMenuActionForegroundBrush" : "RimVMenuDisabledTextBrush"];
+            !canListen ? "RimVMenuDisabledTextBrush"
+                : listening ? "RimVMenuStopTextBrush" : "RimVMenuActionForegroundBrush"];
         ListenButton.Foreground = listenForeground;
         ListenIcon.Foreground = listenForeground;
         ListenLabel.Foreground = listenForeground;
-        bool listening = state.Status is "recording" or "starting";
-        ListenLabel.Text = _coordinator.IsPreparingToListen ? "Preparing speech detector…"
-            : listening ? "Stop Listening" : "Start Listening";
-        ListenIcon.Glyph = listening ? "\uE71A" : "\uE768";
+        ListenLabel.Text = NativeWindowsPolicy.CaptureActionLabel(
+            state.Status, _coordinator.IsPreparingToListen, visibleError);
+        ListenIcon.Glyph = transition ? "\uE895" : listening ? "\uE71A" : visibleError ? "\uE72C" : "\uE768";
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(ListenButton, ListenLabel.Text);
         foreach (ToggleButton sourceButton in new[] { SystemSource, MicrophoneSource, BothSource })
         {
@@ -257,8 +263,8 @@ public sealed partial class ShellWindow : Window
         ModelName.Text = model?.Descriptor.DisplayName ?? "Choose a model";
         LanguageName.Text = DisplayLanguage(_coordinator.SelectedLanguage,
             model?.Descriptor.Capabilities.SupportsLanguageDetection == true);
-        ErrorInfo.Message = _coordinator.ErrorMessage ?? "";
-        ErrorInfo.IsOpen = _coordinator.ErrorMessage is not null;
+        ErrorMessage.Text = _coordinator.ErrorMessage ?? "";
+        ErrorCard.Visibility = visibleError ? Visibility.Visible : Visibility.Collapsed;
         ModelInfo.Message = !_coordinator.IsCoreAvailable
             ? "The shared Rust engine is unavailable. Rebuild with rimv_core_ffi.dll to use capture and transcription."
             : model?.State == "unsupported" ? "The selected model backend isn't included in this Windows build. Choose an available model."
@@ -276,6 +282,11 @@ public sealed partial class ShellWindow : Window
     }
 
     private async void ListenButton_Click(object sender, RoutedEventArgs e) => await _coordinator.StartOrStopAsync();
+    private void DismissError_Click(object sender, RoutedEventArgs e) => _coordinator.ClearError();
+    private void OpenSoundSettings_Click(object sender, RoutedEventArgs e)
+    {
+        Process.Start(new ProcessStartInfo("ms-settings:sound") { UseShellExecute = true });
+    }
     private async void SourceButton_Click(object sender, RoutedEventArgs e)
     {
         if (sender is ToggleButton button) await _coordinator.SetSourceAsync((string)button.Tag);

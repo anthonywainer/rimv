@@ -25,7 +25,7 @@
                         </Border>
                         <StackPanel Grid.Column="1" VerticalAlignment="Center">
                             <TextBlock Text="RimV" FontSize="25" FontWeight="SemiBold" Foreground="{ThemeResource RimVMenuTextBrush}"/>
-                            <TextBlock Text="Real-time transcription" FontSize="13" Foreground="{ThemeResource RimVMenuSecondaryTextBrush}"/>
+                            <TextBlock x:Name="BrandSubtitle" Text="Real-time transcription" FontSize="13" Foreground="{ThemeResource RimVMenuSecondaryTextBrush}"/>
                         </StackPanel>
                         <Border Grid.Column="2" x:Name="StatusBadge" Background="{ThemeResource RimVMenuReadyBackgroundBrush}"
                                 CornerRadius="16" Padding="9,5" VerticalAlignment="Center">
@@ -87,7 +87,27 @@
                             </local:HandCursorButton>
                         </StackPanel>
                     </Border>
-                    <InfoBar x:Name="ErrorInfo" IsOpen="False" Severity="Error" IsClosable="True" Margin="0,0,0,8"/>
+                    <Border x:Name="ErrorCard" Visibility="Collapsed" Margin="0,0,0,10" Padding="14"
+                            CornerRadius="12" BorderThickness="1" BorderBrush="{ThemeResource RimVErrorBrush}"
+                            Background="{ThemeResource RimVMenuPanelBrush}">
+                        <Grid ColumnSpacing="10">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="22"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                            <FontIcon Glyph="&#xEA39;" FontFamily="Segoe Fluent Icons" FontSize="18"
+                                      Foreground="{ThemeResource RimVErrorBrush}" AutomationProperties.Name="Error"/>
+                            <StackPanel Grid.Column="1" Spacing="5">
+                                <TextBlock Text="No active source" FontSize="15" FontWeight="SemiBold"
+                                           Foreground="{ThemeResource RimVMenuTextBrush}"/>
+                                <TextBlock x:Name="ErrorMessage" TextWrapping="Wrap" FontSize="13"
+                                           Foreground="{ThemeResource RimVMenuSecondaryTextBrush}"/>
+                                <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,5,0,0">
+                                    <local:HandCursorButton Content="Open Sound Settings" Click="OpenSoundSettings_Click"
+                                            AutomationProperties.Name="Open Windows sound settings"/>
+                                </StackPanel>
+                            </StackPanel>
+                            <local:HandCursorButton Grid.Column="2" Content="&#xE711;" Click="DismissError_Click"
+                                    AutomationProperties.Name="Dismiss capture error"/>
+                        </Grid>
+                    </Border>
                     <InfoBar x:Name="ModelInfo" IsOpen="False" Severity="Informational" Margin="0,0,0,8"/>
                     <local:HandCursorButton x:Name="LanguageAnchor" Style="{StaticResource RimVMenuRowButtonStyle}" Click="LanguageButton_Click"
                             AutomationProperties.Name="Choose transcription language">

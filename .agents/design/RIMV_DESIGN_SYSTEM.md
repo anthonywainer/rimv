@@ -8,7 +8,7 @@ This is the single source of truth for RimV's shared visual identity and interac
 
 ## 1. Source and precedence
 
-RimV high-focus assistant: calm neutrals, systematic spacing, semantic green for live capture, restrained purple for AI, strong transcript readability, and a neutral dark-mode action style.
+RimV high-focus assistant: calm neutrals, systematic spacing, accessible green-teal brand and actions, semantic green for live capture, restrained purple for AI, and strong transcript readability.
 
 Priority for UI changes:
 
@@ -40,7 +40,7 @@ The table below written design guide. Exact channel values must be implemented a
 | `background` | `#EEF2FA` | `#0B0F19` | App shell |
 | `surface` | `#FFFFFF` | `#111827` | Main panel/card |
 | `surface-secondary` | `#F6F7FB` | `#172033` | Grouped controls/cards |
-| `surface-tertiary` | `#ECE9FF` | `#1F2937` | Selected/raised neutral surfaces |
+| `surface-tertiary` | `#E5F5F3` | `#173B39` | Selected/raised green-teal surfaces |
 | `border` | `#E3E6EF` | `#263244` | Thin boundaries |
 | `border-strong` | `#D7DDED` | `#374151` | Emphasized outline |
 | `text-primary` | `#171827` | `#F9FAFB` | Essential text |
@@ -48,20 +48,20 @@ The table below written design guide. Exact channel values must be implemented a
 | `text-muted` | `#9AA3B5` | `#94A3B8` | Decorative or disabled metadata only when contrast permits |
 | `icon-primary` | `#171827` | `#F9FAFB` | Primary iconography |
 | `icon-secondary` | `#7A8194` | `#CBD5E1` | Secondary iconography |
-| `brand` | `#8B6FF6` | `#A78BFA` | RimV purple brand accent |
-| `brand-hover` | `#7C5EF0` | `#C4B5FD` | Visual hover accent, contrast to be tested |
-| `brand-pressed` | `#6D4DE6` | `#8B5CF6` | Press state |
-| `action-solid` | `#6D4DE6` | `#2F3747` | High-emphasis button fill with readable light text |
-| `action-solid-hover` | `#6241D0` | `#3A4558` | Hover for solid actions |
-| `action-solid-pressed` | `#5638BB` | `#242C3A` | Pressed action |
+| `brand` | `#0B6E69` | `#72D7D0` | RimV green-teal brand accent |
+| `brand-hover` | `#0F817C` | `#94E5DF` | Visual hover accent |
+| `brand-pressed` | `#095F5B` | `#4FC7BF` | Press state |
+| `action-solid` | `#0B6E69` | `#0B6E69` | High-emphasis button fill with readable light text |
+| `action-solid-hover` | `#095F5B` | `#0F817C` | Hover for solid actions |
+| `action-solid-pressed` | `#084C49` | `#095F5B` | Pressed action |
 | `on-action` | `#FFFFFF` | `#F9FAFB` | Solid-action label |
 | `ai` | `#7C3AED` | `#A78BFA` | AI-generated information/icon accent |
 | `live` | `#16A34A` | `#22C55E` | Live recording/capture |
 | `warning` | `#B45309` | `#FBBF24` | Warnings |
 | `error` | `#DC2626` | `#F87171` | Errors/destructive operations |
-| `focus` | `#6D4DE6` | `#C4B5FD` | Visible keyboard focus |
+| `focus` | `#0B6E69` | `#72D7D0` | Visible keyboard focus |
 
-**Important contrast decision:** light brand `#8B6FF6` with white text has approximately 3.7:1 contrast and therefore must *not* be used as a small-text button fill under a 4.5:1 target. The deeper `action-solid` `#6D4DE6` with white text is selected for readable filled actions. Light `text-muted` on white is too faint for ordinary meaningful text: use `text-secondary` for timestamps, descriptions and labels. Verify specific on-surface pairs before shipping; do not assume all combinations of approved tokens are accessible.
+**Important contrast decision:** light `brand` and `action-solid` use `#0B6E69`, which provides approximately 6.1:1 contrast with white. The darkest dark-theme hover in this action family remains above 4.5:1 with `on-action`. Green-teal expresses RimV brand and primary interaction; purple remains reserved for AI-generated information, and red remains reserved for errors and destructive/stop actions. Light `text-muted` on white is too faint for ordinary meaningful text: use `text-secondary` for timestamps, descriptions and labels. Verify specific on-surface pairs before shipping; do not assume all combinations of approved tokens are accessible.
 
 ### Semantic message surfaces
 
@@ -166,7 +166,7 @@ Use `patterns/audio-transcription.md` and `patterns/model-management.md` for ful
 - **Paused:** clearly distinct from live; stop remains reachable; do not imply microphone is live when it is paused.
 - **Partial transcript:** visually marked as provisional, not silently treated as final.
 - **Final transcript:** preserve copy/export and speaker/time semantics where available.
-- **AI output:** purple semantic marker and a clear label such as `AI summary`; never silently merge generated text with verbatim transcript.
+- **AI output:** purple semantic marker and a clear label such as `AI summary`; never silently merge generated text with verbatim transcript. Green-teal remains the product/action accent and must not replace the AI marker.
 - **Model downloads:** show current step, progress if measurable, cancellation where safe, retry after recoverable failure.
 - **Microphone permissions:** explain purpose, respect denial, provide platform-specific recovery without repeatedly prompting.
 

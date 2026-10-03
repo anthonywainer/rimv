@@ -22,9 +22,9 @@
 - Default radius: `md` (12px); pill/full radius for segmented choices and status controls.
 - Align buttons on common baseline and matching height within one toolbar.
 
-## Primary and purple contrast
+## Primary green-teal contrast
 
-Hamu's light brand purple `#8B6FF6` looks distinctive but fails the 4.5:1 normal-text requirement with white. RimV keeps it as brand accent and proposes `#6D4DE6` for **light-theme solid actions with white text**. In dark mode, prefer graphite `#2F3747` with `#F9FAFB` text, following Hamu's documented neutral primary-action approach. Accent-outline buttons are an optional alternate pattern, not a mandatory replacement for primary actions.
+RimV uses green-teal for brand and primary actions. `action-solid` `#0B6E69` provides approximately 6.1:1 contrast with white in light mode and remains the solid action base in dark mode. Purple is reserved for explicitly AI-generated information; red remains reserved for error, destructive and Stop treatments. Accent-outline buttons are an optional alternate pattern, not a mandatory replacement for primary actions.
 
 ## State contract
 

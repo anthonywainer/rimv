@@ -24,7 +24,7 @@
       },
       "surface-tertiary": {
         "$type": "color",
-        "$value": "#ECE9FF"
+        "$value": "#E5F5F3"
       },
       "border": {
         "$type": "color",
@@ -56,27 +56,27 @@
       },
       "brand": {
         "$type": "color",
-        "$value": "#8B6FF6"
+        "$value": "#0B6E69"
       },
       "brand-hover": {
         "$type": "color",
-        "$value": "#7C5EF0"
+        "$value": "#0F817C"
       },
       "brand-pressed": {
         "$type": "color",
-        "$value": "#6D4DE6"
+        "$value": "#095F5B"
       },
       "action-solid": {
         "$type": "color",
-        "$value": "#6D4DE6"
+        "$value": "#0B6E69"
       },
       "action-solid-hover": {
         "$type": "color",
-        "$value": "#6241D0"
+        "$value": "#095F5B"
       },
       "action-solid-pressed": {
         "$type": "color",
-        "$value": "#5638BB"
+        "$value": "#084C49"
       },
       "on-action": {
         "$type": "color",
@@ -100,7 +100,7 @@
       },
       "focus": {
         "$type": "color",
-        "$value": "#6D4DE6"
+        "$value": "#0B6E69"
       }
     },
     "dark": {
@@ -118,7 +118,7 @@
       },
       "surface-tertiary": {
         "$type": "color",
-        "$value": "#1F2937"
+        "$value": "#173B39"
       },
       "border": {
         "$type": "color",
@@ -150,27 +150,27 @@
       },
       "brand": {
         "$type": "color",
-        "$value": "#A78BFA"
+        "$value": "#72D7D0"
       },
       "brand-hover": {
         "$type": "color",
-        "$value": "#C4B5FD"
+        "$value": "#94E5DF"
       },
       "brand-pressed": {
         "$type": "color",
-        "$value": "#8B5CF6"
+        "$value": "#4FC7BF"
       },
       "action-solid": {
         "$type": "color",
-        "$value": "#2F3747"
+        "$value": "#0B6E69"
       },
       "action-solid-hover": {
         "$type": "color",
-        "$value": "#3A4558"
+        "$value": "#0F817C"
       },
       "action-solid-pressed": {
         "$type": "color",
-        "$value": "#242C3A"
+        "$value": "#095F5B"
       },
       "on-action": {
         "$type": "color",
@@ -194,7 +194,7 @@
       },
       "focus": {
         "$type": "color",
-        "$value": "#C4B5FD"
+        "$value": "#72D7D0"
       }
     }
   },
