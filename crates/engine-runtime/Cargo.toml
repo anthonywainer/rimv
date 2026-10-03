@@ -5,6 +5,14 @@ edition.workspace = true
 license.workspace = true
 authors.workspace = true
 
+[features]
+apple-speech = ["speech-transcription/apple-speech"]
+
+[[test]]
+name = "apple_native_e2e"
+path = "tests/apple_native_e2e.rs"
+required-features = ["apple-speech"]
+
 [dependencies]
 audio-core.workspace = true
 audio-capture.workspace = true
@@ -19,6 +27,9 @@ speech-transcription = { workspace = true, features = ["silero-vad", "parakeet"]
 axum.workspace = true
 tokio.workspace = true
 futures-util.workspace = true
+
+[build-dependencies]
+cc = "1"
 
 [target.'cfg(not(target_os = "windows"))'.dependencies]
 speech-transcription = { workspace = true, features = ["whisper"] }

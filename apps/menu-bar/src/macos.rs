@@ -406,6 +406,7 @@ fn model_for_code(code: u32, base: u32) -> Option<&'static str> {
         4 => Some("whisper-medium"),
         5 => Some("whisper-large"),
         6 => Some("whisper-turbo"),
+        7 => Some("native-apple"),
         _ => None,
     }
 }
@@ -452,11 +453,19 @@ fn publish_model_catalog() {
                 .clone()
         })
         .unwrap_or_default();
-    let items: Vec<_> = models.catalog().iter().filter(|model| model.backend == "parakeet" || model.backend == "whisper").map(|model| {
+    let mut items: Vec<_> = models.catalog().iter().filter(|model| model.backend == "parakeet" || model.backend == "whisper").map(|model| {
         let size = model.files.first().and_then(|file| file.expected_size_bytes).map(|bytes| format!("{:.1} GB", bytes as f64 / 1_000_000_000.0)).unwrap_or_else(|| match model.id.as_str() { "whisper-medium" => "1.5 GB".into(), "whisper-large" => "3.1 GB".into(), _ => "Managed package".into() });
         let progress_text = progress.get(&model.id).map(|(done, total)| match total { Some(total) => format!("{:.0}% · {:.1} MB / {:.1} MB", *done as f64 * 100.0 / *total as f64, *done as f64 / 1_000_000.0, *total as f64 / 1_000_000.0), None => format!("{:.1} MB downloaded", *done as f64 / 1_000_000.0) });
         serde_json::json!({"id":model.id,"name":model.display_name,"description":model.install_hint.as_deref().unwrap_or("Local transcription model."),"size":size,"progress":progress_text,"state":if models.state(model)==ModelState::Ready {"installed"} else if downloading.contains(&model.id) {"downloading"} else {"available"},"selected":model.id==selected})
     }).collect();
+    if !apple_supported_languages().is_empty() {
+        items.insert(0, serde_json::json!({
+            "id": "native-apple", "name": "Native — Apple Speech",
+            "description": "On-device speech recognition built into macOS.",
+            "size": "", "progress": serde_json::Value::Null,
+            "state": "installed", "selected": selected == "native-apple"
+        }));
+    }
     if let Ok(json) = CString::new(serde_json::to_string(&items).unwrap_or_default()) {
         unsafe { rimv_model_manager_update(json.as_ptr()) };
     }
@@ -490,11 +499,28 @@ fn selected_language_for_model(saved: Option<String>, model: Option<&ModelDescri
         .unwrap_or_else(|| "auto".into())
 }
 
-fn update_selector_state(model: Option<&ModelDescriptor>) {
+fn should_select_native(saved: Option<&str>, native_available: bool, legacy_model_ready: bool) -> bool {
+    native_available
+        && (saved.is_none() || saved == Some("native-apple") || !legacy_model_ready)
+}
+
+fn apple_supported_languages() -> Vec<String> {
+    ["en", "es", "fr", "de", "it", "pt", "ja", "zh", "ar", "hi", "nl", "ru"]
+        .into_iter()
+        .filter(|language| {
+            engine_runtime::apple_locale(language)
+                .is_some_and(engine_runtime::apple_speech_available)
+        })
+        .map(str::to_owned)
+        .collect()
+}
+
+fn update_selector_state(model: Option<&ModelDescriptor>, native: bool) {
+    let native_languages = if native { apple_supported_languages() } else { Vec::new() };
     let state = serde_json::json!({
-        "model": model.map(|model| model.display_name.as_str()).unwrap_or("No model"),
-        "languages": model.map(|model| &model.languages).cloned().unwrap_or_default(),
-        "auto_detect": model.is_some_and(|model| model.capabilities.supports_language_detection),
+        "model": if native { "Native" } else { model.map(|model| model.display_name.as_str()).unwrap_or("No model") },
+        "languages": if native { native_languages } else { model.map(|model| &model.languages).cloned().unwrap_or_default() },
+        "auto_detect": !native && model.is_some_and(|model| model.capabilities.supports_language_detection),
     });
     if let Ok(text) = CString::new(state.to_string()) {
         unsafe { rimv_menu_set_selector_state(text.as_ptr()) };
@@ -734,7 +760,27 @@ mod recording_metadata_tests {
     fn source_preset_command_does_not_overlap_model_download_commands() {
         assert_eq!(model_for_code(40, 40), Some("parakeet-tdt-0.6b-v3-int8"));
         assert_eq!(model_for_code(46, 40), Some("whisper-turbo"));
+        assert_eq!(model_for_code(67, 60), Some("native-apple"));
         assert!(!(40..=46).contains(&SELECT_CAPTURE_SOURCE_COMMAND));
+    }
+
+    #[test]
+    fn fresh_supported_install_defaults_to_native() {
+        assert!(should_select_native(None, true, false));
+        assert!(!should_select_native(None, false, true));
+    }
+
+    #[test]
+    fn migration_preserves_ready_legacy_engine_and_falls_back_when_invalid() {
+        assert!(!should_select_native(Some("whisper-small"), true, true));
+        assert!(should_select_native(Some("whisper-small"), true, false));
+        assert!(!should_select_native(Some("native-apple"), false, true));
+    }
+
+    #[test]
+    fn native_unavailability_uses_the_existing_model_fallback() {
+        assert!(!should_select_native(None, false, true));
+        assert!(!should_select_native(Some("native-apple"), false, true));
     }
 }
 
@@ -864,7 +910,10 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         .unwrap_or_else(|| ModelManager::default_root(&home));
     let models = ModelManager::new(model_root);
     let catalog = models.catalog();
-    let selected_model = saved_model(&support)
+    let saved_model_id = saved_model(&support);
+    let selected_model = saved_model_id
+        .as_deref()
+        .filter(|id| *id != "native-apple")
         .and_then(|id| {
             catalog
                 .iter()
@@ -884,6 +933,18 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
                 })
                 .cloned()
         });
+    let saved_language_id = saved_language(&support).unwrap_or_else(|| "en".into());
+    let supported_native_languages = apple_supported_languages();
+    let native_supported = supported_native_languages
+        .iter()
+        .any(|language| language == &saved_language_id)
+        || !supported_native_languages.is_empty();
+    let native_selected = should_select_native(
+        saved_model_id.as_deref(),
+        native_supported,
+        selected_model.is_some(),
+    );
+    let selected_model = if native_selected { None } else { selected_model };
     let selected = selected_model
         .as_ref()
         .and_then(|model| models.runtime_path(model).ok());
@@ -894,7 +955,9 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     let (microphone_enabled, system_audio_enabled) = saved_capture_source(&support).enabled();
     config.microphone.enabled = microphone_enabled;
     config.system_audio.enabled = system_audio_enabled;
-    config.transcription.backend = if selected_model
+    config.transcription.backend = if native_selected {
+        AsrBackendKind::AppleNative
+    } else if selected_model
         .as_ref()
         .is_some_and(|model| model.backend == "whisper")
     {
@@ -902,11 +965,18 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     } else {
         AsrBackendKind::Parakeet
     };
-    let selected_language =
-        selected_language_for_model(saved_language(&support), selected_model.as_ref());
+    let selected_language = if native_selected {
+        if supported_native_languages.iter().any(|value| value == &saved_language_id) {
+            saved_language_id
+        } else {
+            supported_native_languages.into_iter().next().unwrap_or_else(|| "en".into())
+        }
+    } else {
+        selected_language_for_model(saved_language(&support), selected_model.as_ref())
+    };
     config.transcription.language =
         (selected_language != "auto").then_some(selected_language.clone());
-    config.transcription_enabled = selected_model.is_some();
+    config.transcription_enabled = native_selected || selected_model.is_some();
     // A selected speech engine is part of Start Listening's transaction on
     // macOS: don't begin capture and persist an empty recording if it fails
     // to initialize. Native Apple Speech will use the same preflight path.
@@ -936,7 +1006,13 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             selected_model
                 .as_ref()
                 .map(|model| model.id.clone())
-                .unwrap_or_default(),
+                .unwrap_or_else(|| {
+                    if native_selected {
+                        "native-apple".into()
+                    } else {
+                        String::new()
+                    }
+                }),
         ))
         .map_err(|_| "selected model already initialized")?;
     let root = CString::new(directory.to_string_lossy().as_bytes())?;
@@ -951,7 +1027,10 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     publish_model_catalog();
     let selected_language = CString::new(selected_language)?;
     unsafe { rimv_menu_set_language(selected_language.as_ptr()) };
-    update_selector_state(selected_model.as_ref());
+    if saved_model_id.is_none() && native_selected {
+        persist_model(&support, "native-apple")?;
+    }
+    update_selector_state(selected_model.as_ref(), native_selected);
     let primary = models.descriptor("parakeet-tdt-0.6b-v3-int8")?;
     let summary = CString::new(format!(
         "Primary ASR: {}\nStatus: {:?}\n{}\n\nLegacy Whisper downloads remain optional.",
@@ -1018,6 +1097,28 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
                         }
                     }
                     Action::SetLanguage(language) => {
+                        let using_native = SELECTED_MODEL.get().is_some_and(|selected| {
+                            selected
+                                .lock()
+                                .expect("selected model lock poisoned")
+                                .as_str()
+                                == "native-apple"
+                        });
+                        if using_native
+                            && language.as_deref().is_some_and(|language| {
+                                !apple_supported_languages()
+                                    .iter()
+                                    .any(|supported| supported == language)
+                            })
+                        {
+                            show_error("That language is not available for on-device Apple Speech on this Mac.");
+                            if let Some(saved) = saved_language(&support)
+                                && let Ok(saved) = CString::new(saved)
+                            {
+                                unsafe { rimv_menu_set_language(saved.as_ptr()) };
+                            }
+                            continue;
+                        }
                         if let Err(error) =
                             controller_engine.send(EngineCommand::SetTranscriptionLanguage {
                                 language: language.clone(),
@@ -1031,6 +1132,49 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
                         }
                     }
                     Action::SelectModel(id) => {
+                        if id == "native-apple" {
+                            let languages = apple_supported_languages();
+                            if languages.is_empty() {
+                                show_error("Apple Speech is unavailable for supported on-device languages on this Mac.");
+                                continue;
+                            }
+                            let saved = saved_language(&support).unwrap_or_else(|| "en".into());
+                            let language = if languages.iter().any(|value| value == &saved) {
+                                saved
+                            } else {
+                                languages[0].clone()
+                            };
+                            let result = controller_engine
+                                .send(EngineCommand::SetTranscriptionBackend {
+                                    backend: "native_apple".into(),
+                                })
+                                .and_then(|_| controller_engine.send(EngineCommand::ClearTranscriptionModel))
+                                .and_then(|_| {
+                                    controller_engine.send(EngineCommand::SetTranscriptionLanguage {
+                                        language: Some(language.clone()),
+                                    })
+                                })
+                                .and_then(|_| {
+                                    controller_engine.send(EngineCommand::SetTranscriptionEnabled {
+                                        enabled: true,
+                                    })
+                                });
+                            if let Err(error) = result {
+                                show_engine_error(&error);
+                                continue;
+                            }
+                            if let Some(selected) = SELECTED_MODEL.get() {
+                                *selected.lock().expect("selected model lock poisoned") = id.clone();
+                            }
+                            if let Err(error) = persist_model(&support, &id)
+                                .and_then(|_| persist_language(&support, Some(&language)))
+                            {
+                                show_error(&format!("could not save transcription preference: {error}"));
+                            }
+                            update_selector_state(None, true);
+                            publish_model_catalog();
+                            continue;
+                        }
                         let Some(manager) = MODELS.get() else {
                             show_error("model manager is not initialized");
                             continue;
@@ -1078,7 +1222,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
                         if let Err(error) = persist_model(&support, &id) {
                             show_error(&format!("could not save selected model: {error}"));
                         }
-                        update_selector_state(Some(model));
+                        update_selector_state(Some(model), false);
                         publish_model_catalog();
                     }
                     Action::RemoveModel(id) => {

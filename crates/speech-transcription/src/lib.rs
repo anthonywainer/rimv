@@ -1,5 +1,7 @@
 //! Local, source-preserving speech-to-text primvtives. The public interface is
 //! independent of whisper.cpp so another local backend can replace it later.
+#[cfg(all(target_os = "macos", feature = "apple-speech"))]
+mod apple_speech;
 mod audio;
 #[cfg(feature = "parakeet")]
 mod parakeet;
@@ -14,6 +16,8 @@ mod vad;
 mod whisper;
 mod worker;
 
+#[cfg(all(target_os = "macos", feature = "apple-speech"))]
+pub use apple_speech::{apple_locale, apple_speech_authorized, apple_speech_available};
 pub use audio::{Mono16k, Preprocessor};
 #[cfg(feature = "parakeet")]
 pub use parakeet::{ParakeetEngine, ParakeetModelLayout};
@@ -37,6 +41,7 @@ pub enum AsrBackendKind {
     #[default]
     Parakeet,
     Whisper,
+    AppleNative,
 }
 
 /// Reports whether this build includes the requested inference backend.
@@ -44,6 +49,7 @@ pub const fn supports_backend(backend: AsrBackendKind) -> bool {
     match backend {
         AsrBackendKind::Parakeet => cfg!(feature = "parakeet"),
         AsrBackendKind::Whisper => cfg!(feature = "whisper"),
+        AsrBackendKind::AppleNative => cfg!(all(target_os = "macos", feature = "apple-speech")),
     }
 }
 
@@ -112,6 +118,18 @@ pub fn load_configured_backend(config: SpeechConfig) -> Result<Box<dyn SpeechToT
             #[cfg(not(feature = "whisper"))]
             Err(SpeechError::ModelLoad(
                 "Whisper backend is not compiled".into(),
+            ))
+        }
+        AsrBackendKind::AppleNative => {
+            #[cfg(all(target_os = "macos", feature = "apple-speech"))]
+            {
+                Ok(Box::new(apple_speech::AppleSpeechEngine::new(
+                    config.language.as_deref().unwrap_or("en-US"),
+                )?))
+            }
+            #[cfg(not(all(target_os = "macos", feature = "apple-speech")))]
+            Err(SpeechError::ModelLoad(
+                "Apple Speech is only available in the macOS app".into(),
             ))
         }
     }

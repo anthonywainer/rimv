@@ -13,6 +13,18 @@ fn backend_capabilities_match_compiled_features() {
         supports_backend(AsrBackendKind::Whisper),
         cfg!(feature = "whisper")
     );
+    assert_eq!(
+        supports_backend(AsrBackendKind::AppleNative),
+        cfg!(all(target_os = "macos", feature = "apple-speech"))
+    );
+}
+
+#[cfg(all(target_os = "macos", feature = "apple-speech"))]
+#[test]
+fn apple_locale_mapping_is_explicit_and_rejects_unknown_languages() {
+    assert_eq!(crate::apple_locale("es"), Some("es-ES"));
+    assert_eq!(crate::apple_locale("pt"), Some("pt-BR"));
+    assert_eq!(crate::apple_locale("xx"), None);
 }
 
 #[test]

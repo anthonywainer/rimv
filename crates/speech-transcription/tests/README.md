@@ -18,3 +18,13 @@ RIMV_PARAKEET_MODEL_DIR=/path/to/parakeet \
 RIMV_SILERO_VAD_MODEL=/path/to/silero_vad.onnx \
 cargo test -p speech-transcription --features parakeet,silero-vad --test asr_audio_fixture -- --ignored
 ```
+
+`crates/engine-runtime/tests/apple_native_e2e.rs` streams the same checked-in
+PCM fixture through RimV's capture adapter and the real Apple Speech provider,
+then checks live partial replacement, final state, provider identity, and the
+same reference phrase checks while reporting normalized WER/CER. Run it on a
+macOS machine with on-device English (US) Speech support and permission:
+
+```sh
+cargo test -p engine-runtime --features apple-speech --test apple_native_e2e -- --ignored --nocapture
+```

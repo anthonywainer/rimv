@@ -1234,6 +1234,7 @@ dependencies = [
  "audio-capture",
  "audio-core",
  "axum",
+ "cc",
  "engine-protocol",
  "futures-util",
  "hound",

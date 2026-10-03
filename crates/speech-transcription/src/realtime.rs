@@ -205,7 +205,11 @@ impl Decoder {
                 if !work.final_result {
                     last_partial = Some(started);
                 }
-                let result = engine.transcribe(&work.audio.samples, work.audio.start_ms);
+                let result = if work.final_result {
+                    engine.transcribe_final(&work.audio.samples, work.audio.start_ms)
+                } else {
+                    engine.transcribe_partial(&work.audio.samples, work.audio.start_ms)
+                };
                 let elapsed = started.elapsed();
                 let mut m = measured.lock().unwrap();
                 let ms = elapsed.as_millis() as u64;
@@ -394,6 +398,23 @@ mod tests {
     }
 
     #[test]
+    fn partial_hypotheses_replace_one_mutable_utterance_then_finalize_once() {
+        let mut stabilizer = TranscriptStabilizer::default();
+        assert_eq!(
+            stabilizer.update("hello", false),
+            ("".into(), "hello".into())
+        );
+        assert_eq!(
+            stabilizer.update("hello world", false),
+            ("hello".into(), "world".into())
+        );
+        assert_eq!(
+            stabilizer.update("Hello world.", true),
+            ("Hello world.".into(), "".into())
+        );
+    }
+
+    #[test]
     fn partial_input_stops_growing_after_ten_seconds() {
         for seconds in [5_u64, 10, 15, 20, 25, 30] {
             let input = bounded_partial_audio(
@@ -483,6 +504,85 @@ mod tests {
             *lengths.lock().unwrap(),
             vec![30 * ASR_SAMPLE_RATE as usize]
         );
+    }
+
+    #[test]
+    fn decoder_routes_partial_and_final_results_once_for_one_utterance() {
+        use std::sync::mpsc;
+
+        struct AppleLike(Arc<Mutex<Vec<&'static str>>>);
+        impl SpeechToTextEngine for AppleLike {
+            fn info(&self) -> crate::AsrBackendInfo {
+                crate::MockAsrBackend::default().info()
+            }
+            fn transcribe(
+                &mut self,
+                _: &[f32],
+                _: u64,
+            ) -> crate::Result<Vec<crate::SpeechSegment>> {
+                unreachable!("decoder should select the explicit event path")
+            }
+            fn transcribe_partial(
+                &mut self,
+                _: &[f32],
+                offset: u64,
+            ) -> crate::Result<Vec<crate::SpeechSegment>> {
+                self.0.lock().unwrap().push("partial");
+                Ok(vec![crate::SpeechSegment {
+                    source: AudioSource::Microphone,
+                    start_ms: offset,
+                    end_ms: 500,
+                    text: "hello world".into(),
+                }])
+            }
+            fn transcribe_final(
+                &mut self,
+                _: &[f32],
+                offset: u64,
+            ) -> crate::Result<Vec<crate::SpeechSegment>> {
+                self.0.lock().unwrap().push("final");
+                Ok(vec![crate::SpeechSegment {
+                    source: AudioSource::Microphone,
+                    start_ms: offset,
+                    end_ms: 500,
+                    text: "Hello world.".into(),
+                }])
+            }
+        }
+
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let (events, received) = mpsc::sync_channel(4);
+        let decoder = Decoder::start(
+            Box::new(AppleLike(calls.clone())),
+            events,
+            Arc::new(Mutex::new(SpeechMetrics::default())),
+            Arc::new(Mutex::new(VecDeque::new())),
+        );
+        decoder.submit(
+            AudioSource::Microphone,
+            work(AudioSource::Microphone, false).audio,
+            false,
+        );
+        let partial = received.recv().unwrap();
+        decoder.submit(
+            AudioSource::Microphone,
+            work(AudioSource::Microphone, true).audio,
+            true,
+        );
+        decoder.finish();
+
+        assert_eq!(*calls.lock().unwrap(), vec!["partial", "final"]);
+        let SpeechEvent::Update(partial) = partial else {
+            panic!("partial update expected")
+        };
+        let SpeechEvent::Update(final_update) = received.recv().unwrap() else {
+            panic!("final update expected")
+        };
+        assert!(!partial.is_final);
+        assert!(final_update.is_final);
+        assert_eq!(partial.utterance_id, final_update.utterance_id);
+        assert_eq!(final_update.stable_text, "Hello world.");
+        assert!(final_update.unstable_text.is_empty());
     }
     #[test]
     fn final_hypothesis_replaces_mismatched_partial_without_duplicate_clause() {

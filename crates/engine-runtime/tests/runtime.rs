@@ -434,6 +434,61 @@ fn missing_speech_models_fail_before_capture_starts() {
     assert!(received_transcription_error(&events));
 }
 
+#[cfg(all(target_os = "macos", feature = "apple-speech"))]
+#[test]
+fn native_engine_selection_is_available_without_a_rimv_model_path() {
+    let directory = tempfile::tempdir().unwrap();
+    let config = EngineConfig {
+        recordings_directory: directory.path().into(),
+        transcription: TranscriptionSettings {
+            model_path: None,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let engine = EngineRuntime::with_backend(
+        config,
+        FakeBackend(Arc::new(Mutex::new(Default::default()))),
+    )
+    .unwrap();
+    let selected = engine
+        .send(EngineCommand::SetTranscriptionBackend {
+            backend: "native_apple".into(),
+        })
+        .unwrap();
+    assert!(selected.transcription.available);
+    assert!(selected.capabilities.transcription);
+    engine.shutdown().unwrap();
+}
+
+#[cfg(not(all(target_os = "macos", feature = "apple-speech")))]
+#[test]
+fn unavailable_native_initialization_rolls_back_the_attempted_session() {
+    let directory = tempfile::tempdir().unwrap();
+    let controls: Controls = Arc::new(Mutex::new(Default::default()));
+    let config = EngineConfig {
+        recordings_directory: directory.path().into(),
+        transcription_enabled: true,
+        transcription: TranscriptionSettings {
+            backend: AsrBackendKind::AppleNative,
+            model_path: None,
+            preflight_vad: true,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let engine = EngineRuntime::with_backend(config, FakeBackend(controls.clone())).unwrap();
+    let error = engine.start_capture().unwrap_err();
+    assert_eq!(error.code, EngineErrorCode::TranscriptionFailed);
+    let snapshot = engine.snapshot();
+    assert_eq!(snapshot.status, EngineStatus::Error);
+    assert!(snapshot.session.is_none());
+    assert!(!snapshot.microphone.active && !snapshot.system_audio.active);
+    assert_eq!(controls.lock().unwrap()[0].opens, 0);
+    assert!(directory.path().read_dir().unwrap().next().is_none());
+    engine.shutdown().unwrap();
+}
+
 #[test]
 fn lazy_transcription_start_preserves_capture_for_existing_runtime_clients() {
     let directory = tempfile::tempdir().unwrap();

@@ -10,6 +10,7 @@ default = []
 whisper = ["dep:whisper-rs"]
 silero-vad = ["dep:sherpa-onnx"]
 parakeet = ["dep:sherpa-onnx"]
+apple-speech = []
 
 [dependencies]
 audio-core.workspace = true

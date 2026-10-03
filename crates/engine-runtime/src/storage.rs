@@ -205,12 +205,18 @@ pub(crate) fn write_metadata(
     directory: &Path,
     snapshot: &EngineSnapshot,
     files: &[RecordingInfo],
+    transcription_engine: Option<&str>,
+    transcription_language: Option<&str>,
 ) -> Result<()> {
     #[derive(Serialize)]
     struct Metadata<'a> {
         schema_version: u32,
         snapshot: &'a EngineSnapshot,
         recordings: &'a [RecordingInfo],
+        #[serde(skip_serializing_if = "Option::is_none")]
+        transcription_engine: Option<&'a str>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        transcription_language: Option<&'a str>,
     }
     let path = directory.join("session.json.tmp");
     let mut file = OpenOptions::new()
@@ -224,6 +230,8 @@ pub(crate) fn write_metadata(
             schema_version: 1,
             snapshot,
             recordings: files,
+            transcription_engine,
+            transcription_language,
         },
     )
     .map_err(storage_error)?;
@@ -383,5 +391,23 @@ mod tests {
                 .unwrap()
                 .contains("[0–500 ms]")
         );
+    }
+
+    #[test]
+    fn recording_metadata_records_transcription_engine_and_locale() {
+        let directory = tempfile::tempdir().unwrap();
+        write_metadata(
+            directory.path(),
+            &EngineSnapshot::default(),
+            &[],
+            Some("native_apple"),
+            Some("es"),
+        )
+        .unwrap();
+        let metadata: serde_json::Value =
+            serde_json::from_slice(&fs::read(directory.path().join("session.json")).unwrap())
+                .unwrap();
+        assert_eq!(metadata["transcription_engine"], "native_apple");
+        assert_eq!(metadata["transcription_language"], "es");
     }
 }

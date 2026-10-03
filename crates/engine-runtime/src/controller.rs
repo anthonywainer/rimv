@@ -143,7 +143,12 @@ impl Controller {
             }
             EngineCommand::SetTranscriptionEnabled { enabled } => {
                 self.state.transcription.enabled = enabled;
-                self.state.transcription.available = self.config.transcription.model_path.is_some();
+                self.state.transcription.available =
+                    speech_transcription::supports_backend(self.config.transcription.backend)
+                        && (self.config.transcription.backend
+                            == crate::AsrBackendKind::AppleNative
+                            || self.config.transcription.model_path.is_some());
+                self.state.capabilities.transcription = self.state.transcription.available;
                 // Enabling is a preference change. A worker is only loaded
                 // during an active capture session.
                 self.state.transcription.status = crate::TranscriptionStatus::Disabled;
@@ -201,6 +206,7 @@ impl Controller {
                 self.config.transcription.backend = match backend.as_str() {
                     "parakeet" => crate::AsrBackendKind::Parakeet,
                     "whisper" => crate::AsrBackendKind::Whisper,
+                    "native_apple" => crate::AsrBackendKind::AppleNative,
                     _ => {
                         return Err(EngineError::new(
                             EngineErrorCode::InvalidConfiguration,
@@ -208,6 +214,12 @@ impl Controller {
                         ));
                     }
                 };
+                self.state.transcription.available =
+                    speech_transcription::supports_backend(self.config.transcription.backend)
+                        && (self.config.transcription.backend
+                            == crate::AsrBackendKind::AppleNative
+                            || self.config.transcription.model_path.is_some());
+                self.state.capabilities.transcription = self.state.transcription.available;
             }
             EngineCommand::SetTranscriptionLanguage { language } => {
                 if self.session.is_some() {
@@ -374,10 +386,23 @@ impl Controller {
                 ));
             };
             let failure = match &event {
-                SpeechEvent::Error(error) => Some(EngineError::new(
-                    EngineErrorCode::TranscriptionFailed,
-                    error.to_string(),
-                )),
+                SpeechEvent::Error(error) => {
+                    let detail = error.to_string();
+                    let mut mapped =
+                        EngineError::new(EngineErrorCode::TranscriptionFailed, &detail);
+                    if self.config.transcription.backend == crate::AsrBackendKind::AppleNative {
+                        let normalized = detail.to_ascii_lowercase();
+                        mapped.user_message = if normalized.contains("permission") {
+                            "RimV does not have permission to use Speech Recognition.".into()
+                        } else if normalized.contains("locale") || normalized.contains("on-device")
+                        {
+                            "Native speech recognition is unavailable for this language on this Mac.".into()
+                        } else {
+                            "Apple Speech could not start. Check Speech Recognition access and try again.".into()
+                        };
+                    }
+                    Some(mapped)
+                }
                 _ => None,
             };
             let initialized = matches!(event, SpeechEvent::Ready(_) | SpeechEvent::Error(_));
@@ -507,7 +532,21 @@ impl Controller {
         // Reserve the final publication revision so metadata equals the final
         // snapshot for a successful stop. A metadata failure adds a new error.
         self.state.revision = self.bus.snapshot().revision.saturating_add(1);
-        if let Err(error) = storage::write_metadata(&session.directory, &self.state, &files) {
+        let transcription_engine =
+            (!session.transcript_segments.is_empty()).then_some(
+                match self.config.transcription.backend {
+                    crate::AsrBackendKind::Parakeet => "parakeet",
+                    crate::AsrBackendKind::Whisper => "whisper",
+                    crate::AsrBackendKind::AppleNative => "native_apple",
+                },
+            );
+        if let Err(error) = storage::write_metadata(
+            &session.directory,
+            &self.state,
+            &files,
+            transcription_engine,
+            self.config.transcription.language.as_deref(),
+        ) {
             first_error.get_or_insert(error.clone());
             self.report(error);
             self.state.status = EngineStatus::Error;

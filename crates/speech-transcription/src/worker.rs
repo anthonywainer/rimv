@@ -26,6 +26,22 @@ pub trait SpeechToTextEngine: Send + 'static {
         audio_16khz_mono: &[f32],
         offset_ms: u64,
     ) -> Result<Vec<SpeechSegment>>;
+
+    fn transcribe_partial(
+        &mut self,
+        audio_16khz_mono: &[f32],
+        offset_ms: u64,
+    ) -> Result<Vec<SpeechSegment>> {
+        self.transcribe(audio_16khz_mono, offset_ms)
+    }
+
+    fn transcribe_final(
+        &mut self,
+        audio_16khz_mono: &[f32],
+        offset_ms: u64,
+    ) -> Result<Vec<SpeechSegment>> {
+        self.transcribe(audio_16khz_mono, offset_ms)
+    }
 }
 
 impl<T: SpeechToTextEngine + ?Sized> SpeechToTextEngine for Box<T> {
@@ -39,6 +55,22 @@ impl<T: SpeechToTextEngine + ?Sized> SpeechToTextEngine for Box<T> {
         offset_ms: u64,
     ) -> Result<Vec<SpeechSegment>> {
         (**self).transcribe(audio_16khz_mono, offset_ms)
+    }
+
+    fn transcribe_partial(
+        &mut self,
+        audio_16khz_mono: &[f32],
+        offset_ms: u64,
+    ) -> Result<Vec<SpeechSegment>> {
+        (**self).transcribe_partial(audio_16khz_mono, offset_ms)
+    }
+
+    fn transcribe_final(
+        &mut self,
+        audio_16khz_mono: &[f32],
+        offset_ms: u64,
+    ) -> Result<Vec<SpeechSegment>> {
+        (**self).transcribe_final(audio_16khz_mono, offset_ms)
     }
 }
 
@@ -185,7 +217,7 @@ impl SpeechWorker {
                 // Native Windows preflights VAD before Ready. Other platform
                 // callers preserve lazy VAD initialization for compatibility.
                 let initial_vad = if config.preflight_vad {
-                    match load_source_vad(&config.vad) {
+                    match load_source_vad(&config.vad, config.backend) {
                         Ok(vad) => {
                             tracing::info!(vad_model_configured=true, vad_model_exists=true, "Silero VAD initialized");
                             Some(vad)
@@ -269,7 +301,7 @@ impl SpeechWorker {
                                 let vad = initial_vad
                                     .take()
                                     .map(Ok)
-                                    .unwrap_or_else(|| load_source_vad(&config.vad));
+                                    .unwrap_or_else(|| load_source_vad(&config.vad, config.backend));
                                 match vad
                                     .and_then(|vad| SpeechSegmenter::new(vad, config.vad.clone()))
                                 {
@@ -379,12 +411,26 @@ impl Drop for SpeechWorker {
 }
 
 #[cfg(feature = "silero-vad")]
-fn load_source_vad(config: &VadConfig) -> Result<Box<dyn VoiceActivityGate>> {
+fn load_source_vad(
+    config: &VadConfig,
+    backend: AsrBackendKind,
+) -> Result<Box<dyn VoiceActivityGate>> {
+    #[cfg(all(target_os = "macos", feature = "apple-speech"))]
+    if backend == AsrBackendKind::AppleNative {
+        return Ok(Box::new(crate::apple_speech::AppleSpeechVad));
+    }
     crate::SileroVad::load(config).map(|vad| Box::new(vad) as Box<dyn VoiceActivityGate>)
 }
 
 #[cfg(not(feature = "silero-vad"))]
-fn load_source_vad(_config: &VadConfig) -> Result<Box<dyn VoiceActivityGate>> {
+fn load_source_vad(
+    _config: &VadConfig,
+    backend: AsrBackendKind,
+) -> Result<Box<dyn VoiceActivityGate>> {
+    #[cfg(all(target_os = "macos", feature = "apple-speech"))]
+    if backend == AsrBackendKind::AppleNative {
+        return Ok(Box::new(crate::apple_speech::AppleSpeechVad));
+    }
     Err(SpeechError::Vad(
         "Silero VAD support is not compiled".into(),
     ))

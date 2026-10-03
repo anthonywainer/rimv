@@ -66,7 +66,9 @@ impl EngineRuntime {
             },
             transcription: FeatureState {
                 enabled: config.transcription_enabled,
-                available: config.transcription.model_path.is_some(),
+                available: speech_transcription::supports_backend(config.transcription.backend)
+                    && (config.transcription.backend == crate::AsrBackendKind::AppleNative
+                        || config.transcription.model_path.is_some()),
                 // A configured model is not being loaded until a capture
                 // session starts. Loading is reserved for a live worker init.
                 status: crate::TranscriptionStatus::Disabled,
