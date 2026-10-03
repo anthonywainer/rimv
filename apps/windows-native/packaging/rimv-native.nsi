@@ -83,7 +83,10 @@ Section "RimV Native Windows (required)" SecMain
     Goto register_identity
   ${EndIf}
 
-  IfSilent identity_unavailable
+  ; A silent install is an explicit request to complete setup without UI.
+  ; Trust the bundled publisher certificate for this user, then attempt the
+  ; sparse package registration just as an interactive user can approve.
+  IfSilent trust_identity
   MessageBox MB_YESNO|MB_ICONQUESTION "Enable Windows Native Speech? RimV needs to trust its identity-package signing certificate (CN=RimV) in the Current User Trusted People store. This applies only to your Windows account." IDYES trust_identity
   DetailPrint "Publisher certificate trust declined; Windows Native Speech will remain unavailable."
   Goto identity_unavailable

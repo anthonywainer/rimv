@@ -259,6 +259,24 @@ jobs:
             Write-Host '--- Native installer failure diagnostics ---'
             $registeredInstallDirectory = (Get-ItemProperty -LiteralPath 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\RimV.Native.Windows' -Name InstallLocation -ErrorAction SilentlyContinue).InstallLocation
             Write-Host "Registered install directory: $registeredInstallDirectory"
+            $identityDiagnosticPath = Join-Path $installDirectory 'RimV.IdentityRegistration.json'
+            if (Test-Path -LiteralPath $identityDiagnosticPath) {
+              $identityDiagnostic = Get-Content -LiteralPath $identityDiagnosticPath -Raw | ConvertFrom-Json
+              Write-Host ("Identity registration failure: {0} {1}" -f $identityDiagnostic.errorType, $identityDiagnostic.hresult)
+            }
+            $appxEvents = @(Get-WinEvent -FilterHashtable @{
+              LogName = 'Microsoft-Windows-AppXDeploymentServer/Operational'
+              StartTime = (Get-Date).AddMinutes(-30)
+            } -MaxEvents 100 -ErrorAction SilentlyContinue | Where-Object {
+              $_.Message -match 'RimV\.Native\.Windows|RimV.Identity'
+            } | Select-Object -Last 12)
+            if ($appxEvents.Count -gt 0) {
+              Write-Host 'Recent AppX deployment diagnostics (event id and HRESULT only):'
+              foreach ($event in $appxEvents) {
+                $hresults = [regex]::Matches($event.Message, '(?i)0x[0-9a-f]{8}') | ForEach-Object Value | Sort-Object -Unique
+                Write-Host ("Event {0}: {1}" -f $event.Id, ($hresults -join ', '))
+              }
+            }
             # Emit only fixed event names and exception type/HRESULT. Do not
             # publish raw app logs, messages, paths, or transcription data.
             $appLogPath = Join-Path $env:LOCALAPPDATA 'RimV\logs\windows-native.log'

@@ -32,7 +32,23 @@ elseif ($Action -eq 'Install') {
     if (-not (Test-Path -LiteralPath $packagePath -PathType Leaf)) {
         throw "The signed RimV identity package is missing: $packagePath"
     }
-    Add-AppxPackage -Path $packagePath -ExternalLocation $InstallLocation -ForceUpdateFromAnyVersion
+    try {
+        Add-AppxPackage -Path $packagePath -ExternalLocation $InstallLocation -ForceUpdateFromAnyVersion -ErrorAction Stop
+    }
+    catch {
+        # NSIS only receives PowerShell's process exit code. Preserve a small,
+        # non-sensitive diagnostic beside the package so installer failures
+        # can report the actual AppX boundary and HRESULT.
+        try {
+            [pscustomobject]@{
+                operation = 'Add-AppxPackage'
+                errorType = $_.Exception.GetType().FullName
+                hresult = '0x' + $_.Exception.HResult.ToString('X8')
+            } | ConvertTo-Json -Compress | Set-Content -LiteralPath (Join-Path $InstallLocation 'RimV.IdentityRegistration.json') -Encoding ascii
+        }
+        catch { }
+        throw
+    }
 }
 else {
     Get-AppxPackage -Name $packageName | Remove-AppxPackage -ErrorAction SilentlyContinue

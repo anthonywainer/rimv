@@ -174,6 +174,7 @@ $modelFilesBefore = if (Test-Path -LiteralPath $modelsDirectory) {
 } else { @() }
 $sentinel = Join-Path (Join-Path $dataDirectory 'recordings') 'phase4-uninstall-preservation.txt'
 $process = $null
+$installerTestPassed = $false
 
 try {
     if (Test-Path -LiteralPath $InstallDirectory) { Remove-Item -LiteralPath $InstallDirectory -Recurse -Force }
@@ -243,10 +244,14 @@ try {
     Assert-Condition (-not (Test-Path -LiteralPath $startMenuLink)) 'Uninstall left the Start menu shortcut behind.'
     Assert-Condition (Test-Path -LiteralPath $sentinel -PathType Leaf) 'Uninstall deleted user recording/model data.'
     Write-Host 'PASS: install path with spaces, reinstall, Start menu integration, uninstall and user-data preservation.'
+    $installerTestPassed = $true
 }
 finally {
     if ($process -and -not $process.HasExited) { $process.Kill($true); $process.WaitForExit(10000) | Out-Null }
-    if (Test-Path -LiteralPath $InstallDirectory) {
+    # Keep a failed installation intact for the caller's failure diagnostics.
+    # The GitHub runner is disposable; deleting it here erased the package
+    # registration logs and files before the workflow could inspect them.
+    if ($installerTestPassed -and (Test-Path -LiteralPath $InstallDirectory)) {
         $cleanupUninstaller = Join-Path $InstallDirectory 'Uninstall.exe'
         if (Test-Path -LiteralPath $cleanupUninstaller) {
             Start-Process -FilePath $cleanupUninstaller -ArgumentList '/S' -Wait -ErrorAction SilentlyContinue
