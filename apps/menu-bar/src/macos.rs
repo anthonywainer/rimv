@@ -1,3 +1,6 @@
+#[cfg(test)]
+use crate::language_presentation::present_language;
+use crate::language_presentation::present_languages;
 use engine_runtime::{
     AsrBackendKind, EngineCommand, EngineConfig, EngineEvent, EngineRuntime, EngineSnapshot,
     SubscriptionError,
@@ -653,10 +656,21 @@ fn update_selector_state(model: Option<&ModelDescriptor>, native: bool) {
     } else {
         Vec::new()
     };
+    let languages = if native {
+        native_languages
+    } else {
+        model
+            .map(|model| model.languages.clone())
+            .unwrap_or_default()
+    };
+    let supports_auto_detect =
+        !native && model.is_some_and(|model| model.capabilities.supports_language_detection);
+    let language_presentations = present_languages(&languages, supports_auto_detect);
     let state = serde_json::json!({
         "model": if native { "Native" } else { model.map(|model| model.display_name.as_str()).unwrap_or("No model") },
-        "languages": if native { native_languages } else { model.map(|model| &model.languages).cloned().unwrap_or_default() },
-        "auto_detect": !native && model.is_some_and(|model| model.capabilities.supports_language_detection),
+        "languages": languages,
+        "language_presentations": language_presentations,
+        "auto_detect": supports_auto_detect,
     });
     if let Ok(text) = CString::new(state.to_string()) {
         unsafe { rimv_menu_set_selector_state(text.as_ptr()) };
@@ -960,9 +974,68 @@ mod recording_metadata_tests {
             selected_language_for_model(Some("es-ES".into()), Some(parakeet)),
             "es"
         );
+        let language_after_switch =
+            selected_language_for_model(Some("en-GB".into()), Some(parakeet));
+        assert_eq!(language_after_switch, "en");
+        let presentation = present_language(&language_after_switch, true);
+        assert_eq!(presentation.locale, "en-US");
+        assert_eq!(presentation.flag, "🇺🇸");
         assert_eq!(
             selected_language_for_model(Some("ca-ES".into()), Some(parakeet)),
             "auto"
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn parakeet_and_whisper_capabilities_use_the_shared_language_presentation() {
+        let root = temporary_session_path();
+        let models = ModelManager::new(root.clone());
+        let parakeet = models.descriptor("parakeet-tdt-0.6b-v3-int8").unwrap();
+        assert_eq!(
+            parakeet.languages,
+            [
+                "bg", "hr", "cs", "da", "nl", "en", "et", "fi", "fr", "de", "el", "hu", "it", "lv",
+                "lt", "mt", "pl", "pt", "ro", "sk", "sl", "es", "sv", "ru", "uk",
+            ]
+            .into_iter()
+            .map(str::to_owned)
+            .collect::<Vec<_>>()
+        );
+        let parakeet_presentations = present_languages(
+            &parakeet.languages,
+            parakeet.capabilities.supports_language_detection,
+        );
+        for (id, flag) in [
+            ("en", "🇺🇸"),
+            ("es", "🇪🇸"),
+            ("fr", "🇫🇷"),
+            ("de", "🇩🇪"),
+            ("it", "🇮🇹"),
+            ("pt", "🇵🇹"),
+        ] {
+            let presentation = parakeet_presentations
+                .iter()
+                .find(|presentation| presentation.id == id)
+                .unwrap();
+            assert_eq!(presentation.flag, flag);
+            assert!(presentation.supports_auto_detect);
+        }
+
+        let whisper = models.descriptor("whisper-tiny").unwrap();
+        assert_eq!(whisper.languages, ["en", "es", "ru"].map(str::to_owned));
+        assert!(whisper.capabilities.supports_language_detection);
+        let whisper_presentations = present_languages(
+            &whisper.languages,
+            whisper.capabilities.supports_language_detection,
+        );
+        assert_eq!(
+            whisper_presentations
+                .iter()
+                .find(|presentation| presentation.id == "en")
+                .unwrap()
+                .flag,
+            "🇺🇸"
         );
         std::fs::remove_dir_all(root).unwrap();
     }
