@@ -23,6 +23,18 @@ done
 # an explicit search path beside itself.
 install_name_tool -add_rpath @loader_path "$app/Contents/MacOS/rimv-menu-bar"
 cp "$root/apps/menu-bar/Info.plist" "$app/Contents/Info.plist"
+# Compile the repository asset catalog into the bundle so AppKit can resolve
+# named images and named colors from the single source of truth.
+xcrun actool "$root/resources/Assets.xcassets" \
+  --compile "$app/Contents/Resources" \
+  --platform macosx \
+  --minimum-deployment-target 13.0 \
+  --app-icon AppIcon \
+  --accent-color AccentColor \
+  --product-type com.apple.product-type.application \
+  --output-partial-info-plist "$app/Contents/assetcatalog-info.plist"
+/usr/libexec/PlistBuddy -c "Merge $app/Contents/assetcatalog-info.plist" "$app/Contents/Info.plist"
+rm "$app/Contents/assetcatalog-info.plist"
 # Free community releases use an ad-hoc signature only. It requires no Apple
 # Developer certificate while keeping the bundle structurally valid.
 codesign --force --deep --sign - --identifier com.rimv.app "$app"

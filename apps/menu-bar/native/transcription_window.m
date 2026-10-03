@@ -121,11 +121,9 @@ typedef NS_ENUM(NSInteger, RimvViewerMode) {
     NSView *logo = [[NSView alloc] initWithFrame:NSMakeRect(24, 638, 44, 44)];
     logo.wantsLayer = YES;
     logo.layer.cornerRadius = 11;
-    logo.layer.backgroundColor = [NSColor colorWithRed:21.0/255 green:152.0/255 blue:142.0/255 alpha:1].CGColor;
+    logo.layer.backgroundColor = NSColor.clearColor.CGColor;
     NSImageView *logoImage = [[NSImageView alloc] initWithFrame:NSMakeRect(11, 11, 22, 22)];
-    logoImage.image = [NSImage imageWithSystemSymbolName:@"waveform" accessibilityDescription:@"RimV"];
-    logoImage.image.template = YES;
-    logoImage.contentTintColor = NSColor.whiteColor;
+    logoImage.image = [NSImage imageNamed:@"RimVMark"];
     [logo addSubview:logoImage];
     [self.content addSubview:logo];
 

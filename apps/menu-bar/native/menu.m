@@ -328,7 +328,7 @@ static NSString *elapsed(uint64_t milliseconds) {
 - (void)applicationDidFinishLaunching:(NSNotification *)notification {
     (void)notification;
     self.statusItem = [NSStatusBar.systemStatusBar statusItemWithLength:NSVariableStatusItemLength];
-    self.statusItem.button.image = [NSImage imageWithSystemSymbolName:@"waveform" accessibilityDescription:@"RimV status"];
+    self.statusItem.button.image = [NSImage imageNamed:@"MenuBarIcon"];
     self.statusItem.button.image.template = YES;
     self.statusItem.button.imagePosition = NSImageLeft;
     self.statusItem.button.font = [NSFont monospacedDigitSystemFontOfSize:12 weight:NSFontWeightRegular];
@@ -450,11 +450,10 @@ static NSString *elapsed(uint64_t milliseconds) {
     NSView *mark = [[NSView alloc] initWithFrame:NSMakeRect(16, 34, 40, 40)];
     mark.wantsLayer = YES;
     mark.layer.cornerRadius = 11;
-    mark.layer.backgroundColor = [self color:19 green:141 blue:132 darkRed:11 green:110 blue:105].CGColor;
+    mark.layer.backgroundColor = NSColor.clearColor.CGColor;
     [self.mainContentView addSubview:mark];
     NSImageView *markImage = [[NSImageView alloc] initWithFrame:NSMakeRect(8, 8, 24, 24)];
-    markImage.image = [NSImage imageWithSystemSymbolName:@"waveform" accessibilityDescription:@"RimV"];
-    markImage.contentTintColor = NSColor.whiteColor;
+    markImage.image = [NSImage imageNamed:@"RimVMark"];
     [mark addSubview:markImage];
     self.brandTitle = [self label:@"RimV" frame:NSMakeRect(66, 31, 160, 26) size:23 weight:NSFontWeightBold];
     self.brandDetail = [self label:@"Real-time transcription" frame:NSMakeRect(66, 57, 190, 18) size:14 weight:NSFontWeightRegular];

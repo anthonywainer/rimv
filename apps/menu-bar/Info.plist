@@ -6,12 +6,14 @@
     <key>CFBundleName</key><string>rimv</string>
     <key>CFBundleDisplayName</key><string>rimv</string>
     <key>CFBundlePackageType</key><string>APPL</string>
+    <key>CFBundleIconName</key><string>AppIcon</string>
     <key>CFBundleShortVersionString</key><string>0.1.0</string>
     <key>CFBundleVersion</key><string>8</string>
     <key>CFBundleGetInfoString</key><string>rimv 0.1.0-beta</string>
     <key>LSMinimumSystemVersion</key><string>13.0</string>
     <key>LSUIElement</key><true/>
     <key>NSMicrophoneUsageDescription</key><string>rimv records your microphone when you start capture.</string>
+    <key>NSSpeechRecognitionUsageDescription</key><string>rimv transcribes the audio sources you select using Apple Speech on this Mac.</string>
     <key>NSScreenCaptureUsageDescription</key><string>rimv records system audio when you enable system capture.</string>
     <key>NSHighResolutionCapable</key><true/>
 </dict></plist>
