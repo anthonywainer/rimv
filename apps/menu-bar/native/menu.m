@@ -813,7 +813,10 @@ static NSString *elapsed(uint64_t milliseconds) {
 }
 - (void)toggleTranscription:(id)sender { (void)sender; self.command(9, ![self.snapshot[@"transcription"][@"enabled"] boolValue]); }
 - (NSString *)languageBaseCode:(NSString *)code {
-    return [[code componentsSeparatedByString:@"-"] firstObject].lowercaseString;
+    NSString *normalized = [code stringByReplacingOccurrencesOfString:@"_" withString:@"-"];
+    NSLocale *locale = [[NSLocale alloc] initWithLocaleIdentifier:normalized];
+    NSString *language = [locale objectForKey:NSLocaleLanguageCode];
+    return (language.length ? language : [[normalized componentsSeparatedByString:@"-"] firstObject]).lowercaseString;
 }
 - (NSString *)languageTitle:(NSString *)code {
     if ([code isEqualToString:@"auto"]) return @"Auto Detect";
@@ -822,32 +825,41 @@ static NSString *elapsed(uint64_t milliseconds) {
     NSString *title = [displayLocale localizedStringForLanguageCode:base];
     return title.length ? title.capitalizedString : code;
 }
+- (NSString *)languageOptionTitle:(NSString *)code {
+    if ([code isEqualToString:@"auto"]) return [self languageTitle:code];
+    NSString *normalized = [code stringByReplacingOccurrencesOfString:@"_" withString:@"-"];
+    NSLocale *locale = [[NSLocale alloc] initWithLocaleIdentifier:normalized];
+    NSString *region = [locale objectForKey:NSLocaleCountryCode];
+    if (!region.length) return [self languageTitle:code];
+    NSLocale *displayLocale = [[NSLocale alloc] initWithLocaleIdentifier:@"en"];
+    NSString *regionTitle = [displayLocale localizedStringForCountryCode:region];
+    return regionTitle.length
+        ? [NSString stringWithFormat:@"%@ (%@)", [self languageTitle:code], regionTitle]
+        : [self languageTitle:code];
+}
 - (NSString *)languageFlag:(NSString *)code {
-    NSString *region = [[code componentsSeparatedByString:@"-"] lastObject].uppercaseString;
-    NSDictionary<NSString *, NSString *> *regionFlags = @{
-        @"US": @"🇺🇸", @"GB": @"🇬🇧", @"ES": @"🇪🇸", @"MX": @"🇲🇽", @"FR": @"🇫🇷",
-        @"DE": @"🇩🇪", @"AT": @"🇦🇹", @"CH": @"🇨🇭", @"BE": @"🇧🇪", @"IT": @"🇮🇹",
-        @"BR": @"🇧🇷", @"PT": @"🇵🇹", @"CA": @"🇨🇦", @"AU": @"🇦🇺", @"IN": @"🇮🇳",
-        @"SA": @"🇸🇦", @"AE": @"🇦🇪", @"JP": @"🇯🇵", @"CN": @"🇨🇳", @"TW": @"🇹🇼",
-        @"HK": @"🇭🇰", @"NL": @"🇳🇱", @"RU": @"🇷🇺", @"BG": @"🇧🇬", @"HR": @"🇭🇷",
-        @"CZ": @"🇨🇿", @"DK": @"🇩🇰", @"FI": @"🇫🇮", @"GR": @"🇬🇷", @"HU": @"🇭🇺",
-        @"LV": @"🇱🇻", @"LT": @"🇱🇹", @"MT": @"🇲🇹", @"RO": @"🇷🇴", @"SK": @"🇸🇰",
-        @"SI": @"🇸🇮", @"SE": @"🇸🇪", @"UA": @"🇺🇦", @"ID": @"🇮🇩", @"IE": @"🇮🇪",
-        @"NZ": @"🇳🇿", @"PH": @"🇵🇭", @"SG": @"🇸🇬", @"ZA": @"🇿🇦", @"IL": @"🇮🇱",
-        @"KR": @"🇰🇷", @"MY": @"🇲🇾", @"NO": @"🇳🇴", @"VN": @"🇻🇳",
+    NSString *normalized = [code stringByReplacingOccurrencesOfString:@"_" withString:@"-"];
+    NSLocale *locale = [[NSLocale alloc] initWithLocaleIdentifier:normalized];
+    NSString *region = [[locale objectForKey:NSLocaleCountryCode] uppercaseString];
+    if (region.length != 2) return @"🌐";
+    unichar first = [region characterAtIndex:0];
+    unichar second = [region characterAtIndex:1];
+    if (first < 'A' || first > 'Z' || second < 'A' || second > 'Z') return @"🌐";
+    unichar flag[] = {
+        0xD83C, (unichar)(0xDDE6 + first - 'A'),
+        0xD83C, (unichar)(0xDDE6 + second - 'A'),
     };
-    if ([code containsString:@"-"] && [region isEqualToString:@"419"]) return @"🌎";
-    if ([code containsString:@"-"] && region.length == 2) return regionFlags[region] ?: @"🌐";
-    NSString *base = [self languageBaseCode:code];
-    NSDictionary<NSString *, NSString *> *flags = @{
-        @"ar": @"🇸🇦", @"bg": @"🇧🇬", @"cs": @"🇨🇿", @"da": @"🇩🇰", @"de": @"🇩🇪",
-        @"el": @"🇬🇷", @"en": @"🇺🇸", @"es": @"🇪🇸", @"et": @"🇪🇪", @"fi": @"🇫🇮",
-        @"fr": @"🇫🇷", @"hi": @"🇮🇳", @"hr": @"🇭🇷", @"hu": @"🇭🇺", @"it": @"🇮🇹",
-        @"ja": @"🇯🇵", @"lt": @"🇱🇹", @"lv": @"🇱🇻", @"mt": @"🇲🇹", @"nl": @"🇳🇱",
-        @"pl": @"🇵🇱", @"pt": @"🇵🇹", @"ro": @"🇷🇴", @"ru": @"🇷🇺", @"sk": @"🇸🇰",
-        @"sl": @"🇸🇮", @"sv": @"🇸🇪", @"uk": @"🇺🇦", @"zh": @"🇨🇳",
-    };
-    return flags[base] ?: @"🌐";
+    return [NSString stringWithCharacters:flag length:4];
+}
+- (NSArray<NSString *> *)sortedLanguageCodes:(NSArray<NSString *> *)codes {
+    return [codes sortedArrayUsingComparator:^NSComparisonResult(NSString *left, NSString *right) {
+        NSComparisonResult languageOrder = [[self languageTitle:left] compare:[self languageTitle:right] options:NSCaseInsensitiveSearch];
+        if (languageOrder != NSOrderedSame) return languageOrder;
+        NSString *leftRegion = [self languageOptionTitle:left];
+        NSString *rightRegion = [self languageOptionTitle:right];
+        NSComparisonResult regionOrder = [leftRegion compare:rightRegion options:NSCaseInsensitiveSearch];
+        return regionOrder == NSOrderedSame ? [left compare:right options:NSCaseInsensitiveSearch] : regionOrder;
+    }];
 }
 - (void)updateLanguageTitle {
     self.languageValue.stringValue = (self.supportedLanguages.count == 0 && !self.supportsLanguageDetection)
@@ -918,7 +930,7 @@ static NSString *elapsed(uint64_t milliseconds) {
     self.allLanguagesButton.contentTintColor = [self languageColor:11 green:110 blue:105 darkR:114 green:215 blue:208];
     self.allLanguagesButton.accessibilityLabel = @"Show all supported languages";
     [self.languagePopoverView addSubview:self.allLanguagesButton];
-    NSTextField *hint = [self languageLabel:@"Only languages supported by the selected transcription model are shown." frame:NSMakeRect(22, 435, 292, 22) size:11 weight:NSFontWeightRegular color:secondary];
+    NSTextField *hint = [self languageLabel:@"Only languages available with the selected transcription provider are shown." frame:NSMakeRect(22, 435, 292, 22) size:11 weight:NSFontWeightRegular color:secondary];
     hint.maximumNumberOfLines = 2;
     [self.languagePopoverView addSubview:hint];
     __weak RimvMenu *weakSelf = self;
@@ -944,7 +956,7 @@ static NSString *elapsed(uint64_t milliseconds) {
         ? [self languageColor:229 green:245 blue:243 darkR:23 green:59 blue:57]
         : NSColor.clearColor).CGColor;
     button.identifier = code;
-    button.accessibilityLabel = [self languageTitle:code];
+    button.accessibilityLabel = [self languageOptionTitle:code];
     button.accessibilityValue = selected ? @"Selected" : @"Not selected";
     CGFloat nameX = 40;
     if ([code isEqualToString:@"auto"]) {
@@ -959,7 +971,7 @@ static NSString *elapsed(uint64_t milliseconds) {
         flag.font = [NSFont fontWithName:@"Apple Color Emoji" size:16] ?: [NSFont systemFontOfSize:16];
         [button addSubview:flag];
     }
-    NSTextField *name = [self languageLabel:[self languageTitle:code] frame:NSMakeRect(nameX, 10, 205, 20) size:14 weight:(selected ? NSFontWeightMedium : NSFontWeightRegular) color:[self languageColor:17 green:20 blue:24 darkR:242 green:246 blue:250]];
+    NSTextField *name = [self languageLabel:[self languageOptionTitle:code] frame:NSMakeRect(nameX, 10, 214, 20) size:14 weight:(selected ? NSFontWeightMedium : NSFontWeightRegular) color:[self languageColor:17 green:20 blue:24 darkR:242 green:246 blue:250]];
     [button addSubview:name];
     if (selected) {
         NSImageView *check = [[NSImageView alloc] initWithFrame:NSMakeRect(264, 11, 18, 18)];
@@ -979,46 +991,80 @@ static NSString *elapsed(uint64_t milliseconds) {
     for (NSView *view in self.languageListDocument.subviews.copy) [view removeFromSuperview];
     NSString *query = self.languageSearch.stringValue.lowercaseString;
     NSMutableArray<NSString *> *codes = [NSMutableArray array];
-    if (self.supportsLanguageDetection) [codes addObject:@"auto"];
-    for (NSString *code in self.supportedLanguages) [codes addObject:code];
+    NSMutableSet<NSString *> *seen = [NSMutableSet set];
+    if (self.supportsLanguageDetection) {
+        [codes addObject:@"auto"];
+        [seen addObject:@"auto"];
+    }
+    for (NSString *code in self.supportedLanguages) {
+        NSString *key = code.lowercaseString;
+        if (code.length && ![seen containsObject:key]) {
+            [codes addObject:code];
+            [seen addObject:key];
+        }
+    }
+    NSArray<NSString *> *sortedCodes = [self sortedLanguageCodes:codes];
     NSPredicate *matches = [NSPredicate predicateWithBlock:^BOOL(NSString *code, NSDictionary *bindings) {
         (void)bindings;
-        return query.length == 0 || [[self languageTitle:code].lowercaseString containsString:query] || [code containsString:query];
+        return query.length == 0
+            || [[self languageOptionTitle:code].lowercaseString containsString:query]
+            || [code.lowercaseString containsString:query];
     }];
-    NSArray<NSString *> *visible = [codes filteredArrayUsingPredicate:matches];
-    NSArray<NSString *> *popularOrder = @[@"en", @"es", @"fr", @"de", @"pt", @"it", @"nl", @"pl", @"ru", @"uk"];
+    NSArray<NSString *> *visible = [sortedCodes filteredArrayUsingPredicate:matches];
+    BOOL searching = query.length > 0;
     NSMutableArray<NSString *> *popular = [NSMutableArray array];
-    if ([visible containsObject:@"auto"]) [popular addObject:@"auto"];
-    for (NSString *language in popularOrder) {
-        NSString *preferred = nil;
-        if ([[self languageBaseCode:self.selectedLanguage] isEqualToString:language]
-            && [visible containsObject:self.selectedLanguage]) {
-            preferred = self.selectedLanguage;
-        } else {
-            for (NSString *code in visible) {
-                if ([[self languageBaseCode:code] isEqualToString:language]) {
-                    preferred = code;
-                    break;
+    if (!searching && [visible containsObject:@"auto"]) [popular addObject:@"auto"];
+    // One stable, useful representative per common language. Prefer the
+    // user's exact locale, then the familiar regional default, then the
+    // alphabetically sorted available locale for that language.
+    NSArray<NSArray<NSString *> *> *popularLocales = @[
+        @[@"en", @"en-US"], @[@"es", @"es-ES"], @[@"fr", @"fr-FR"],
+        @[@"de", @"de-DE"], @[@"it", @"it-IT"], @[@"pt", @"pt-BR"],
+        @[@"ja", @"ja-JP"], @[@"zh", @"zh-CN"], @[@"ko", @"ko-KR"],
+    ];
+    if (!searching) {
+        for (NSArray<NSString *> *entry in popularLocales) {
+            NSString *language = entry[0];
+            NSString *preferred = nil;
+            if ([[self languageBaseCode:self.selectedLanguage] isEqualToString:language]
+                && [visible containsObject:self.selectedLanguage]) {
+                preferred = self.selectedLanguage;
+            } else if ([visible containsObject:entry[1]]) {
+                preferred = entry[1];
+            } else {
+                for (NSString *code in visible) {
+                    if ([[self languageBaseCode:code] isEqualToString:language]) {
+                        preferred = code;
+                        break;
+                    }
                 }
             }
+            if (preferred && ![popular containsObject:preferred]) [popular addObject:preferred];
         }
-        if (preferred && ![popular containsObject:preferred]) [popular addObject:preferred];
     }
     NSMutableArray<NSString *> *remaining = [visible mutableCopy];
-    [remaining removeObjectsInArray:popular];
-    BOOL searching = query.length > 0;
-    BOOL hasAdditionalLanguages = remaining.count > 0;
-    if (!self.showAllLanguages && !searching) [remaining removeAllObjects];
-    self.allLanguagesButton.hidden = searching || (!hasAdditionalLanguages && !self.showAllLanguages);
-    self.allLanguagesButton.title = self.showAllLanguages ? @"Show popular languages  ⌃" : @"All supported languages  ›";
-    self.allLanguagesButton.accessibilityLabel = self.showAllLanguages ? @"Show popular languages" : @"Show all supported languages";
+    if (!searching) [remaining removeObjectsInArray:popular];
+    if (!searching && !popular.count) remaining = [visible mutableCopy];
+    BOOL hasAdditionalLanguages = popular.count > 0 && remaining.count > 0;
+    if (!self.showAllLanguages && !searching && popular.count) [remaining removeAllObjects];
+    self.allLanguagesButton.hidden = searching || !hasAdditionalLanguages;
+    self.allLanguagesButton.title = self.showAllLanguages ? @"Show fewer languages  ⌃" : @"Show all supported languages  ⌄";
+    self.allLanguagesButton.accessibilityLabel = self.showAllLanguages ? @"Show fewer languages" : @"Show all supported languages";
     CGFloat y = 0;
-    if (popular.count) {
+    if (searching) {
+        if (visible.count) {
+            [self addLanguageSection:@"Search results" atY:&y];
+            for (NSString *code in remaining) [self addLanguageOption:code atY:&y];
+        }
+    } else if (popular.count) {
         [self addLanguageSection:@"Popular languages" atY:&y];
         for (NSString *code in popular) [self addLanguageOption:code atY:&y];
-    }
-    if (remaining.count) {
-        if (y) y += 8;
+        if (self.showAllLanguages && remaining.count) {
+            y += 8;
+            [self addLanguageSection:@"All supported languages" atY:&y];
+            for (NSString *code in remaining) [self addLanguageOption:code atY:&y];
+        }
+    } else if (visible.count) {
         [self addLanguageSection:@"All supported languages" atY:&y];
         for (NSString *code in remaining) [self addLanguageOption:code atY:&y];
     }
@@ -1461,10 +1507,22 @@ bool rimv_menu_self_test(void) {
         LanguageCommandCallback originalLanguageCommand = menu.languageCommand;
         menu.command = testCommand;
         menu.languageCommand = testLanguageCommand;
+        NSImage *menuBarAsset = [NSImage imageNamed:@"MenuBarIcon"];
+        NSImage *rimvMarkAsset = [NSImage imageNamed:@"RimVMark"];
+        fprintf(stdout, "asset=MenuBarIcon found=%s size=%.0fx%.0f reps=%lu\n",
+                menuBarAsset ? "true" : "false", menuBarAsset.size.width, menuBarAsset.size.height,
+                (unsigned long)menuBarAsset.representations.count);
+        fprintf(stdout, "asset=RimVMark found=%s size=%.0fx%.0f reps=%lu\n",
+                rimvMarkAsset ? "true" : "false", rimvMarkAsset.size.width, rimvMarkAsset.size.height,
+                (unsigned long)rimvMarkAsset.representations.count);
+        BOOL passed = menuBarAsset != nil && rimvMarkAsset != nil
+            && NSEqualSizes(menuBarAsset.size, NSMakeSize(18, 18))
+            && NSEqualSizes(rimvMarkAsset.size, NSMakeSize(64, 64));
         NSMutableDictionary *state = [menu.snapshot mutableCopy];
         state[@"microphone"] = @{@"enabled": @YES, @"active": @YES};
         state[@"system_audio"] = @{@"enabled": @NO, @"active": @NO};
-        BOOL passed = menu.statusItem != nil && menu.capture.enabled;
+        passed &= menu.statusItem != nil && menu.capture.enabled;
+        passed &= menu.statusItem.button.image.template;
         passed &= NSEqualPoints(menu.mainContentView.frame.origin,
                                 NSMakePoint(RimvMainContentInset, RimvMainContentInset));
         passed &= NSWidth(menu.popoverView.bounds) - NSWidth(menu.mainContentView.frame) == RimvMainContentInset * 2;
@@ -1497,7 +1555,7 @@ bool rimv_menu_self_test(void) {
         [menu buildLanguagePopover];
         menu.selectedLanguage = @"en";
         [menu updateLanguageTitle];
-        passed &= [menu.languageFlagIcon.stringValue isEqualToString:@"🇺🇸"];
+        passed &= [menu.languageFlagIcon.stringValue isEqualToString:@"🌐"];
         menu.languageSearch.stringValue = @"span";
         [menu reloadLanguageOptions];
         passed &= menu.languageListDocument.subviews.count == 2;
@@ -1506,14 +1564,22 @@ bool rimv_menu_self_test(void) {
         [menu selectLanguageButton:spanish];
         passed &= [testedLanguage isEqualToString:@"es"]
             && menu.languageValue.stringValue.length > 0
-            && [menu.languageFlagIcon.stringValue isEqualToString:@"🇪🇸"];
+            && [menu.languageFlagIcon.stringValue isEqualToString:@"🌐"];
         menu.supportedLanguages = @[@"en-US", @"en-GB", @"es-ES", @"fr-FR", @"de-DE", @"it-IT", @"pt-BR"];
         menu.selectedLanguage = @"es-ES";
         [menu updateLanguageTitle];
         passed &= [menu.languageFlagIcon.stringValue isEqualToString:@"🇪🇸"];
+        passed &= [[menu languageOptionTitle:@"en-GB"] isEqualToString:@"English (United Kingdom)"];
+        passed &= [[menu languageOptionTitle:@"es-MX"] isEqualToString:@"Spanish (Mexico)"];
+        passed &= [[menu languageOptionTitle:@"fr-FR"] isEqualToString:@"French (France)"];
+        passed &= [[menu languageOptionTitle:@"de-DE"] isEqualToString:@"German (Germany)"];
+        passed &= [[menu languageOptionTitle:@"it-IT"] isEqualToString:@"Italian (Italy)"];
+        passed &= [[menu languageOptionTitle:@"pt-BR"] isEqualToString:@"Portuguese (Brazil)"];
         NSArray<NSArray<NSString *> *> *flagCases = @[
-            @[@"en-US", @"🇺🇸"], @[@"es-ES", @"🇪🇸"], @[@"fr-FR", @"🇫🇷"],
-            @[@"de-DE", @"🇩🇪"], @[@"it-IT", @"🇮🇹"], @[@"pt-PT", @"🇵🇹"],
+            @[@"en-US", @"🇺🇸"], @[@"en-GB", @"🇬🇧"], @[@"en-AU", @"🇦🇺"],
+            @[@"en-IN", @"🇮🇳"], @[@"es-ES", @"🇪🇸"], @[@"es-MX", @"🇲🇽"],
+            @[@"fr-FR", @"🇫🇷"], @[@"de-DE", @"🇩🇪"], @[@"it-IT", @"🇮🇹"], @[@"pt-PT", @"🇵🇹"],
+            @[@"es-419", @"🌐"], @[@"en", @"🌐"],
         ];
         for (NSArray<NSString *> *flagCase in flagCases) {
             menu.selectedLanguage = flagCase[0];
@@ -1530,6 +1596,107 @@ bool rimv_menu_self_test(void) {
             }
         }
         passed &= selectedSpanish != nil && [selectedSpanish.accessibilityValue isEqualToString:@"Selected"];
+        menu.supportedLanguages = @[
+            @"en-US", @"en-GB", @"en-AU", @"en-IN", @"es-ES", @"es-MX",
+            @"fr-FR", @"fr-CA", @"de-DE", @"it-IT", @"pt-BR", @"pt-PT",
+            @"ca-ES", @"ar-SA", @"zh-TW", @"hi-IN",
+        ];
+        menu.supportsLanguageDetection = NO;
+        menu.selectedLanguage = @"en-GB";
+        menu.showAllLanguages = NO;
+        menu.languageSearch.stringValue = @"";
+        [menu reloadLanguageOptions];
+        NSMutableArray<NSString *> *collapsedCodes = [NSMutableArray array];
+        NSInteger collapsedSelectedCount = 0;
+        BOOL foundUnitedKingdomTitle = NO;
+        for (NSView *view in menu.languageListDocument.subviews) {
+            if (![view isKindOfClass:NSButton.class]) continue;
+            NSButton *option = (NSButton *)view;
+            if (!option.identifier.length) continue;
+            [collapsedCodes addObject:option.identifier];
+            collapsedSelectedCount += [option.accessibilityValue isEqualToString:@"Selected"] ? 1 : 0;
+            if ([option.identifier isEqualToString:@"en-GB"]
+                && [option.accessibilityLabel isEqualToString:@"English (United Kingdom)"]) {
+                foundUnitedKingdomTitle = YES;
+            }
+        }
+        passed &= [collapsedCodes containsObject:@"en-GB"] && foundUnitedKingdomTitle;
+        passed &= collapsedSelectedCount == 1 && !menu.allLanguagesButton.hidden;
+        passed &= [menu.allLanguagesButton.title isEqualToString:@"Show all supported languages  ⌄"];
+        [menu toggleAllLanguages:nil];
+        NSMutableArray<NSString *> *expandedCodes = [NSMutableArray array];
+        NSInteger expandedSelectedCount = 0;
+        for (NSView *view in menu.languageListDocument.subviews) {
+            if (![view isKindOfClass:NSButton.class]) continue;
+            NSButton *option = (NSButton *)view;
+            if (!option.identifier.length) continue;
+            [expandedCodes addObject:option.identifier];
+            expandedSelectedCount += [option.accessibilityValue isEqualToString:@"Selected"] ? 1 : 0;
+        }
+        passed &= expandedCodes.count == menu.supportedLanguages.count;
+        passed &= [NSSet setWithArray:expandedCodes].count == expandedCodes.count;
+        passed &= expandedSelectedCount == 1;
+        passed &= [menu.allLanguagesButton.title isEqualToString:@"Show fewer languages  ⌃"];
+        menu.languageSearch.stringValue = @"united kingdom";
+        [menu reloadLanguageOptions];
+        passed &= menu.languageListDocument.subviews.count == 2
+            && [((NSButton *)menu.languageListDocument.subviews.lastObject).identifier isEqualToString:@"en-GB"];
+        menu.languageSearch.stringValue = @"en-gb";
+        [menu reloadLanguageOptions];
+        passed &= menu.languageListDocument.subviews.count == 2
+            && [((NSButton *)menu.languageListDocument.subviews.lastObject).identifier isEqualToString:@"en-GB"];
+        menu.languageSearch.stringValue = @"english";
+        [menu reloadLanguageOptions];
+        NSMutableSet<NSString *> *englishSearchCodes = [NSMutableSet set];
+        for (NSView *view in menu.languageListDocument.subviews) {
+            if ([view isKindOfClass:NSButton.class] && ((NSButton *)view).identifier.length) {
+                [englishSearchCodes addObject:((NSButton *)view).identifier];
+            }
+        }
+        passed &= [englishSearchCodes isEqualToSet:[NSSet setWithArray:@[@"en-US", @"en-GB", @"en-AU", @"en-IN"]]];
+        menu.languageSearch.stringValue = @"spanish";
+        [menu reloadLanguageOptions];
+        NSMutableSet<NSString *> *spanishSearchCodes = [NSMutableSet set];
+        for (NSView *view in menu.languageListDocument.subviews) {
+            if ([view isKindOfClass:NSButton.class] && ((NSButton *)view).identifier.length) {
+                [spanishSearchCodes addObject:((NSButton *)view).identifier];
+            }
+        }
+        passed &= [spanishSearchCodes isEqualToSet:[NSSet setWithArray:@[@"es-ES", @"es-MX"]]];
+        menu.languageSearch.stringValue = @"es-mx";
+        [menu reloadLanguageOptions];
+        passed &= menu.languageListDocument.subviews.count == 2
+            && [((NSButton *)menu.languageListDocument.subviews.lastObject).identifier isEqualToString:@"es-MX"];
+        menu.supportedLanguages = @[@"th-TH", @"vi-VN"];
+        menu.languageSearch.stringValue = @"";
+        menu.showAllLanguages = NO;
+        [menu reloadLanguageOptions];
+        passed &= menu.languageListDocument.subviews.count == 3
+            && [((NSButton *)menu.languageListDocument.subviews[1]).identifier isEqualToString:@"th-TH"]
+            && [((NSButton *)menu.languageListDocument.subviews[2]).identifier isEqualToString:@"vi-VN"]
+            && menu.allLanguagesButton.hidden;
+        NSDictionary *parakeetSelector = @{
+            @"model": @"Parakeet", @"languages": @[@"en", @"es"], @"auto_detect": @NO,
+        };
+        NSData *parakeetData = [NSJSONSerialization dataWithJSONObject:parakeetSelector options:0 error:nil];
+        rimv_menu_set_selector_state([[NSString alloc] initWithData:parakeetData encoding:NSUTF8StringEncoding].UTF8String);
+        passed &= [menu.supportedLanguages isEqualToArray:@[@"en", @"es"]]
+            && [menu.selectedLanguage isEqualToString:@"en"];
+        NSDictionary *whisperSelector = @{
+            @"model": @"Whisper", @"languages": @[@"fr", @"de", @"en"], @"auto_detect": @NO,
+        };
+        NSData *whisperData = [NSJSONSerialization dataWithJSONObject:whisperSelector options:0 error:nil];
+        rimv_menu_set_selector_state([[NSString alloc] initWithData:whisperData encoding:NSUTF8StringEncoding].UTF8String);
+        passed &= [menu.supportedLanguages isEqualToArray:@[@"fr", @"de", @"en"]]
+            && [menu.selectedLanguage isEqualToString:@"en"];
+        NSDictionary *nativeSelector = @{
+            @"model": @"Native", @"languages": @[@"en-US", @"en-GB", @"es-ES"], @"auto_detect": @NO,
+        };
+        NSData *nativeData = [NSJSONSerialization dataWithJSONObject:nativeSelector options:0 error:nil];
+        rimv_menu_set_selector_state([[NSString alloc] initWithData:nativeData encoding:NSUTF8StringEncoding].UTF8String);
+        rimv_menu_set_language("en-GB");
+        passed &= [menu.supportedLanguages isEqualToArray:@[@"en-US", @"en-GB", @"es-ES"]]
+            && [menu.selectedLanguage isEqualToString:@"en-GB"];
         menu.supportedLanguages = @[@"bg", @"hr", @"cs", @"da", @"nl", @"en", @"et", @"fi", @"fr", @"de", @"el", @"hu", @"it", @"lv", @"lt", @"mt", @"pl", @"pt", @"ro", @"sk", @"sl", @"es", @"sv", @"ru", @"uk"];
         menu.showAllLanguages = NO;
         menu.languageSearch.stringValue = @"";

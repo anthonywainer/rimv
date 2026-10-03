@@ -1,9 +1,9 @@
 use engine_runtime::{
-    AsrBackendKind, EngineCommand, EngineConfig, EngineEvent, EngineRuntime, SubscriptionError,
+    AsrBackendKind, EngineCommand, EngineConfig, EngineEvent, EngineRuntime, EngineSnapshot,
+    SubscriptionError,
 };
 use model_manager::{ModelDescriptor, ModelManager, ModelState};
 use std::{
-    collections::HashSet,
     ffi::{CStr, CString, c_char},
     path::PathBuf,
     sync::{
@@ -14,6 +14,9 @@ use std::{
     thread,
     time::Duration,
 };
+
+#[cfg(test)]
+use std::collections::HashSet;
 
 unsafe extern "C" {
     fn rimv_menu_create(
@@ -452,10 +455,7 @@ fn publish_model_catalog() {
         let progress_text = progress.get(&model.id).map(|(done, total)| match total { Some(total) => format!("{:.0}% · {:.1} MB / {:.1} MB", *done as f64 * 100.0 / *total as f64, *done as f64 / 1_000_000.0, *total as f64 / 1_000_000.0), None => format!("{:.1} MB downloaded", *done as f64 / 1_000_000.0) });
         serde_json::json!({"id":model.id,"name":model.display_name,"description":model.install_hint.as_deref().unwrap_or("Local transcription model."),"size":size,"progress":progress_text,"state":if models.state(model)==ModelState::Ready {"installed"} else if downloading.contains(&model.id) {"downloading"} else {"available"},"selected":model.id==selected})
     }).collect();
-    if MODELS
-        .get()
-        .is_some_and(|models| !apple_supported_languages(models).is_empty())
-    {
+    if !apple_supported_languages().is_empty() {
         items.insert(
             0,
             serde_json::json!({
@@ -475,8 +475,12 @@ fn language_settings_path(support: &std::path::Path) -> PathBuf {
     support.join("menu-language")
 }
 
-fn saved_language(support: &std::path::Path) -> Option<String> {
-    let value = std::fs::read_to_string(language_settings_path(support)).ok()?;
+fn native_language_settings_path(support: &std::path::Path) -> PathBuf {
+    support.join("menu-native-language")
+}
+
+fn saved_language_at(path: &std::path::Path) -> Option<String> {
+    let value = std::fs::read_to_string(path).ok()?;
     let value = value.trim().replace('_', "-");
     if value == "auto"
         || value.split('-').all(|part| {
@@ -490,6 +494,32 @@ fn saved_language(support: &std::path::Path) -> Option<String> {
     } else {
         None
     }
+}
+
+fn saved_language(support: &std::path::Path) -> Option<String> {
+    saved_language_at(&language_settings_path(support))
+}
+
+fn saved_native_language(support: &std::path::Path) -> Option<String> {
+    saved_language_at(&native_language_settings_path(support))
+}
+
+fn saved_native_language_or_general(support: &std::path::Path) -> Option<String> {
+    saved_native_language(support).or_else(|| saved_language(support))
+}
+
+#[cfg(test)]
+fn locale_language_and_region(locale: &str) -> (&str, Option<&str>) {
+    let mut parts = locale.split('-');
+    let language = parts.next().unwrap_or(locale);
+    let region = parts.find(|part| {
+        (part.len() == 2
+            && part
+                .chars()
+                .all(|character| character.is_ascii_alphabetic()))
+            || (part.len() == 3 && part.chars().all(|character| character.is_ascii_digit()))
+    });
+    (language, region)
 }
 
 fn canonical_language_tag(value: &str) -> String {
@@ -555,22 +585,11 @@ fn should_select_native(
     native_available && (saved.is_none() || saved == Some("native-apple") || !legacy_model_ready)
 }
 
-fn apple_supported_languages(models: &ModelManager) -> Vec<String> {
-    let usable_on_device = engine_runtime::apple_speech_locale_catalog().usable_on_device;
-    let rimv_languages: HashSet<String> = models
-        .catalog()
-        .iter()
-        .flat_map(|model| model.languages.iter().cloned())
-        .collect();
+fn apple_supported_languages() -> Vec<String> {
+    let mut usable_on_device = engine_runtime::apple_speech_locale_catalog().usable_on_device;
+    usable_on_device.sort_unstable_by_key(|locale| locale.to_ascii_lowercase());
+    usable_on_device.dedup_by(|left, right| left.eq_ignore_ascii_case(right));
     usable_on_device
-        .into_iter()
-        .filter(|locale| {
-            locale
-                .split(['-', '_'])
-                .next()
-                .is_some_and(|language| rimv_languages.contains(language))
-        })
-        .collect()
 }
 
 fn native_language_selection(saved: Option<&str>, locales: &[String]) -> Option<String> {
@@ -630,10 +649,7 @@ fn native_language_selection(saved: Option<&str>, locales: &[String]) -> Option<
 
 fn update_selector_state(model: Option<&ModelDescriptor>, native: bool) {
     let native_languages = if native {
-        MODELS
-            .get()
-            .map(apple_supported_languages)
-            .unwrap_or_default()
+        apple_supported_languages()
     } else {
         Vec::new()
     };
@@ -649,6 +665,16 @@ fn update_selector_state(model: Option<&ModelDescriptor>, native: bool) {
 
 fn persist_language(support: &std::path::Path, language: Option<&str>) -> std::io::Result<()> {
     std::fs::write(language_settings_path(support), language.unwrap_or("auto"))
+}
+
+fn persist_native_language(
+    support: &std::path::Path,
+    language: Option<&str>,
+) -> std::io::Result<()> {
+    std::fs::write(
+        native_language_settings_path(support),
+        language.unwrap_or("auto"),
+    )
 }
 
 fn capture_source_settings_path(support: &std::path::Path) -> PathBuf {
@@ -950,6 +976,24 @@ mod recording_metadata_tests {
         assert_eq!(saved_language(&support).as_deref(), Some("en-GB"));
         std::fs::remove_dir_all(support).unwrap();
     }
+
+    #[test]
+    fn native_locale_preference_survives_switching_to_a_base_language_model() {
+        let support = temporary_session_path();
+        persist_native_language(&support, Some("en-GB")).unwrap();
+        persist_language(&support, Some("en")).unwrap();
+
+        assert_eq!(saved_language(&support).as_deref(), Some("en"));
+        assert_eq!(saved_native_language(&support).as_deref(), Some("en-GB"));
+        assert_eq!(
+            native_language_selection(
+                saved_native_language_or_general(&support).as_deref(),
+                &["en-AU".into(), "en-GB".into(), "en-US".into(),]
+            ),
+            Some("en-GB".into())
+        );
+        std::fs::remove_dir_all(support).unwrap();
+    }
 }
 
 fn update_transcription_window(engine: &EngineRuntime, update: &engine_runtime::TranscriptUpdate) {
@@ -986,6 +1030,7 @@ struct Options {
     seconds: u64,
     self_test: bool,
 }
+
 impl Options {
     fn parse() -> Result<Self, Box<dyn std::error::Error>> {
         let mut options = Self {
@@ -1056,6 +1101,38 @@ fn resolve_recordings_directory(
 
 pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     let options = Options::parse()?;
+    if options.self_test {
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        let support = std::env::temp_dir().join(format!(
+            "rimv-menu-self-test-{}-{nonce}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&support)?;
+        let root = CString::new(support.to_string_lossy().as_bytes())?;
+        let snapshot = CString::new(serde_json::to_string(&EngineSnapshot::default())?)?;
+        unsafe { rimv_menu_create(root.as_ptr(), snapshot.as_ptr(), command) };
+        let selector_state = CString::new(
+            serde_json::json!({
+                "model": "Native",
+                "languages": [],
+                "auto_detect": false,
+            })
+            .to_string(),
+        )?;
+        unsafe { rimv_menu_set_selector_state(selector_state.as_ptr()) };
+        unsafe { rimv_menu_set_language_command_callback(language_command) };
+        let passed = unsafe { rimv_menu_self_test() };
+        let _ = std::fs::remove_dir_all(support);
+        return if passed {
+            Ok(())
+        } else {
+            Err("native menu self-test failed".into())
+        };
+    }
+
     let support = PathBuf::from(std::env::var_os("HOME").ok_or("HOME is not set")?)
         .join("Library/Application Support/rimv");
     std::fs::create_dir_all(&support)?;
@@ -1101,8 +1178,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
                 })
                 .cloned()
         });
-    let saved_language_id = saved_language(&support);
-    let supported_native_languages = apple_supported_languages(&models);
+    let supported_native_languages = apple_supported_languages();
     let native_supported = !supported_native_languages.is_empty();
     let native_selected = should_select_native(
         saved_model_id.as_deref(),
@@ -1135,8 +1211,11 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         AsrBackendKind::Parakeet
     };
     let selected_language = if native_selected {
-        native_language_selection(saved_language_id.as_deref(), &supported_native_languages)
-            .unwrap_or_else(|| "auto".into())
+        native_language_selection(
+            saved_native_language_or_general(&support).as_deref(),
+            &supported_native_languages,
+        )
+        .unwrap_or_else(|| "auto".into())
     } else {
         selected_language_for_model(saved_language(&support), selected_model.as_ref())
     };
@@ -1209,15 +1288,6 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             .unwrap_or("Ready for explicit installation.")
     ))?;
     unsafe { rimv_menu_set_model_summary(summary.as_ptr()) };
-    if options.self_test {
-        let passed = unsafe { rimv_menu_self_test() };
-        engine.shutdown()?;
-        return if passed {
-            Ok(())
-        } else {
-            Err("native menu self-test failed".into())
-        };
-    }
     let controller_engine = engine.clone();
     let controller = thread::Builder::new()
         .name("menu-controls".into())
@@ -1273,15 +1343,16 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
                         });
                         if using_native
                             && language.as_deref().is_some_and(|language| {
-                                !MODELS.get().is_some_and(|models| {
-                                    apple_supported_languages(models)
+                                !apple_supported_languages()
                                     .iter()
                                     .any(|supported| supported == language)
-                                })
                             })
                         {
                             show_error("That language is not available for on-device Apple Speech on this Mac.");
-                            if let Some(saved) = saved_language(&support)
+                            if let Some(saved) = native_language_selection(
+                                saved_native_language_or_general(&support).as_deref(),
+                                &apple_supported_languages(),
+                            )
                                 && let Ok(saved) = CString::new(saved)
                             {
                                 unsafe { rimv_menu_set_language(saved.as_ptr()) };
@@ -1296,22 +1367,27 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
                             show_error(&error.to_string());
                             continue;
                         }
-                        if let Err(error) = persist_language(&support, language.as_deref()) {
+                        let persist_result = persist_language(&support, language.as_deref())
+                            .and_then(|_| {
+                                if using_native {
+                                    persist_native_language(&support, language.as_deref())
+                                } else {
+                                    Ok(())
+                                }
+                            });
+                        if let Err(error) = persist_result {
                             show_error(&format!("could not save transcription language: {error}"));
                         }
                     }
                     Action::SelectModel(id) => {
                         if id == "native-apple" {
-                            let languages = MODELS
-                                .get()
-                                .map(apple_supported_languages)
-                                .unwrap_or_default();
+                            let languages = apple_supported_languages();
                             if languages.is_empty() {
                                 show_error("Apple Speech is unavailable for supported on-device languages on this Mac.");
                                 continue;
                             }
                             let language = native_language_selection(
-                                saved_language(&support).as_deref(),
+                                saved_native_language_or_general(&support).as_deref(),
                                 &languages,
                             ).expect("non-empty Apple on-device locale list");
                             let result = controller_engine
@@ -1338,6 +1414,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
                             }
                             if let Err(error) = persist_model(&support, &id)
                                 .and_then(|_| persist_language(&support, Some(&language)))
+                                .and_then(|_| persist_native_language(&support, Some(&language)))
                             {
                                 show_error(&format!("could not save transcription preference: {error}"));
                             }
@@ -1574,11 +1651,20 @@ mod locale_tests {
         let supported = catalog.supported;
         let on_device = catalog.supports_on_device;
         let usable_on_device = catalog.usable_on_device;
-        let models = ModelManager::new(PathBuf::from("/tmp/rimv-native-locale-diagnostic"));
-        let exposed = apple_supported_languages(&models);
-        eprintln!("Apple Speech supported locales:");
+        let exposed = apple_supported_languages();
+        let on_device_set: HashSet<&str> = on_device.iter().map(String::as_str).collect();
+        let exposed_set: HashSet<&str> = exposed.iter().map(String::as_str).collect();
+        eprintln!(
+            "Apple Speech locale capabilities (locale, language, region, on-device, exposed by RimV):"
+        );
         for locale in &supported {
-            eprintln!("    {locale}");
+            let (language, region) = locale_language_and_region(locale);
+            eprintln!(
+                "    {locale}, {language}, {}, {}, {}",
+                region.unwrap_or("none"),
+                on_device_set.contains(locale.as_str()),
+                exposed_set.contains(locale.as_str())
+            );
         }
         eprintln!("Apple Speech on-device locales:");
         for locale in &on_device {

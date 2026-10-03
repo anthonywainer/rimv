@@ -68,6 +68,7 @@ internal static class WindowsNativeSpeechE2E
             .ToArray();
         int maxPartialsBeforeFinal = replacementGroups.Where(group => group.Finalized).Select(group => group.Count).DefaultIfEmpty().Max();
         bool noDuplicateFinals = finals.Select(item => Normalize(item.Update.StableText)).Distinct(StringComparer.Ordinal).Count() == finals.Length;
+        bool duplicateFinalText = !noDuplicateFinals;
         string report = string.Join(Environment.NewLine, new[] {
             "Provider: native_windows (Microsoft.Windows.AI.Speech; forced, no fallback)",
             $"Fixture format: {sampleRate} Hz, {channels} channel, PCM 16-bit",
@@ -79,7 +80,7 @@ internal static class WindowsNativeSpeechE2E
             $"Expected: {expected}",
             $"Actual: {actual}",
             $"WER: {accuracy.Wer:F3}; CER: {accuracy.Cer:F3}",
-            $"Duplicate final text: {!noDuplicateFinals}",
+            "Duplicate final text: " + duplicateFinalText,
         ]);
         bool partialPrecedesFinal = firstPartial is { } partialTime
             && firstFinal is { } finalTime
