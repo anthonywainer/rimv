@@ -184,8 +184,9 @@ jobs:
           cd "$RUNNER_TEMP/native-validated"
           installer="RimV-$VERSION-windows-x64-setup.exe"
           manifest="RimV-$VERSION-windows-x64-manifest.json"
+          publisher_certificate="RimV-$VERSION-identity-publisher.cer"
           checksums="RimV-$VERSION-windows-x64-SHA256SUMS.txt"
-          test -s "$installer" && test -s "$manifest" && test -s "$checksums"
+          test -s "$installer" && test -s "$manifest" && test -s "$publisher_certificate" && test -s "$checksums"
           test "$(find . -maxdepth 1 -type f -name '*.exe' | wc -l | tr -d ' ')" = 1
           tr -d '\r' < "$checksums" > "$RUNNER_TEMP/native-checksums.txt"
           sha256sum --check "$RUNNER_TEMP/native-checksums.txt"
@@ -211,6 +212,7 @@ jobs:
         run: |
           set -euo pipefail
           cp "$RUNNER_TEMP/native-validated/RimV-$VERSION-windows-x64-setup.exe" target/release-artifacts/
+          cp "$RUNNER_TEMP/native-validated/RimV-$VERSION-identity-publisher.cer" target/release-artifacts/
           cd target/release-artifacts
           for kind in capture transcribe server; do
             test -s "rimv-$kind-$RELEASE_TAG-macos-arm64.tar.gz"
@@ -219,13 +221,14 @@ jobs:
             "rimv-capture-$RELEASE_TAG-macos-arm64.tar.gz" \
             "rimv-transcribe-$RELEASE_TAG-macos-arm64.tar.gz" \
             "rimv-server-$RELEASE_TAG-macos-arm64.tar.gz" \
-            "RimV-$VERSION-windows-x64-setup.exe" > SHA256SUMS
+            "RimV-$VERSION-windows-x64-setup.exe" \
+            "RimV-$VERSION-identity-publisher.cer" > SHA256SUMS
           test -s SHA256SUMS
           sha256sum --check SHA256SUMS
           cat > "$RUNNER_TEMP/rimv-native-release-notes.md" <<EOF
           # RimV $RELEASE_TAG — native Windows prerelease
 
-          Windows x64: install RimV-$VERSION-windows-x64-setup.exe. This is the native WinUI 3 application backed by the shared Rust core. Models are downloaded by the app after installation. The installer is currently unsigned.
+          Windows x64: install RimV-$VERSION-windows-x64-setup.exe. This is the native WinUI 3 application backed by the shared Rust core. Models are downloaded by the app after installation. Setup asks whether to trust RimV's identity-package certificate for the current Windows user to enable Windows Native Speech. The installer is currently unsigned.
 
           The native installer passed automated Rust/.NET tests, package dependency checks, and clean-runner install, startup, reinstall, uninstall and user-data preservation checks in [the validation workflow]($VALIDATION_RUN). Interactive GUI and physical audio checks should still be completed on a Windows desktop; they are not a release-workflow gate. See [installation instructions](https://github.com/$GITHUB_REPOSITORY/blob/$RELEASE_TAG/docs/windows-native-installation.md).
 
@@ -255,4 +258,5 @@ jobs:
             target/release-artifacts/rimv-transcribe-${{ needs.validate.outputs.tag }}-macos-arm64.tar.gz
             target/release-artifacts/rimv-server-${{ needs.validate.outputs.tag }}-macos-arm64.tar.gz
             target/release-artifacts/RimV-${{ needs.validate.outputs.version }}-windows-x64-setup.exe
+            target/release-artifacts/RimV-${{ needs.validate.outputs.version }}-identity-publisher.cer
             target/release-artifacts/SHA256SUMS

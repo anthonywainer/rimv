@@ -34,8 +34,8 @@
                                                 <Grid ColumnSpacing="8">
                                                     <Grid.ColumnDefinitions><ColumnDefinition Width="23"/><ColumnDefinition Width="*"/><ColumnDefinition Width="18"/></Grid.ColumnDefinitions>
                                                     <Grid Width="22" Height="16" VerticalAlignment="Center">
-                                                        <TextBlock Text="{x:Bind Flag}" FontSize="16" TextAlignment="Center"
-                                                                   Visibility="{x:Bind FlagVisibility}" />
+                                                        <Image Source="{x:Bind FlagImage}" Stretch="UniformToFill"
+                                                               Visibility="{x:Bind FlagVisibility}" />
                                                         <FontIcon Glyph="&#xE774;" FontFamily="Segoe Fluent Icons" FontSize="15"
                                                                   Foreground="{ThemeResource RimVMenuSecondaryTextBrush}"
                                                                   Visibility="{x:Bind AutoDetectVisibility}" />
@@ -62,8 +62,8 @@
                                                 <Grid ColumnSpacing="8">
                                                     <Grid.ColumnDefinitions><ColumnDefinition Width="23"/><ColumnDefinition Width="*"/><ColumnDefinition Width="18"/></Grid.ColumnDefinitions>
                                                     <Grid Width="22" Height="16" VerticalAlignment="Center">
-                                                        <TextBlock Text="{x:Bind Flag}" FontSize="16" TextAlignment="Center"
-                                                                   Visibility="{x:Bind FlagVisibility}" />
+                                                        <Image Source="{x:Bind FlagImage}" Stretch="UniformToFill"
+                                                               Visibility="{x:Bind FlagVisibility}" />
                                                         <FontIcon Glyph="&#xE774;" FontFamily="Segoe Fluent Icons" FontSize="15"
                                                                   Foreground="{ThemeResource RimVMenuSecondaryTextBrush}"
                                                                   Visibility="{x:Bind AutoDetectVisibility}" />

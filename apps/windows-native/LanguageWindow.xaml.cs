@@ -3,6 +3,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Media.Imaging;
 
 namespace RimV.Windows;
 
@@ -10,7 +11,7 @@ public sealed class LanguageSelectorRow
 {
     public string Code { get; init; } = "";
     public string Name { get; init; } = "";
-    public string Flag { get; init; } = "";
+    public SvgImageSource? FlagImage { get; init; }
     public Visibility FlagVisibility { get; init; }
     public Visibility AutoDetectVisibility { get; init; }
     public string Checkmark { get; init; } = "";
@@ -117,12 +118,13 @@ public sealed partial class LanguageWindow : Window
             : option.RegionName is { Length: > 0 } region ? $"{option.Name} ({region})" : option.Name;
         string accessibleName = selected ? $"{displayName}, selected" : displayName;
         bool autoDetect = option.Code == "auto";
+        SvgImageSource? flagImage = autoDetect ? null : LanguageFlagAssets.ForRegion(option.RegionCode);
         return new LanguageSelectorRow
         {
             Code = option.Code,
             Name = displayName,
-            Flag = autoDetect ? "" : option.Flag,
-            FlagVisibility = autoDetect ? Visibility.Collapsed : Visibility.Visible,
+            FlagImage = flagImage,
+            FlagVisibility = flagImage is not null ? Visibility.Visible : Visibility.Collapsed,
             AutoDetectVisibility = autoDetect ? Visibility.Visible : Visibility.Collapsed,
             Checkmark = selected ? "✓" : "",
             AccessibleName = accessibleName,

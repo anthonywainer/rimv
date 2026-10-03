@@ -279,7 +279,8 @@ public sealed partial class ShellWindow : Window
         LanguagePresentation? languagePresentation = PresentLanguage(_coordinator.SelectedLanguage);
         LanguageName.Text = languagePresentation?.LanguageName
             ?? (supportsLanguageDetection ? "Auto Detect" : "Default");
-        LanguageFlag.Text = languagePresentation?.Flag ?? (supportsLanguageDetection ? "✨" : "🌐");
+        LanguageFlag.Source = LanguageFlagAssets.ForRegion(languagePresentation?.RegionCode);
+        LanguageFlag.Visibility = LanguageFlag.Source is null ? Visibility.Collapsed : Visibility.Visible;
         ErrorMessage.Text = _coordinator.ErrorMessage ?? "";
         ErrorCard.Visibility = visibleError ? Visibility.Visible : Visibility.Collapsed;
         ModelInfo.Message = !_coordinator.IsCoreAvailable

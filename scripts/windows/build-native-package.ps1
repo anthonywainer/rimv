@@ -208,6 +208,7 @@ try {
     }
     $publisherCertificatePath = Join-Path $artifactDirectory "RimV-$appVersion-identity-publisher.cer"
     Export-Certificate -Cert $publisherCertificate -FilePath $publisherCertificatePath | Out-Null
+    Copy-Item -LiteralPath $publisherCertificatePath -Destination (Join-Path $payloadDirectory 'RimV.Identity.cer')
 
     $icon = Join-Path $repoRoot 'apps\windows\icons\icon.ico'
     $publishedIcon = Join-Path $payloadDirectory 'Assets\rimv.ico'

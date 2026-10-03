@@ -116,8 +116,9 @@
                                 <ColumnDefinition Width="22"/><ColumnDefinition Width="*"/>
                                 <ColumnDefinition Width="Auto"/><ColumnDefinition Width="16"/>
                             </Grid.ColumnDefinitions>
-                            <TextBlock x:Name="LanguageFlag" Text="🌐" FontSize="16" VerticalAlignment="Center"
-                                       HorizontalAlignment="Center" />
+                            <Image x:Name="LanguageFlag" Width="20" Height="14" Stretch="UniformToFill"
+                                   VerticalAlignment="Center" HorizontalAlignment="Center"
+                                   AutomationProperties.AccessibilityView="Raw" />
                             <TextBlock Grid.Column="1" Text="Language" FontSize="15" VerticalAlignment="Center"/>
                             <TextBlock x:Name="LanguageName" Grid.Column="2" Text="Automatic" MaxWidth="180"
                                        TextTrimming="CharacterEllipsis" FontSize="14" VerticalAlignment="Center"

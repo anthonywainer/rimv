@@ -28,7 +28,7 @@ The installer is unsigned unless a certificate-backed Authenticode step is confi
 
 ## Install, update and uninstall
 
-1. Run `RimV-<version>-windows-x64-setup.exe` and follow setup.
+1. Run `RimV-<version>-windows-x64-setup.exe` and follow setup. Setup first checks whether RimV's identity-package signing certificate is already trusted. If not, it asks before adding the certificate to the current user's Trusted People store. This trust applies only to the current Windows account; decline it to install with Parakeet/Whisper only. The matching public certificate is also published as `RimV-<version>-identity-publisher.cer` and included inside the installer for later manual registration.
 2. Start RimV from Start > RimV > RimV Native Windows. Closing the popup does not quit the app.
 3. To update, quit RimV from its tray menu, then run the newer installer. The stable per-user installation identity replaces the previous app files. Setup stops and asks for RimV to be closed if it is still running.
 4. To remove RimV, use Windows Settings > Apps > Installed apps or `Uninstall.exe` in the installation folder. Uninstall removes app files and shortcuts but preserves `%LOCALAPPDATA%\RimV`, including recordings, models and preferences.

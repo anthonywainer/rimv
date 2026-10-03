@@ -77,11 +77,39 @@ Section "RimV Native Windows (required)" SecMain
   File /r "${PAYLOADDIR}\*"
 
   DetailPrint "Registering RimV's Windows AI package identity..."
+  ExecWait '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$INSTDIR\Register-Identity.ps1" -Action CheckPublisherTrust -InstallLocation "$INSTDIR"' $0
+  ${If} $0 == 0
+    DetailPrint "RimV's identity publisher certificate is already trusted; no certificate-store changes are needed."
+    Goto register_identity
+  ${EndIf}
+
+  IfSilent identity_unavailable
+  MessageBox MB_YESNO|MB_ICONQUESTION "Enable Windows Native Speech? RimV needs to trust its identity-package signing certificate (CN=RimV) in the Current User Trusted People store. This applies only to your Windows account." IDYES trust_identity
+  DetailPrint "Publisher certificate trust declined; Windows Native Speech will remain unavailable."
+  Goto identity_unavailable
+
+  trust_identity:
+  IfFileExists "$INSTDIR\RimV.Identity.cer" 0 identity_trust_failed
+  ExecWait '"$SYSDIR\certutil.exe" -user -addstore TrustedPeople "$INSTDIR\RimV.Identity.cer"' $0
+  ${If} $0 != 0
+    DetailPrint "Could not add RimV's publisher certificate to the current user's Trusted People store (error $0)."
+    Goto identity_unavailable
+  ${EndIf}
+
+  register_identity:
   ExecWait '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$INSTDIR\Register-Identity.ps1" -Action Install -InstallLocation "$INSTDIR"' $0
   ${If} $0 != 0
     DetailPrint "Windows AI package identity registration failed (error $0); Native Speech will be unavailable."
-    MessageBox MB_ICONEXCLAMATION "RimV installed, but Windows could not register its AI package identity. Parakeet and Whisper remain available; Native Speech is unavailable on this installation."
+    Goto identity_unavailable
   ${EndIf}
+  Goto identity_registration_done
+
+  identity_trust_failed:
+  DetailPrint "The RimV identity-package publisher certificate is missing from the installation payload."
+  identity_unavailable:
+  IfSilent identity_registration_done
+  MessageBox MB_ICONEXCLAMATION "RimV installed, but Windows Native Speech could not be enabled. Parakeet and Whisper remain available. To enable Native Speech later, trust $INSTDIR\RimV.Identity.cer in Current User > Trusted People, then run setup again."
+  identity_registration_done:
 
   CreateDirectory "$SMPROGRAMS\RimV"
   CreateShortcut "$SMPROGRAMS\RimV\RimV Native Windows.lnk" "$INSTDIR\RimV.Windows.exe" "" "$INSTDIR\Assets\rimv.ico"
