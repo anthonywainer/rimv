@@ -230,6 +230,16 @@ jobs:
           $publisherCertificate = Get-ChildItem (Join-Path $env:RUNNER_TEMP 'rimv-native-artifact/*-identity-publisher.cer') | Select-Object -First 1
           if (-not $publisherCertificate) { throw 'The identity package publisher certificate is missing.' }
           Import-Certificate -FilePath $publisherCertificate.FullName -CertStoreLocation Cert:\LocalMachine\TrustedPeople | Out-Null
+          $publisher = [Security.Cryptography.X509Certificates.X509Certificate2]::new($publisherCertificate.FullName)
+          $trustedPublisher = Get-ChildItem Cert:\LocalMachine\TrustedPeople | Where-Object Thumbprint -eq $publisher.Thumbprint | Select-Object -First 1
+          if (-not $trustedPublisher) { throw 'The publisher certificate import did not appear in LocalMachine TrustedPeople.' }
+          $trustProbeDirectory = Join-Path $env:RUNNER_TEMP 'RimV Identity Trust Probe'
+          New-Item -ItemType Directory -Path $trustProbeDirectory -Force | Out-Null
+          Copy-Item -LiteralPath $publisherCertificate.FullName -Destination (Join-Path $trustProbeDirectory 'RimV.Identity.cer')
+          $identityScript = Join-Path $env:GITHUB_WORKSPACE 'apps/windows-native/packaging/Register-Identity.ps1'
+          & (Join-Path $env:WINDIR 'System32/WindowsPowerShell/v1.0/powershell.exe') -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $identityScript -Action CheckPublisherTrust -InstallLocation $trustProbeDirectory
+          if ($LASTEXITCODE -ne 0) { throw "The installer identity trust check rejected the imported certificate (exit $LASTEXITCODE)." }
+          Write-Host ("Publisher trust preflight passed for thumbprint {0}." -f $publisher.Thumbprint)
           $installDirectory = Join-Path $env:RUNNER_TEMP 'RimV Native Windows Install With Spaces'
           try {
             ./apps/windows-native.packaging-tests/Test-NativePackage.ps1 `
@@ -259,6 +269,13 @@ jobs:
             Write-Host '--- Native installer failure diagnostics ---'
             $registeredInstallDirectory = (Get-ItemProperty -LiteralPath 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\RimV.Native.Windows' -Name InstallLocation -ErrorAction SilentlyContinue).InstallLocation
             Write-Host "Registered install directory: $registeredInstallDirectory"
+            $installerTracePath = Join-Path $installDirectory 'RimV.IdentityInstaller.log'
+            if (Test-Path -LiteralPath $installerTracePath) {
+              Write-Host 'Installer identity flow:'
+              Get-Content -LiteralPath $installerTracePath | ForEach-Object { Write-Host "  $_" }
+            } else {
+              Write-Host 'The installer did not create its identity-flow trace.'
+            }
             $identityDiagnosticPath = Join-Path $installDirectory 'RimV.IdentityRegistration.json'
             if (Test-Path -LiteralPath $identityDiagnosticPath) {
               $identityDiagnostic = Get-Content -LiteralPath $identityDiagnosticPath -Raw | ConvertFrom-Json

@@ -69,6 +69,7 @@ VIAddVersionKey "LegalCopyright" "Copyright (c) RimV contributors"
 
 Var OldInstallDir
 Var DesktopShortcut
+Var IdentityLog
 
 Section "RimV Native Windows (required)" SecMain
   SectionIn RO
@@ -78,14 +79,20 @@ Section "RimV Native Windows (required)" SecMain
 
   DetailPrint "Registering RimV's Windows AI package identity..."
   ExecWait '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$INSTDIR\Register-Identity.ps1" -Action CheckPublisherTrust -InstallLocation "$INSTDIR"' $0
+  FileOpen $IdentityLog "$INSTDIR\RimV.IdentityInstaller.log" w
+  FileWrite $IdentityLog "CheckPublisherTrust exit code: $0$\r$\n"
+  FileClose $IdentityLog
   ${If} $0 == 0
     DetailPrint "RimV's identity publisher certificate is already trusted; no certificate-store changes are needed."
+    FileOpen $IdentityLog "$INSTDIR\RimV.IdentityInstaller.log" a
+    FileWrite $IdentityLog "Publisher trust check passed; attempting package registration.$\r$\n"
+    FileClose $IdentityLog
     Goto register_identity
   ${EndIf}
 
-  ; Silent installs cannot display either the trust confirmation or UAC.
-  ; They register Native Speech only when its publisher is already trusted.
-  IfSilent identity_unavailable
+  ; Silent installs do not change certificate trust, but still let AppX
+  ; validate the package against the machine's existing trust configuration.
+  IfSilent register_identity
   MessageBox MB_YESNO|MB_ICONQUESTION "Enable Windows Native Speech? Windows requires RimV's identity-package signing certificate (CN=RimV) in this PC's Trusted People store. Windows may ask for administrator approval. The certificate is not added to Trusted Root." IDYES trust_identity
   DetailPrint "Publisher certificate trust declined; Windows Native Speech will remain unavailable."
   Goto identity_unavailable
@@ -93,6 +100,9 @@ Section "RimV Native Windows (required)" SecMain
   trust_identity:
   IfFileExists "$INSTDIR\RimV.Identity.cer" 0 identity_trust_failed
   ExecWait '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$INSTDIR\Register-Identity.ps1" -Action TrustPublisher -InstallLocation "$INSTDIR"' $0
+  FileOpen $IdentityLog "$INSTDIR\RimV.IdentityInstaller.log" a
+  FileWrite $IdentityLog "TrustPublisher exit code: $0$\r$\n"
+  FileClose $IdentityLog
   ${If} $0 != 0
     DetailPrint "Could not add RimV's publisher certificate to this PC's Trusted People store (error $0)."
     Goto identity_unavailable
@@ -100,6 +110,9 @@ Section "RimV Native Windows (required)" SecMain
 
   register_identity:
   ExecWait '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$INSTDIR\Register-Identity.ps1" -Action Install -InstallLocation "$INSTDIR"' $0
+  FileOpen $IdentityLog "$INSTDIR\RimV.IdentityInstaller.log" a
+  FileWrite $IdentityLog "Identity package registration exit code: $0$\r$\n"
+  FileClose $IdentityLog
   ${If} $0 != 0
     DetailPrint "Windows AI package identity registration failed (error $0); Native Speech will be unavailable."
     Goto identity_unavailable
