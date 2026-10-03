@@ -95,7 +95,8 @@ public sealed partial class ModelManagerWindow : Window
         if (settings) return;
 
         _rows.Clear();
-        IEnumerable<ModelRecord> models = _coordinator.Models;
+        IEnumerable<ModelRecord> models = _coordinator.Models
+            .Where(model => model.Descriptor.Backend != "native_windows");
         if (_tab == Installed) models = models.Where(model => model.State == "installed");
         foreach (ModelRecord model in models)
             _rows.Add(CreateRow(model));

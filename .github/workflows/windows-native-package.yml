@@ -53,7 +53,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.nuget/packages
-          key: nuget-windows-2025-net10-${{ hashFiles('apps/windows-native/packages.lock.json', 'apps/windows-native.tests/packages.lock.json', 'apps/windows-native.integration-tests/packages.lock.json') }}
+          key: nuget-windows-2025-net10-${{ hashFiles('apps/windows-native/RimV.Windows.csproj', 'apps/windows-native/packages.lock.json', 'apps/windows-native.tests/packages.lock.json', 'apps/windows-native.integration-tests/packages.lock.json') }}
 
       - name: Check Rust formatting and lints
         shell: pwsh
@@ -71,7 +71,7 @@ jobs:
         run: |
           dotnet restore apps/windows-native.tests/RimV.Windows.UnitTests.csproj --locked-mode -p:NuGetAudit=false
           if ($LASTEXITCODE -ne 0) { throw '.NET unit test restore failed.' }
-          dotnet restore apps/windows-native/RimV.Windows.csproj --locked-mode --runtime win-x64 -p:Platform=x64 -p:SelfContained=true -p:WindowsAppSDKSelfContained=true -p:BuildRimvCore=false -p:NuGetAudit=false
+          dotnet restore apps/windows-native/RimV.Windows.csproj --runtime win-x64 -p:Platform=x64 -p:SelfContained=true -p:WindowsAppSDKSelfContained=true -p:BuildRimvCore=false -p:NuGetAudit=false
           if ($LASTEXITCODE -ne 0) { throw 'WinUI restore failed.' }
 
       - name: Test Windows application coordination
@@ -130,7 +130,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.nuget/packages
-          key: nuget-windows-2025-net10-${{ hashFiles('apps/windows-native/packages.lock.json', 'apps/windows-native.tests/packages.lock.json', 'apps/windows-native.integration-tests/packages.lock.json') }}
+          key: nuget-windows-2025-net10-${{ hashFiles('apps/windows-native/RimV.Windows.csproj', 'apps/windows-native/packages.lock.json', 'apps/windows-native.tests/packages.lock.json', 'apps/windows-native.integration-tests/packages.lock.json') }}
 
       - name: Install pinned NSIS compiler
         shell: pwsh
@@ -160,7 +160,17 @@ jobs:
 
       - name: Build the self-contained WinUI and shared Rust payload
         shell: pwsh
+        env:
+          RIMV_IDENTITY_CERTIFICATE_BASE64: ${{ secrets.RIMV_IDENTITY_CERTIFICATE_BASE64 }}
+          RIMV_IDENTITY_CERTIFICATE_PASSWORD: ${{ secrets.RIMV_IDENTITY_CERTIFICATE_PASSWORD }}
         run: ./scripts/windows/build-native-package.ps1
+
+      - name: Publish native Windows size audit
+        shell: pwsh
+        run: |
+          $audit = Get-ChildItem target/windows-native-package/artifacts/*-size-audit.md | Select-Object -First 1
+          if (-not $audit) { throw 'The native Windows size audit was not generated.' }
+          Get-Content $audit.FullName >> $env:GITHUB_STEP_SUMMARY
 
       - name: Test the built Windows Rust ABI through C#
         shell: pwsh
@@ -216,6 +226,9 @@ jobs:
           $manifest = Get-ChildItem (Join-Path $env:RUNNER_TEMP 'rimv-native-artifact/*-manifest.json') | Select-Object -First 1
           $installer = Get-ChildItem (Join-Path $env:RUNNER_TEMP 'rimv-native-artifact/*-setup.exe') | Select-Object -First 1
           if (-not $manifest -or -not $installer) { throw 'The downloaded installer or manifest is missing.' }
+          $publisherCertificate = Get-ChildItem (Join-Path $env:RUNNER_TEMP 'rimv-native-artifact/*-identity-publisher.cer') | Select-Object -First 1
+          if (-not $publisherCertificate) { throw 'The identity package publisher certificate is missing.' }
+          Import-Certificate -FilePath $publisherCertificate.FullName -CertStoreLocation Cert:\CurrentUser\TrustedPeople | Out-Null
           $installDirectory = Join-Path $env:RUNNER_TEMP 'RimV Native Windows Install With Spaces'
           try {
             ./apps/windows-native.packaging-tests/Test-NativePackage.ps1 `

@@ -142,6 +142,8 @@ public sealed class TranscriptUpdate
     [JsonPropertyName("stable_text")] public string StableText { get; init; } = "";
     [JsonPropertyName("unstable_text")] public string UnstableText { get; init; } = "";
     [JsonPropertyName("is_final")] public bool IsFinal { get; init; }
+    [JsonPropertyName("language")] public string? Language { get; init; }
+    [JsonPropertyName("confidence")] public string? Confidence { get; init; }
 }
 
 public sealed class ModelProgress

@@ -10,18 +10,26 @@ public sealed class AppCoordinator
     private readonly IUserPreferencesStore _preferences;
     private readonly IUiDispatcher _dispatcher;
     private readonly IAppLog _log;
+    private readonly INativeSpeechBridge? _nativeSpeech;
+    private readonly Func<CancellationToken, Task<bool>> _confirmNativeModelDownload;
     private readonly CancellationTokenSource _shutdown = new();
     private readonly SemaphoreSlim _operations = new(1, 1);
+    private readonly SemaphoreSlim _eventReadGate = new(1, 1);
     private ISharedCoreClient? _core;
     private Task? _eventPump;
     private string? _activeSessionId;
     private long _transcriptRevision;
+    private readonly NativeTranscriptMapper _nativeTranscriptMapper = new();
+    private readonly object _nativeTasksGate = new();
+    private readonly HashSet<Task> _nativeTranscriptTasks = [];
+    private Task _nativeTranscriptTail = Task.CompletedTask;
 
     public event EventHandler? Changed;
     public event Action<CoreEvent>? CoreEventReceived;
     public event Action<ModelProgress>? ModelProgressReceived;
     public CoreSnapshot Snapshot { get; private set; } = new();
     public IReadOnlyList<ModelRecord> Models { get; private set; } = [];
+    public NativeSpeechAvailability NativeSpeech { get; private set; } = new(false, false, "Native speech bridge is unavailable.");
     public IReadOnlyList<AudioInputDevice> InputDevices { get; private set; } = [];
     public IReadOnlyList<RecordingSummary> Recordings { get; private set; } = [];
     public string? SelectedModelId { get; private set; }
@@ -42,13 +50,18 @@ public sealed class AppCoordinator
         ISharedCoreClientFactory coreFactory,
         IUserPreferencesStore preferences,
         IUiDispatcher dispatcher,
-        IAppLog? log = null)
+        IAppLog? log = null,
+        INativeSpeechBridge? nativeSpeech = null,
+        Func<CancellationToken, Task<bool>>? confirmNativeModelDownload = null)
     {
         _dataDirectory = dataDirectory;
         _coreFactory = coreFactory;
         _preferences = preferences;
         _dispatcher = dispatcher;
         _log = log ?? NullAppLog.Instance;
+        _nativeSpeech = nativeSpeech;
+        _confirmNativeModelDownload = confirmNativeModelDownload ?? (_ => Task.FromResult(false));
+        if (_nativeSpeech is not null) _nativeSpeech.ResultReceived += OnNativeSpeechResult;
     }
 
     public async Task InitializeAsync()
@@ -97,13 +110,20 @@ public sealed class AppCoordinator
             }, _shutdown.Token);
             ApplySnapshot(await _core.RequestAsync<CoreSnapshot>(new { type = "get_state" }, _shutdown.Token));
         }
+        NativeSpeech = _nativeSpeech?.CheckAvailability() ?? NativeSpeech;
         Models = await _core.RequestAsync<List<ModelRecord>>(new { type = "get_models" }, _shutdown.Token);
+        RefreshNativeModelRow();
         Recordings = await _core.RequestAsync<List<RecordingSummary>>(new { type = "get_recordings" }, _shutdown.Token);
 
         if (SelectedModelId is not null)
         {
             ModelRecord? savedModel = Models.FirstOrDefault(model => model.Descriptor.Id == SelectedModelId);
-            if (savedModel?.State == "installed")
+            if (SelectedModelId == NativeModelId && NativeSpeech.Supported)
+            {
+                SelectedLanguage = "en-US";
+                await SelectNativeModelCoreAsync();
+            }
+            if (savedModel?.State == "installed" && SelectedModelId != NativeModelId)
             {
                 if (SelectedLanguage is not null && !savedModel.Descriptor.Languages.Contains(SelectedLanguage))
                     SelectedLanguage = null;
@@ -121,8 +141,30 @@ public sealed class AppCoordinator
             }
             else
             {
-                SelectedModelId = null;
-                SelectedLanguage = null;
+                if (!NativeSpeech.Supported || SelectedModelId != NativeModelId)
+                {
+                    SelectedModelId = null;
+                    SelectedLanguage = null;
+                }
+            }
+        }
+        else if (NativeSpeech.Supported)
+        {
+            SelectedModelId = NativeModelId;
+            SelectedLanguage = "en-US";
+            await SelectNativeModelCoreAsync();
+            await SavePreferencesAsync();
+        }
+        if (SelectedModelId is null && !NativeSpeech.Supported)
+        {
+            ModelRecord? localFallback = Models.FirstOrDefault(model => model.State == "installed"
+                && model.Descriptor.Backend is "parakeet" or "whisper");
+            if (localFallback is not null)
+            {
+                SelectedModelId = localFallback.Descriptor.Id;
+                SelectedLanguage = localFallback.Descriptor.Languages.FirstOrDefault();
+                await _core.RequestAsync<JsonElement>(new { type = "select_model", model_id = SelectedModelId, language = SelectedLanguage }, _shutdown.Token);
+                await SavePreferencesAsync();
             }
         }
 
@@ -161,6 +203,8 @@ public sealed class AppCoordinator
     {
         if (_core is null) return;
         Models = await _core.RequestAsync<List<ModelRecord>>(new { type = "get_models" }, _shutdown.Token);
+        NativeSpeech = _nativeSpeech?.CheckAvailability() ?? NativeSpeech;
+        RefreshNativeModelRow();
         NotifyChanged();
     }
 
@@ -183,6 +227,37 @@ public sealed class AppCoordinator
         {
             string? command = NativeWindowsPolicy.ListeningCommand(Snapshot.Status);
             if (command is null) return;
+            if (command == "start_capture" && SelectedModelId == NativeModelId)
+            {
+                IsPreparingToListen = true;
+                NotifyChanged();
+                bool nativeReady = false;
+                try
+                {
+                    if (_nativeSpeech is null || !NativeSpeech.Supported)
+                        throw new CoreRequestException("Native speech recognition is unavailable on this PC.");
+                    await _nativeSpeech.PrepareAsync(_confirmNativeModelDownload, _shutdown.Token);
+                    await SendNativeReadyAsync(true);
+                    nativeReady = true;
+                    foreach (string source in NativeSources())
+                        await _nativeSpeech.StartSourceAsync(source, _shutdown.Token);
+                    ApplySnapshot(await RequireCore().RequestAsync<CoreSnapshot>(new
+                    {
+                        type = "send", command = new { type = "start_capture" },
+                    }, _shutdown.Token));
+                    ClearError();
+                    NotifyChanged();
+                    return;
+                }
+                catch
+                {
+                    await StopNativeSourcesAsync();
+                    if (nativeReady) await SendNativeReadyAsync(false);
+                    throw;
+                }
+                finally { IsPreparingToListen = false; NotifyChanged(); }
+            }
+
             if (command == "start_capture" && Snapshot.Transcription.Enabled)
             {
                 IsPreparingToListen = true;
@@ -190,15 +265,168 @@ public sealed class AppCoordinator
                 try { await EnsureVadInstalledAsync(); }
                 finally { IsPreparingToListen = false; NotifyChanged(); }
             }
+            if (command == "stop_capture" && SelectedModelId == NativeModelId)
+            {
+                await StopNativeCaptureAsync();
+                ClearError();
+                NotifyChanged();
+                return;
+            }
             ApplySnapshot(await RequireCore().RequestAsync<CoreSnapshot>(new
             {
                 type = "send",
                 command = new { type = command },
             }, _shutdown.Token));
             await RefreshRecordingsAsync();
+            if (command == "stop_capture" && SelectedModelId == NativeModelId)
+                await SendNativeReadyAsync(false);
             ClearError();
             NotifyChanged();
         });
+    }
+
+    private const string NativeModelId = "native-windows-speech";
+
+    private async Task SelectNativeModelCoreAsync()
+    {
+        await RequireCore().RequestAsync<JsonElement>(new
+        {
+            type = "select_model", model_id = NativeModelId, language = "en-US",
+        }, _shutdown.Token);
+        ApplySnapshot(await RequireCore().RequestAsync<CoreSnapshot>(new { type = "get_state" }, _shutdown.Token));
+    }
+
+    private void RefreshNativeModelRow()
+    {
+        Models = Models.Where(model => model.Descriptor.Id != NativeModelId).ToList();
+        if (!NativeSpeech.Supported) return;
+        Models = Models.Append(new ModelRecord
+        {
+            Descriptor = new ModelDescriptor
+            {
+                Id = NativeModelId,
+                Backend = "native_windows",
+                DisplayName = "Native — Windows Speech",
+                Version = "Windows AI Speech",
+                Languages = ["en-US"],
+                InstallHint = "Uses the Windows-managed on-device speech recognition model.",
+            },
+            State = "installed",
+            Selected = SelectedModelId == NativeModelId,
+        }).ToList();
+    }
+
+    private IEnumerable<string> NativeSources() => SelectedSource switch
+    {
+        "system" => ["system"],
+        "both" => ["microphone", "system"],
+        _ => ["microphone"],
+    };
+
+    private async Task SendNativeReadyAsync(bool ready)
+    {
+        await RequireCore().RequestAsync<CoreSnapshot>(new
+        {
+            type = "send", command = new { type = "set_native_provider_ready", ready },
+        }, _shutdown.Token);
+    }
+
+    private async Task StopNativeSourcesAsync()
+    {
+        if (_nativeSpeech is null) return;
+        foreach (string source in new[] { "microphone", "system" })
+        {
+            try { await _nativeSpeech.StopSourceAsync(source); }
+            catch (Exception error) { _log.Error("native_speech.source_stop_failed", error, source); }
+        }
+    }
+
+    private async Task StopNativeCaptureAsync()
+    {
+        ISharedCoreClient core = RequireCore();
+        bool microphone = SelectedSource is "microphone" or "both";
+        bool system = SelectedSource is "system" or "both";
+        try
+        {
+            if (microphone) ApplySnapshot(await SendCommandAsync("set_microphone_enabled", false));
+            if (system) ApplySnapshot(await SendCommandAsync("set_system_audio_enabled", false));
+
+            await _eventReadGate.WaitAsync(_shutdown.Token);
+            try
+            {
+                while (!_shutdown.IsCancellationRequested)
+                {
+                    CoreEvent? item = await core.PollEventAsync(_shutdown.Token).ConfigureAwait(false);
+                    if (item is null) break;
+                    ProcessPolledEvent(item);
+                }
+
+                await StopNativeSourcesAsync().ConfigureAwait(false);
+                await Task.Delay(200, _shutdown.Token).ConfigureAwait(false);
+                await DrainNativeTranscriptTasksAsync().ConfigureAwait(false);
+                ApplySnapshot(await core.RequestAsync<CoreSnapshot>(new
+                {
+                    type = "send", command = new { type = "stop_capture" },
+                }, _shutdown.Token).ConfigureAwait(false));
+                await SendNativeReadyAsync(false).ConfigureAwait(false);
+            }
+            finally { _eventReadGate.Release(); }
+        }
+        finally
+        {
+            // Restore the user's source choices for the next session after the
+            // current capture session has fully stopped.
+            if (microphone) ApplySnapshot(await SendCommandAsync("set_microphone_enabled", true));
+            if (system) ApplySnapshot(await SendCommandAsync("set_system_audio_enabled", true));
+        }
+        await RefreshRecordingsAsync();
+    }
+
+    private void OnNativeSpeechResult(NativeSpeechResult result)
+    {
+        TranscriptUpdate update = _nativeTranscriptMapper.Map(result);
+
+        Task send;
+        lock (_nativeTasksGate)
+        {
+            send = SubmitAfterPreviousAsync(_nativeTranscriptTail, update);
+            _nativeTranscriptTail = send;
+            _nativeTranscriptTasks.Add(send);
+        }
+        _ = send.ContinueWith(completed =>
+        {
+            lock (_nativeTasksGate) _nativeTranscriptTasks.Remove(completed);
+            if (completed.IsFaulted && completed.Exception is { } error)
+                _log.Error("native_speech.transcript_submit_failed", error.GetBaseException());
+        }, CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+    }
+
+    private async Task SubmitAfterPreviousAsync(Task previous, TranscriptUpdate update)
+    {
+        try { await previous.ConfigureAwait(false); }
+        catch (Exception error) { _log.Error("native_speech.transcript_submit_failed", error); }
+        await SubmitNativeTranscriptAsync(update).ConfigureAwait(false);
+    }
+
+    private async Task SubmitNativeTranscriptAsync(TranscriptUpdate update)
+    {
+        ISharedCoreClient? core = _core;
+        if (core is null || _shutdown.IsCancellationRequested) return;
+        await core.RequestAsync<CoreSnapshot>(new
+        {
+            type = "send", command = new { type = "submit_native_transcript", update },
+        }, _shutdown.Token).ConfigureAwait(false);
+    }
+
+    private async Task DrainNativeTranscriptTasksAsync()
+    {
+        while (true)
+        {
+            Task[] pending;
+            lock (_nativeTasksGate) pending = _nativeTranscriptTasks.ToArray();
+            if (pending.Length == 0) return;
+            await Task.WhenAll(pending).ConfigureAwait(false);
+        }
     }
 
     public async Task SelectMicrophoneDeviceAsync(string? deviceId)
@@ -380,8 +608,13 @@ public sealed class AppCoordinator
             {
                 try
                 {
-                    CoreEvent? item = await core.PollEventAsync(_shutdown.Token).ConfigureAwait(false);
-                    if (item is not null) _dispatcher.TryEnqueue(() => ApplyEvent(item));
+                    await _eventReadGate.WaitAsync(_shutdown.Token).ConfigureAwait(false);
+                    try
+                    {
+                        CoreEvent? item = await core.PollEventAsync(_shutdown.Token).ConfigureAwait(false);
+                        if (item is not null) ProcessPolledEvent(item);
+                    }
+                    finally { _eventReadGate.Release(); }
                 }
                 catch (OperationCanceledException) when (_shutdown.IsCancellationRequested)
                 {
@@ -396,6 +629,41 @@ public sealed class AppCoordinator
                 }
             }
         });
+    }
+
+    private void ProcessPolledEvent(CoreEvent item)
+    {
+        if (item.Type == "native_audio_chunk") HandleNativeAudioChunk(item);
+        else _dispatcher.TryEnqueue(() => ApplyEvent(item));
+    }
+
+    private void HandleNativeAudioChunk(CoreEvent item)
+    {
+        try
+        {
+            if (_nativeSpeech is null) return;
+            string source = item.Payload.GetProperty("source").GetString() ?? "";
+            short[] samples = item.Payload.GetProperty("samples").EnumerateArray()
+                .Select(sample => sample.GetInt16()).ToArray();
+            long startMs = item.Payload.GetProperty("start_ms").GetInt64();
+            _nativeSpeech.PushPcm(source, startMs, samples);
+        }
+        catch (Exception error)
+        {
+            _log.Error("native_speech.audio_push_failed", error);
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await StopNativeSourcesAsync().ConfigureAwait(false);
+                    await DrainNativeTranscriptTasksAsync().ConfigureAwait(false);
+                    if (_core is not null) await SendNativeReadyAsync(false).ConfigureAwait(false);
+                    _dispatcher.TryEnqueue(() => SetError(
+                        "Native speech recognition stopped unexpectedly. Try starting again.", error.ToString()));
+                }
+                catch (Exception stopError) { _log.Error("native_speech.rollback_failed", stopError); }
+            });
+        }
     }
 
     private void ApplyEvent(CoreEvent item)
@@ -532,6 +800,13 @@ public sealed class AppCoordinator
     {
         _log.Info("coordinator.shutdown");
         _shutdown.Cancel();
+        try
+        {
+            await StopNativeSourcesAsync().ConfigureAwait(false);
+            await DrainNativeTranscriptTasksAsync().ConfigureAwait(false);
+            if (_nativeSpeech is not null) await _nativeSpeech.DisposeAsync().ConfigureAwait(false);
+        }
+        catch (Exception error) { _log.Error("native_speech.shutdown_failed", error); }
         if (_eventPump is not null)
         {
             try { await _eventPump.ConfigureAwait(false); }
@@ -549,6 +824,7 @@ public sealed class AppCoordinator
         }
         finally { _operations.Release(); }
         _shutdown.Dispose();
+        _eventReadGate.Dispose();
         _operations.Dispose();
     }
 }

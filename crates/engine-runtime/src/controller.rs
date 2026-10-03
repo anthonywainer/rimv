@@ -6,6 +6,7 @@ use crate::{
 use speech_transcription::{SpeechEvent, SpeechWorker, load_configured_backend};
 use std::sync::mpsc;
 use std::{
+    collections::HashMap,
     sync::{
         Arc,
         mpsc::{Receiver, RecvTimeoutError},
@@ -22,6 +23,8 @@ pub(crate) struct Controller {
     state: EngineSnapshot,
     session: Option<CaptureSession>,
     next_tick: Instant,
+    native_provider_ready: bool,
+    native_preprocessors: HashMap<AudioSource, speech_transcription::Preprocessor>,
 }
 impl Controller {
     pub fn new(config: EngineConfig, backend: Box<dyn CaptureBackend>, bus: Arc<EventBus>) -> Self {
@@ -32,6 +35,8 @@ impl Controller {
             bus,
             session: None,
             next_tick: Instant::now(),
+            native_provider_ready: false,
+            native_preprocessors: HashMap::new(),
         }
     }
     pub fn run(mut self, requests: Receiver<Request>) {
@@ -147,6 +152,9 @@ impl Controller {
                     speech_transcription::supports_backend(self.config.transcription.backend)
                         && (self.config.transcription.backend
                             == crate::AsrBackendKind::AppleNative
+                            || (self.config.transcription.backend
+                                == crate::AsrBackendKind::WindowsNative
+                                && self.native_provider_ready)
                             || self.config.transcription.model_path.is_some());
                 self.state.capabilities.transcription = self.state.transcription.available;
                 // Enabling is a preference change. A worker is only loaded
@@ -190,6 +198,8 @@ impl Controller {
                     ));
                 }
                 self.config.transcription.model_path = None;
+                self.native_provider_ready = false;
+                self.native_preprocessors.clear();
                 self.config.transcription_enabled = false;
                 self.state.transcription.enabled = false;
                 self.state.transcription.available = false;
@@ -207,6 +217,7 @@ impl Controller {
                     "parakeet" => crate::AsrBackendKind::Parakeet,
                     "whisper" => crate::AsrBackendKind::Whisper,
                     "native_apple" => crate::AsrBackendKind::AppleNative,
+                    "native_windows" => crate::AsrBackendKind::WindowsNative,
                     _ => {
                         return Err(EngineError::new(
                             EngineErrorCode::InvalidConfiguration,
@@ -214,10 +225,18 @@ impl Controller {
                         ));
                     }
                 };
+                if self.config.transcription.backend == crate::AsrBackendKind::WindowsNative {
+                    self.config.transcription.model_path = None;
+                }
+                self.native_provider_ready = false;
+                self.native_preprocessors.clear();
                 self.state.transcription.available =
                     speech_transcription::supports_backend(self.config.transcription.backend)
                         && (self.config.transcription.backend
                             == crate::AsrBackendKind::AppleNative
+                            || (self.config.transcription.backend
+                                == crate::AsrBackendKind::WindowsNative
+                                && self.native_provider_ready)
                             || self.config.transcription.model_path.is_some());
                 self.state.capabilities.transcription = self.state.transcription.available;
             }
@@ -229,6 +248,44 @@ impl Controller {
                     ));
                 }
                 self.config.transcription.language = language;
+            }
+            EngineCommand::SetNativeProviderReady { ready } => {
+                if self.session.is_some() {
+                    return Err(EngineError::new(
+                        EngineErrorCode::AlreadyRecording,
+                        "prepare Windows Native Speech before starting capture",
+                    ));
+                }
+                if self.config.transcription.backend != crate::AsrBackendKind::WindowsNative {
+                    return Err(EngineError::new(
+                        EngineErrorCode::InvalidConfiguration,
+                        "Windows Native Speech is not the selected backend",
+                    ));
+                }
+                self.native_provider_ready = ready;
+                self.state.transcription.available = ready;
+                self.state.capabilities.transcription = ready;
+                self.state.transcription.status = if ready {
+                    crate::TranscriptionStatus::Ready
+                } else {
+                    crate::TranscriptionStatus::Disabled
+                };
+            }
+            EngineCommand::SubmitNativeTranscript { update } => {
+                if self.config.transcription.backend != crate::AsrBackendKind::WindowsNative
+                    || !self.state.transcription.enabled
+                    || !self.native_provider_ready
+                    || self.session.is_none()
+                {
+                    return Err(EngineError::new(
+                        EngineErrorCode::TranscriptionFailed,
+                        "Windows Native Speech has no active capture session",
+                    ));
+                }
+                if let Some(mut session) = self.session.take() {
+                    self.handle_speech_event(&mut session, SpeechEvent::Update(update));
+                    self.session = Some(session);
+                }
             }
             EngineCommand::GetState => {}
         }
@@ -247,6 +304,15 @@ impl Controller {
             return Err(EngineError::new(
                 EngineErrorCode::NoSourceEnabled,
                 "enable a source before starting",
+            ));
+        }
+        if self.state.transcription.enabled
+            && self.config.transcription.backend == crate::AsrBackendKind::WindowsNative
+            && !self.native_provider_ready
+        {
+            return Err(EngineError::new(
+                EngineErrorCode::TranscriptionFailed,
+                "Windows Native Speech must be prepared before capture starts",
             ));
         }
         self.state.status = EngineStatus::Starting;
@@ -348,6 +414,17 @@ impl Controller {
     }
 
     fn start_transcription(&mut self) {
+        if self.config.transcription.backend == crate::AsrBackendKind::WindowsNative {
+            if self.native_provider_ready {
+                self.state.transcription.available = true;
+                self.state.transcription.status = crate::TranscriptionStatus::Ready;
+                self.state.transcription.backend = Some("Windows Speech".into());
+                self.state.transcription.model = Some("Windows Speech (on-device)".into());
+                self.state.transcription.supports_partial_results = true;
+                self.state.transcription.supports_true_streaming = true;
+            }
+            return;
+        }
         let config = self.config.transcription.to_speech();
         let (events, receiver) = mpsc::sync_channel(config.queue_capacity);
         let loader_config = config.clone();
@@ -372,6 +449,16 @@ impl Controller {
     }
 
     fn wait_for_transcription_initialization(&mut self) -> Result<()> {
+        if self.config.transcription.backend == crate::AsrBackendKind::WindowsNative {
+            return if self.native_provider_ready {
+                Ok(())
+            } else {
+                Err(EngineError::new(
+                    EngineErrorCode::TranscriptionFailed,
+                    "Windows Native Speech is unavailable on this PC",
+                ))
+            };
+        }
         loop {
             let event = self.session.as_ref().and_then(|session| {
                 session
@@ -463,12 +550,16 @@ impl Controller {
             if enabled && !active {
                 self.activate(source)?;
             }
-            if !enabled
-                && active
-                && let Some(session) = &mut self.session
-            {
-                let tail = session.slot(source).deactivate()?;
-                Self::finish_speech_source(session, source, tail);
+            if !enabled && active {
+                let tail = self
+                    .session
+                    .as_mut()
+                    .map(|session| session.slot(source).deactivate())
+                    .transpose()?;
+                if let (Some(tail), Some(mut session)) = (tail, self.session.take()) {
+                    self.finish_speech_source(&mut session, source, tail);
+                    self.session = Some(session);
+                }
             }
         }
         // Even with both sources deliberately disabled, session and timer remain.
@@ -488,7 +579,7 @@ impl Controller {
         let mut first_error = None;
         for source in SOURCES {
             match session.slot(source).deactivate() {
-                Ok(tail) => Self::finish_speech_source(&mut session, source, tail),
+                Ok(tail) => self.finish_speech_source(&mut session, source, tail),
                 Err(error) => {
                     first_error.get_or_insert(error.clone());
                     self.report(error);
@@ -538,6 +629,7 @@ impl Controller {
                     crate::AsrBackendKind::Parakeet => "parakeet",
                     crate::AsrBackendKind::Whisper => "whisper",
                     crate::AsrBackendKind::AppleNative => "native_apple",
+                    crate::AsrBackendKind::WindowsNative => "native_windows",
                 },
             );
         if let Err(error) = storage::write_metadata(
@@ -574,6 +666,14 @@ impl Controller {
             };
             match result {
                 Ok(frames) => {
+                    if self.state.transcription.enabled
+                        && self.config.transcription.backend == crate::AsrBackendKind::WindowsNative
+                        && self.native_provider_ready
+                    {
+                        for frame in &frames {
+                            self.forward_native_audio(source, frame);
+                        }
+                    }
                     if let Some(session) = &mut self.session
                         && let Some((worker, _)) = &session.transcription
                     {
@@ -601,11 +701,20 @@ impl Controller {
                 Err(error) => {
                     failed = true;
                     self.report(error.for_source(source));
-                    if let Some(session) = &mut self.session {
-                        match session.slot(source).deactivate() {
-                            Ok(tail) => Self::finish_speech_source(session, source, tail),
-                            Err(error) => self.report(error),
+                    let tail = self
+                        .session
+                        .as_mut()
+                        .map(|session| session.slot(source).deactivate())
+                        .transpose();
+                    match tail {
+                        Ok(Some(tail)) => {
+                            if let Some(mut session) = self.session.take() {
+                                self.finish_speech_source(&mut session, source, tail);
+                                self.session = Some(session);
+                            }
                         }
+                        Ok(None) => {}
+                        Err(error) => self.report(error),
                     }
                 }
             }
@@ -628,11 +737,66 @@ impl Controller {
         }
     }
 
+    fn forward_native_audio(&mut self, source: AudioSource, frame: &audio_core::AudioFrame) {
+        let rate = frame.format().sample_rate();
+        if !self.native_preprocessors.contains_key(&source) {
+            let preprocessor = match speech_transcription::Preprocessor::new(rate) {
+                Ok(preprocessor) => preprocessor,
+                Err(error) => {
+                    self.report(
+                        EngineError::new(EngineErrorCode::TranscriptionFailed, error.to_string())
+                            .for_source(source),
+                    );
+                    return;
+                }
+            };
+            self.native_preprocessors.insert(source, preprocessor);
+        }
+        let converted = match self
+            .native_preprocessors
+            .get_mut(&source)
+            .expect("native preprocessor inserted above")
+            .push(frame)
+        {
+            Ok(converted) => converted,
+            Err(error) => {
+                self.report(
+                    EngineError::new(EngineErrorCode::TranscriptionFailed, error.to_string())
+                        .for_source(source),
+                );
+                return;
+            }
+        };
+        for block in converted {
+            let samples = block
+                .samples
+                .into_iter()
+                .map(|sample| {
+                    (sample.clamp(-1.0, 1.0) * 32768.0)
+                        .round()
+                        .clamp(i16::MIN as f32, i16::MAX as f32) as i16
+                })
+                .collect();
+            self.bus.native_audio_chunk(source, block.start_ms, samples);
+        }
+    }
+
     fn finish_speech_source(
+        &mut self,
         session: &mut CaptureSession,
         source: AudioSource,
         tail: Vec<audio_core::AudioFrame>,
     ) {
+        if self.config.transcription.backend == crate::AsrBackendKind::WindowsNative
+            && self.native_provider_ready
+            && self.state.transcription.enabled
+        {
+            for frame in &tail {
+                self.forward_native_audio(source, frame);
+            }
+            self.native_preprocessors.remove(&source);
+            return;
+        }
         let Some((worker, _)) = &session.transcription else {
             return;
         };

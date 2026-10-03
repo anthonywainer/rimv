@@ -83,6 +83,7 @@ internal sealed class CoreClient : ISharedCoreClient
     public Task<CoreEvent?> PollEventAsync(CancellationToken cancellationToken) => Task.Run<CoreEvent?>(() =>
     {
         string json = JsonSerializer.Serialize(new { type = "poll_event", timeout_ms = 300 }, JsonOptions);
+        _commands.Wait(cancellationToken);
         try
         {
             JsonElement result = Invoke<JsonElement>(json);
@@ -90,7 +91,7 @@ internal sealed class CoreClient : ISharedCoreClient
             string type = result.TryGetProperty("type", out JsonElement typeValue)
                 ? typeValue.GetString() ?? ""
                 : "";
-            if (type.Length > 0) _log.Info("rust.event", type);
+            if (type.Length > 0 && type != "native_audio_chunk") _log.Info("rust.event", type);
             return new CoreEvent(type, result);
         }
         catch (Exception error)
@@ -98,6 +99,7 @@ internal sealed class CoreClient : ISharedCoreClient
             _log.Error("rust.event_poll_failed", error);
             throw;
         }
+        finally { _commands.Release(); }
     }, cancellationToken);
 
     private T Invoke<T>(string requestJson)

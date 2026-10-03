@@ -56,6 +56,21 @@ public sealed partial class ShellWindow : Window
     internal bool IsPopupVisible => _popups.IsMenuVisible;
     internal bool HasActiveSelector => _popups.ActiveSelector != PopupSelectorKind.None;
 
+    internal async Task<bool> ConfirmNativeSpeechModelDownloadAsync(CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var dialog = new ContentDialog
+        {
+            Title = "Prepare Windows speech recognition?",
+            Content = "Windows may download its optional on-device speech recognition model through Windows Update. Audio is processed locally. Continue?",
+            PrimaryButtonText = "Continue",
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Close,
+            XamlRoot = RootGrid.XamlRoot,
+        };
+        return await dialog.ShowAsync() == ContentDialogResult.Primary;
+    }
+
     internal void SetTrayBoundsProvider(Func<PixelRect?> provider) => _trayBounds = provider;
 
     private void AppWindow_Closing(AppWindow sender, AppWindowClosingEventArgs args)
@@ -268,6 +283,8 @@ public sealed partial class ShellWindow : Window
         ModelInfo.Message = !_coordinator.IsCoreAvailable
             ? "The shared Rust engine is unavailable. Rebuild with rimv_core_ffi.dll to use capture and transcription."
             : model?.State == "unsupported" ? "The selected model backend isn't included in this Windows build. Choose an available model."
+            : model is null && !_coordinator.NativeSpeech.Supported
+                ? "Windows Native Speech is unavailable here. Open Model Manager to install Parakeet or Whisper for local transcription."
             : model is null ? "Choose a speech model to turn listening into a transcript."
             : NativeWindowsPolicy.SpeechModelStatusMessage(state.Transcription.Status, model.State);
         ModelInfo.IsOpen = !_coordinator.IsCoreAvailable || state.Transcription.Status is "loading" or "error"

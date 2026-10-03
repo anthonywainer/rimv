@@ -28,6 +28,10 @@ fn whisper_catalog_entries_have_verified_artifacts() {
     let tiny = manager.descriptor("whisper-tiny").unwrap();
     assert_eq!(tiny.backend, "whisper");
     assert_eq!(tiny.files[0].filename, "ggml-tiny.bin");
+    let base = manager.descriptor("whisper-base").unwrap();
+    assert_eq!(base.files[0].expected_size_bytes, Some(147_951_465));
+    assert_eq!(base.files[0].filename, "ggml-base.bin");
+    assert!(base.files[0].sha256.is_some());
     for id in [
         "whisper-small",
         "whisper-medium",

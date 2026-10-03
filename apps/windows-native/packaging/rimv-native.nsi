@@ -24,6 +24,12 @@ ShowUninstDetails show
 !ifndef APP_ICON
   !error "APP_ICON must point to the RimV application icon."
 !endif
+!ifndef PARAKEET_MODEL_SIZE_MB
+  !error "PARAKEET_MODEL_SIZE_MB must come from the shared model catalog."
+!endif
+!ifndef WHISPER_BASE_MODEL_SIZE_MB
+  !error "WHISPER_BASE_MODEL_SIZE_MB must come from the shared model catalog."
+!endif
 
 !define PRODUCT_NAME "RimV Native Windows"
 !define PRODUCT_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\RimV.Native.Windows"
@@ -70,6 +76,13 @@ Section "RimV Native Windows (required)" SecMain
   DetailPrint "Installing RimV Native Windows ${APP_VERSION}..."
   File /r "${PAYLOADDIR}\*"
 
+  DetailPrint "Registering RimV's Windows AI package identity..."
+  ExecWait '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$INSTDIR\Register-Identity.ps1" -Action Install -InstallLocation "$INSTDIR"' $0
+  ${If} $0 != 0
+    DetailPrint "Windows AI package identity registration failed (error $0); Native Speech will be unavailable."
+    MessageBox MB_ICONEXCLAMATION "RimV installed, but Windows could not register its AI package identity. Parakeet and Whisper remain available; Native Speech is unavailable on this installation."
+  ${EndIf}
+
   CreateDirectory "$SMPROGRAMS\RimV"
   CreateShortcut "$SMPROGRAMS\RimV\RimV Native Windows.lnk" "$INSTDIR\RimV.Windows.exe" "" "$INSTDIR\Assets\rimv.ico"
   ${If} $DesktopShortcut == "checked"
@@ -89,6 +102,32 @@ SectionEnd
 
 Section /o "Create a desktop shortcut" SecDesktop
   StrCpy $DesktopShortcut "checked"
+SectionEnd
+
+Section /o "Parakeet TDT 0.6B v3 INT8 (approx. ${PARAKEET_MODEL_SIZE_MB} MB download)" SecParakeet
+  DetailPrint "Downloading and verifying Parakeet and its shared VAD prerequisite through RimV Model Manager..."
+  ExecWait '"$INSTDIR\RimV.Windows.exe" --install-model parakeet-tdt-0.6b-v3-int8' $0
+  ${If} $0 != 0
+    DetailPrint "Optional Parakeet setup or its required VAD prerequisite failed (error $0). RimV itself remains installed."
+    IfSilent parakeet_failure_reported
+    MessageBox MB_ICONEXCLAMATION "RimV installed successfully, but Parakeet setup or its shared VAD prerequisite failed. Any model that passed verification remains installed. Open Model Manager later to retry the failed model."
+    parakeet_failure_reported:
+  ${Else}
+    DetailPrint "Parakeet installed and verified in RimV's model directory."
+  ${EndIf}
+SectionEnd
+
+Section /o "Whisper Base (recommended, approx. ${WHISPER_BASE_MODEL_SIZE_MB} MB download)" SecWhisperBase
+  DetailPrint "Downloading and verifying Whisper Base and its shared VAD prerequisite through RimV Model Manager..."
+  ExecWait '"$INSTDIR\RimV.Windows.exe" --install-model whisper-base' $0
+  ${If} $0 != 0
+    DetailPrint "Optional Whisper Base setup or its required VAD prerequisite failed (error $0). RimV itself remains installed."
+    IfSilent whisper_failure_reported
+    MessageBox MB_ICONEXCLAMATION "RimV installed successfully, but Whisper Base setup or its shared VAD prerequisite failed. Any model that passed verification remains installed. Open Model Manager later to retry the failed model."
+    whisper_failure_reported:
+  ${Else}
+    DetailPrint "Whisper Base installed and verified in RimV's model directory."
+  ${EndIf}
 SectionEnd
 
 Function .onInit
@@ -139,6 +178,10 @@ FunctionEnd
 
 Section "Uninstall"
   DetailPrint "Removing RimV Native Windows application files and shortcuts..."
+  ExecWait '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$INSTDIR\Register-Identity.ps1" -Action Uninstall -InstallLocation "$INSTDIR"' $0
+  ${If} $0 != 0
+    DetailPrint "Windows did not report successful identity unregistration (error $0). Continuing file removal."
+  ${EndIf}
   Delete "$SMPROGRAMS\RimV\RimV Native Windows.lnk"
   RMDir "$SMPROGRAMS\RimV"
   Delete "$DESKTOP\RimV Native Windows.lnk"

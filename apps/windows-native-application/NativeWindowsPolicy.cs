@@ -58,7 +58,8 @@ public static class NativeWindowsPolicy
         modelState == "installed" && engineStatus == "idle";
 
     public static bool CanRemoveModel(ModelRecord model, string engineStatus) =>
-        model.State == "installed" && !model.Selected && engineStatus == "idle";
+        model.Descriptor.Backend is "parakeet" or "whisper"
+        && model.State == "installed" && !model.Selected && engineStatus == "idle";
 
     public static double DownloadProgressPercent(ModelProgress progress) =>
         progress.TotalBytes is > 0

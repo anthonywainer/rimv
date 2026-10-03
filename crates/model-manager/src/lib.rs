@@ -18,6 +18,9 @@ pub use app_paths::data_root as app_data_root;
 const PARAKEET_ID: &str = "parakeet-tdt-0.6b-v3-int8";
 const PARAKEET_ARCHIVE: &str = "sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8.tar.bz2";
 const PARAKEET_URL: &str = "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8.tar.bz2";
+const PARAKEET_ARCHIVE_SIZE: u64 = 487_170_055;
+const PARAKEET_ARCHIVE_SHA256: &str =
+    "5793d0fd397c5778d2cf2126994d58e9d56b1be7c04d13c7a15bb1b4eafb16bf";
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ModelCapabilities {
@@ -81,6 +84,16 @@ pub enum ModelError {
     Io(#[from] io::Error),
     #[error("HTTP: {0}")]
     Http(#[from] reqwest::Error),
+}
+
+fn verify_parakeet_archive(written: u64, digest: &str) -> Result<(), ModelError> {
+    if written != PARAKEET_ARCHIVE_SIZE {
+        return Err(ModelError::SizeMismatch);
+    }
+    if digest != PARAKEET_ARCHIVE_SHA256 {
+        return Err(ModelError::ChecksumMismatch);
+    }
+    Ok(())
 }
 
 #[derive(Debug, Clone)]
@@ -253,26 +266,62 @@ impl ModelManager {
         fs::create_dir_all(&self.root)?;
         let archive_path = self.root.join(PARAKEET_ARCHIVE);
         let part = archive_path.with_file_name(format!("{PARAKEET_ARCHIVE}.part"));
+        let staging = self
+            .root
+            .join(format!(".{PARAKEET_ID}-{}.staging", std::process::id()));
+        let backup = self
+            .root
+            .join(format!(".{PARAKEET_ID}-{}.backup", std::process::id()));
         phase("downloading");
         let result = (|| {
-            download_to_file(PARAKEET_URL, &part, cancelled, |done, total| {
-                progress(done, total);
-            })?;
+            let (downloaded, digest) =
+                download_to_file(PARAKEET_URL, &part, cancelled, |done, _| {
+                    progress(done, Some(PARAKEET_ARCHIVE_SIZE));
+                })?;
+            verify_parakeet_archive(downloaded, &digest)?;
             if cancelled.load(Ordering::Acquire) {
                 return Err(ModelError::Cancelled);
             }
+            if archive_path.exists() {
+                fs::remove_file(&archive_path)?;
+            }
             fs::rename(&part, &archive_path)?;
             phase("extracting");
-            Archive::new(BzDecoder::new(fs::File::open(&archive_path)?)).unpack(&self.root)?;
-            if self.state(descriptor) != ModelState::Ready {
+            if staging.exists() {
+                fs::remove_dir_all(&staging)?;
+            }
+            fs::create_dir(&staging)?;
+            Archive::new(BzDecoder::new(fs::File::open(&archive_path)?)).unpack(&staging)?;
+            let staged_model = staging.join(&descriptor.storage_directory);
+            let required_files_exist = descriptor
+                .files
+                .iter()
+                .filter(|file| file.required)
+                .all(|file| staged_model.join(&file.filename).is_file());
+            if !required_files_exist {
                 return Err(ModelError::Io(io::Error::other(
                     "Parakeet archive did not contain the required model files",
                 )));
             }
+            if backup.exists() {
+                fs::remove_dir_all(&backup)?;
+            }
+            let destination = self.directory(descriptor);
+            if destination.exists() {
+                fs::rename(&destination, &backup)?;
+            }
+            if let Err(error) = fs::rename(&staged_model, &destination) {
+                if backup.exists() {
+                    let _ = fs::rename(&backup, &destination);
+                }
+                return Err(ModelError::Io(error));
+            }
+            let _ = fs::remove_dir_all(&backup);
             Ok(self.directory(descriptor))
         })();
         let _ = fs::remove_file(&part);
         let _ = fs::remove_file(&archive_path);
+        let _ = fs::remove_dir_all(&staging);
         result
     }
 }
@@ -431,5 +480,23 @@ fn legacy_whisper(
             supports_language_detection: true,
         },
         install_hint: Some(hint.into()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parakeet_archive_requires_the_pinned_size_and_sha256() {
+        assert!(verify_parakeet_archive(PARAKEET_ARCHIVE_SIZE, PARAKEET_ARCHIVE_SHA256).is_ok());
+        assert!(matches!(
+            verify_parakeet_archive(PARAKEET_ARCHIVE_SIZE - 1, PARAKEET_ARCHIVE_SHA256),
+            Err(ModelError::SizeMismatch)
+        ));
+        assert!(matches!(
+            verify_parakeet_archive(PARAKEET_ARCHIVE_SIZE, "0"),
+            Err(ModelError::ChecksumMismatch)
+        ));
     }
 }

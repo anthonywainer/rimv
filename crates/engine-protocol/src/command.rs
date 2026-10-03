@@ -1,3 +1,5 @@
+use crate::TranscriptUpdate;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(tag = "type", rename_all = "snake_case"))]
@@ -15,7 +17,7 @@ pub enum EngineCommand {
     SetSystemAudioEnabled {
         enabled: bool,
     },
-    /// Records a preference only; availability remains false in v0.2.
+    /// Enables or disables ASR for future/current capture sessions.
     SetTranscriptionEnabled {
         enabled: bool,
     },
@@ -34,6 +36,16 @@ pub enum EngineCommand {
     /// selection to the configured ASR backend.
     SetTranscriptionLanguage {
         language: Option<String>,
+    },
+    /// Handshake from the Windows host after its local SpeechAudioProvider
+    /// streams are prepared. Capture must not start before this is true.
+    SetNativeProviderReady {
+        ready: bool,
+    },
+    /// Normalized Windows Native Recognizing/Recognized event. Reuses RimV's
+    /// shared partial/final transcript state and recording persistence.
+    SubmitNativeTranscript {
+        update: TranscriptUpdate,
     },
     GetState,
 }

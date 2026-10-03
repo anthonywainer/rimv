@@ -75,7 +75,10 @@ fn c_abi_version_lifecycle_and_structured_errors_match_the_header_contract() {
     assert_eq!(models["ok"], true);
     for model in models["result"].as_array().unwrap() {
         if model["descriptor"]["backend"] == "whisper" && cfg!(target_os = "windows") {
-            assert_eq!(model["state"], "unsupported");
+            assert_ne!(
+                model["state"], "unsupported",
+                "Windows release builds include the local Whisper backend"
+            );
         }
     }
     assert_ne!(

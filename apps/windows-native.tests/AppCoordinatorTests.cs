@@ -7,6 +7,106 @@ namespace RimV.Windows.UnitTests;
 public sealed class AppCoordinatorTests
 {
     [Fact]
+    public void NativeTranscriptMapperReplacesPartialAndPromotesSameUtteranceToFinal()
+    {
+        var mapper = new NativeTranscriptMapper();
+        TranscriptUpdate first = mapper.Map(new NativeSpeechResult("microphone", "hello wor", false, 100, 0));
+        TranscriptUpdate replacement = mapper.Map(new NativeSpeechResult("microphone", "hello world", false, 200, 0));
+        TranscriptUpdate final = mapper.Map(new NativeSpeechResult("microphone", "hello world", true, 100, 900));
+
+        Assert.Equal(first.UtteranceId, replacement.UtteranceId);
+        Assert.Equal(replacement.UtteranceId, final.UtteranceId);
+        Assert.Equal("hello wor", first.UnstableText);
+        Assert.Equal("hello world", replacement.UnstableText);
+        Assert.Empty(replacement.StableText);
+        Assert.True(final.IsFinal);
+        Assert.Equal("hello world", final.StableText);
+        Assert.Empty(final.UnstableText);
+        Assert.Equal((ulong)100, final.StartMs);
+        Assert.Equal((ulong)1_000, final.EndMs);
+        Assert.NotEqual(final.UtteranceId, mapper.Map(new NativeSpeechResult("microphone", "next", false, 1_100, 0)).UtteranceId);
+    }
+
+    [Fact]
+    public async Task FreshInstallDefaultsToNativeWhenCapabilityIsSupported()
+    {
+        using var temporary = new TemporaryDirectory();
+        var factory = new FakeCoreFactory
+        {
+            Models = [InstalledModel("parakeet")],
+        };
+        var preferences = new MemoryPreferences(UserPreferences.Default);
+        var coordinator = CreateCoordinator(temporary.Path, factory, UserPreferences.Default,
+            store: preferences, nativeSpeech: new FakeNativeSpeechBridge(supported: true));
+
+        await coordinator.InitializeAsync();
+
+        Assert.Equal("native-windows-speech", coordinator.SelectedModelId);
+        Assert.Equal("en-US", coordinator.SelectedLanguage);
+        Assert.Contains(factory.Client.Requests, request => Type(request) == "select_model"
+            && request.GetProperty("model_id").GetString() == "native-windows-speech");
+        Assert.Equal("native-windows-speech", preferences.Value?.SelectedModelId);
+        await coordinator.ShutdownAsync();
+    }
+
+    [Fact]
+    public async Task UnsupportedNativeKeepsExistingLocalEngineAsFreshInstallDefault()
+    {
+        using var temporary = new TemporaryDirectory();
+        var factory = new FakeCoreFactory
+        {
+            Models = [InstalledModel("parakeet")],
+        };
+        var coordinator = CreateCoordinator(temporary.Path, factory, UserPreferences.Default,
+            nativeSpeech: new FakeNativeSpeechBridge(supported: false));
+
+        await coordinator.InitializeAsync();
+
+        Assert.Equal("parakeet", coordinator.SelectedModelId);
+        Assert.DoesNotContain(factory.Client.Requests, request => Type(request) == "select_model"
+            && request.GetProperty("model_id").GetString() == "native-windows-speech");
+        await coordinator.ShutdownAsync();
+    }
+
+    [Fact]
+    public async Task FreshInstallWithoutNativeOrLocalModelsDoesNotSelectOrInstallOne()
+    {
+        using var temporary = new TemporaryDirectory();
+        var factory = new FakeCoreFactory { Models = [] };
+        var coordinator = CreateCoordinator(temporary.Path, factory, UserPreferences.Default,
+            nativeSpeech: new FakeNativeSpeechBridge(supported: false));
+
+        await coordinator.InitializeAsync();
+
+        Assert.Null(coordinator.SelectedModelId);
+        Assert.DoesNotContain(factory.Client.Requests, request => Type(request) is "select_model" or "install_model");
+        await coordinator.ShutdownAsync();
+    }
+
+    [Fact]
+    public async Task ExplicitInstalledLocalPreferenceIsPreservedWhenNativeIsAvailable()
+    {
+        using var temporary = new TemporaryDirectory();
+        var factory = new FakeCoreFactory { Models = [InstalledModel("parakeet")] };
+        var preferences = new UserPreferences("parakeet", "en", "microphone", "system");
+        var coordinator = CreateCoordinator(temporary.Path, factory, preferences,
+            nativeSpeech: new FakeNativeSpeechBridge(supported: true));
+
+        await coordinator.InitializeAsync();
+
+        Assert.Equal("parakeet", coordinator.SelectedModelId);
+        Assert.DoesNotContain(factory.Client.Requests, request => Type(request) == "select_model"
+            && request.GetProperty("model_id").GetString() == "native-windows-speech");
+        await coordinator.ShutdownAsync();
+    }
+
+    private static ModelRecord InstalledModel(string id) => new()
+    {
+        State = "installed",
+        Descriptor = new ModelDescriptor { Id = id, Backend = id, DisplayName = id, Languages = ["en"] },
+    };
+
+    [Fact]
     public async Task FilePreferencesStorePersistsOnlyNativePresentationSelections()
     {
         using var temporary = new TemporaryDirectory();
@@ -228,8 +328,9 @@ public sealed class AppCoordinatorTests
         string dataDirectory,
         FakeCoreFactory factory,
         UserPreferences preferences,
-        IUserPreferencesStore? store = null) =>
-        new(dataDirectory, factory, store ?? new MemoryPreferences(preferences), new ImmediateDispatcher());
+        IUserPreferencesStore? store = null,
+        INativeSpeechBridge? nativeSpeech = null) =>
+        new(dataDirectory, factory, store ?? new MemoryPreferences(preferences), new ImmediateDispatcher(), nativeSpeech: nativeSpeech);
 
     private static string? Type(JsonElement request) => request.TryGetProperty("type", out JsonElement type) ? type.GetString() : null;
     private static string? Command(JsonElement request) =>
@@ -326,6 +427,18 @@ public sealed class AppCoordinatorTests
 
         public void Shutdown() => ShutdownCalled = true;
         public void Dispose() { }
+    }
+
+    private sealed class FakeNativeSpeechBridge(bool supported) : INativeSpeechBridge
+    {
+        public NativeSpeechAvailability CheckAvailability() => new(supported, false,
+            supported ? "NotReady" : "NotSupportedOnCurrentSystem");
+        public event Action<NativeSpeechResult>? ResultReceived { add { } remove { } }
+        public Task PrepareAsync(Func<CancellationToken, Task<bool>> confirmDownload, CancellationToken cancellationToken) => Task.CompletedTask;
+        public Task StartSourceAsync(string source, CancellationToken cancellationToken) => Task.CompletedTask;
+        public void PushPcm(string source, long startMs, ReadOnlySpan<short> samples) { }
+        public Task StopSourceAsync(string source) => Task.CompletedTask;
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 
     private sealed class MemoryPreferences(UserPreferences? value) : IUserPreferencesStore

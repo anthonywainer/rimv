@@ -46,6 +46,25 @@ public partial class App : Microsoft.UI.Xaml.Application
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "RimV");
         _log = new FileAppLog(Path.Combine(dataDirectory, "logs", "windows-native.log"));
         _log.Info("app.launch", $"pid={Environment.ProcessId}; os={Environment.OSVersion.Version}");
+        if (args.Arguments.Equals("--native-speech-e2e", StringComparison.Ordinal))
+        {
+            try { Environment.ExitCode = await WindowsNativeSpeechE2E.RunAsync(); }
+            catch (Exception error)
+            {
+                Environment.ExitCode = 1;
+                Console.Error.WriteLine($"Native Windows Speech E2E failed: {error}");
+                _log.Error("native_speech.e2e_failed", error);
+            }
+            Exit();
+            return;
+        }
+        string[] launchArguments = args.Arguments.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (launchArguments.Length == 2 && launchArguments[0] == "--install-model")
+        {
+            Environment.ExitCode = await InstallerModelBootstrap.RunAsync(launchArguments[1], dataDirectory, _log);
+            Exit();
+            return;
+        }
         EventWaitHandle activationEvent = new(
             initialState: false,
             EventResetMode.AutoReset,
@@ -88,7 +107,9 @@ public partial class App : Microsoft.UI.Xaml.Application
             new CoreClientFactory(_log),
             new FileUserPreferencesStore(Path.Combine(dataDirectory, "preferences.json")),
             new WinUiDispatcher(UiQueue),
-            _log);
+            _log,
+            new WindowsNativeSpeechProvider(),
+            token => _shell!.ConfirmNativeSpeechModelDownloadAsync(token));
         _log.Info("theme_manager.initializing");
         ThemeManager = new ThemeManager(Coordinator);
         _log.Info("theme_manager.initialized");

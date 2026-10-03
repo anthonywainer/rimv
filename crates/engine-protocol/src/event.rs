@@ -42,12 +42,32 @@ pub struct LiveTranscriptSnapshot {
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(tag = "type", rename_all = "snake_case"))]
 pub enum EngineEvent {
-    Snapshot { snapshot: Box<EngineSnapshot> },
-    Error { error: EngineError },
-    TranscriptPartial { segment: TranscriptSegment },
-    TranscriptFinal { segment: TranscriptSegment },
-    TranscriptUpdate { update: TranscriptUpdate },
-    TranscriptionError { error: EngineError },
+    Snapshot {
+        snapshot: Box<EngineSnapshot>,
+    },
+    Error {
+        error: EngineError,
+    },
+    TranscriptPartial {
+        segment: TranscriptSegment,
+    },
+    TranscriptFinal {
+        segment: TranscriptSegment,
+    },
+    TranscriptUpdate {
+        update: TranscriptUpdate,
+    },
+    /// Mono 16 kHz signed PCM forwarded to the Windows host adapter while
+    /// Windows Native Speech is selected. The host pushes these samples into
+    /// SpeechAudioProvider; no second capture device is opened.
+    NativeAudioChunk {
+        source: AudioSource,
+        start_ms: u64,
+        samples: Vec<i16>,
+    },
+    TranscriptionError {
+        error: EngineError,
+    },
 }
 
 #[cfg(all(test, feature = "serde"))]

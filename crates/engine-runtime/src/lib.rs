@@ -25,6 +25,7 @@ pub fn supports_asr_backend(backend: &str) -> bool {
         "parakeet" => speech_transcription::supports_backend(AsrBackendKind::Parakeet),
         "whisper" => speech_transcription::supports_backend(AsrBackendKind::Whisper),
         "native_apple" => speech_transcription::supports_backend(AsrBackendKind::AppleNative),
+        "native_windows" => speech_transcription::supports_backend(AsrBackendKind::WindowsNative),
         _ => false,
     }
 }

@@ -459,12 +459,15 @@ fn publish_model_catalog() {
         serde_json::json!({"id":model.id,"name":model.display_name,"description":model.install_hint.as_deref().unwrap_or("Local transcription model."),"size":size,"progress":progress_text,"state":if models.state(model)==ModelState::Ready {"installed"} else if downloading.contains(&model.id) {"downloading"} else {"available"},"selected":model.id==selected})
     }).collect();
     if !apple_supported_languages().is_empty() {
-        items.insert(0, serde_json::json!({
-            "id": "native-apple", "name": "Native — Apple Speech",
-            "description": "On-device speech recognition built into macOS.",
-            "size": "", "progress": serde_json::Value::Null,
-            "state": "installed", "selected": selected == "native-apple"
-        }));
+        items.insert(
+            0,
+            serde_json::json!({
+                "id": "native-apple", "name": "Native — Apple Speech",
+                "description": "On-device speech recognition built into macOS.",
+                "size": "", "progress": serde_json::Value::Null,
+                "state": "installed", "selected": selected == "native-apple"
+            }),
+        );
     }
     if let Ok(json) = CString::new(serde_json::to_string(&items).unwrap_or_default()) {
         unsafe { rimv_model_manager_update(json.as_ptr()) };
@@ -499,24 +502,32 @@ fn selected_language_for_model(saved: Option<String>, model: Option<&ModelDescri
         .unwrap_or_else(|| "auto".into())
 }
 
-fn should_select_native(saved: Option<&str>, native_available: bool, legacy_model_ready: bool) -> bool {
-    native_available
-        && (saved.is_none() || saved == Some("native-apple") || !legacy_model_ready)
+fn should_select_native(
+    saved: Option<&str>,
+    native_available: bool,
+    legacy_model_ready: bool,
+) -> bool {
+    native_available && (saved.is_none() || saved == Some("native-apple") || !legacy_model_ready)
 }
 
 fn apple_supported_languages() -> Vec<String> {
-    ["en", "es", "fr", "de", "it", "pt", "ja", "zh", "ar", "hi", "nl", "ru"]
-        .into_iter()
-        .filter(|language| {
-            engine_runtime::apple_locale(language)
-                .is_some_and(engine_runtime::apple_speech_available)
-        })
-        .map(str::to_owned)
-        .collect()
+    [
+        "en", "es", "fr", "de", "it", "pt", "ja", "zh", "ar", "hi", "nl", "ru",
+    ]
+    .into_iter()
+    .filter(|language| {
+        engine_runtime::apple_locale(language).is_some_and(engine_runtime::apple_speech_available)
+    })
+    .map(str::to_owned)
+    .collect()
 }
 
 fn update_selector_state(model: Option<&ModelDescriptor>, native: bool) {
-    let native_languages = if native { apple_supported_languages() } else { Vec::new() };
+    let native_languages = if native {
+        apple_supported_languages()
+    } else {
+        Vec::new()
+    };
     let state = serde_json::json!({
         "model": if native { "Native" } else { model.map(|model| model.display_name.as_str()).unwrap_or("No model") },
         "languages": if native { native_languages } else { model.map(|model| &model.languages).cloned().unwrap_or_default() },
@@ -944,7 +955,11 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         native_supported,
         selected_model.is_some(),
     );
-    let selected_model = if native_selected { None } else { selected_model };
+    let selected_model = if native_selected {
+        None
+    } else {
+        selected_model
+    };
     let selected = selected_model
         .as_ref()
         .and_then(|model| models.runtime_path(model).ok());
@@ -966,10 +981,16 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         AsrBackendKind::Parakeet
     };
     let selected_language = if native_selected {
-        if supported_native_languages.iter().any(|value| value == &saved_language_id) {
+        if supported_native_languages
+            .iter()
+            .any(|value| value == &saved_language_id)
+        {
             saved_language_id
         } else {
-            supported_native_languages.into_iter().next().unwrap_or_else(|| "en".into())
+            supported_native_languages
+                .into_iter()
+                .next()
+                .unwrap_or_else(|| "en".into())
         }
     } else {
         selected_language_for_model(saved_language(&support), selected_model.as_ref())
@@ -1323,7 +1344,8 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
                     // representation. Do not append the legacy partial/final
                     // events here, or the live window could duplicate text.
                     Ok(EngineEvent::TranscriptPartial { .. })
-                    | Ok(EngineEvent::TranscriptFinal { .. }) => {}
+                    | Ok(EngineEvent::TranscriptFinal { .. })
+                    | Ok(EngineEvent::NativeAudioChunk { .. }) => {}
                     Ok(EngineEvent::TranscriptionError { error }) => show_engine_error(&error),
                     Err(SubscriptionError::Lagged { .. }) => update(&listener_engine.snapshot()),
                     Err(SubscriptionError::Closed) => break,

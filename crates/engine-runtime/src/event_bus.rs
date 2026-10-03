@@ -205,6 +205,19 @@ impl EventBus {
             EngineEvent::TranscriptFinal { segment },
         );
     }
+    pub fn native_audio_chunk(&self, source: crate::AudioSource, start_ms: u64, samples: Vec<i16>) {
+        if samples.is_empty() {
+            return;
+        }
+        Self::broadcast(
+            &mut lock(&self.state),
+            EngineEvent::NativeAudioChunk {
+                source,
+                start_ms,
+                samples,
+            },
+        );
+    }
     pub fn transcription_error(&self, error: EngineError) {
         Self::broadcast(
             &mut lock(&self.state),

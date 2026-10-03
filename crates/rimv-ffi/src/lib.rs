@@ -550,6 +550,41 @@ pub unsafe extern "C" fn rimv_engine_request(
                 if engine.runtime.snapshot().status != engine_runtime::EngineStatus::Idle {
                     return Err("stop capture before changing the transcription model".into());
                 }
+                if model_id == "native-windows-speech" {
+                    if !engine_runtime::supports_asr_backend("native_windows") {
+                        return Err("Windows Native Speech is not included in this build".into());
+                    }
+                    if language.as_deref().is_some_and(|locale| locale != "en-US") {
+                        return Err(
+                            "Windows Native Speech currently supports English (United States) only"
+                                .into(),
+                        );
+                    }
+                    let language = Some("en-US".to_owned());
+                    engine
+                        .runtime
+                        .send(EngineCommand::SetTranscriptionBackend {
+                            backend: "native_windows".into(),
+                        })
+                        .map_err(|error| error.to_string())?;
+                    engine
+                        .runtime
+                        .send(EngineCommand::SetTranscriptionLanguage { language })
+                        .map_err(|error| error.to_string())?;
+                    engine
+                        .runtime
+                        .send(EngineCommand::SetTranscriptionEnabled { enabled: true })
+                        .map_err(|error| error.to_string())?;
+                    *engine
+                        .selected_model_id
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(model_id);
+                    let snapshot = engine
+                        .runtime
+                        .send(EngineCommand::GetState)
+                        .map_err(|error| error.to_string())?;
+                    return serde_json::to_value(snapshot).map_err(|error| error.to_string());
+                }
                 let descriptor = engine
                     .models
                     .descriptor(&model_id)
@@ -596,6 +631,22 @@ pub unsafe extern "C" fn rimv_engine_request(
             Request::SetLanguage { model_id, language } => {
                 if engine.runtime.snapshot().status != engine_runtime::EngineStatus::Idle {
                     return Err("stop capture before changing the transcription language".into());
+                }
+                if model_id == "native-windows-speech" {
+                    if language.as_deref().is_some_and(|locale| locale != "en-US") {
+                        return Err(
+                            "Windows Native Speech currently supports English (United States) only"
+                                .into(),
+                        );
+                    }
+                    let language = Some("en-US".to_owned());
+                    return serde_json::to_value(
+                        engine
+                            .runtime
+                            .send(EngineCommand::SetTranscriptionLanguage { language })
+                            .map_err(|error| error.to_string())?,
+                    )
+                    .map_err(|error| error.to_string());
                 }
                 let descriptor = engine
                     .models

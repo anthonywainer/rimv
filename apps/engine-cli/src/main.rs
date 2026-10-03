@@ -60,6 +60,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 Ok(EngineEvent::TranscriptionError { error }) => {
                     eprintln!("EVENT Transcription error: {error}")
                 }
+                Ok(EngineEvent::NativeAudioChunk { .. }) => {}
                 Err(SubscriptionError::Lagged { missed }) => eprintln!("Listener missed {missed} events; next snapshots contain full state"),
                 Err(SubscriptionError::Closed) => break,
                 Err(SubscriptionError::Timeout) => {},

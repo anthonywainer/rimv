@@ -24,6 +24,20 @@ public interface IUserPreferencesStore
     Task SaveAsync(UserPreferences preferences, CancellationToken cancellationToken = default);
 }
 
+public sealed record NativeSpeechAvailability(bool Supported, bool ModelReady, string Reason);
+public sealed record NativeSpeechResult(string Source, string Text, bool IsFinal, long OffsetMs, long DurationMs);
+
+/// <summary>Host adapter boundary for experimental Windows AI Speech APIs.</summary>
+public interface INativeSpeechBridge : IAsyncDisposable
+{
+    NativeSpeechAvailability CheckAvailability();
+    event Action<NativeSpeechResult>? ResultReceived;
+    Task PrepareAsync(Func<CancellationToken, Task<bool>> confirmDownload, CancellationToken cancellationToken);
+    Task StartSourceAsync(string source, CancellationToken cancellationToken);
+    void PushPcm(string source, long startMs, ReadOnlySpan<short> samples);
+    Task StopSourceAsync(string source);
+}
+
 /// <summary>Receives redacted diagnostic events. Never pass transcript or audio content.</summary>
 public interface IAppLog
 {

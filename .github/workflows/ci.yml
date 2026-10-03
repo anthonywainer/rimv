@@ -102,6 +102,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.native == 'true'
     uses: ./.github/workflows/windows-native-package.yml
+    secrets: inherit
 
   rust:
     name: Rust (Linux x64)

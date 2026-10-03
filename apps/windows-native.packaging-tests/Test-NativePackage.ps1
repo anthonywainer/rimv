@@ -39,6 +39,9 @@ function Assert-Payload([string] $root, $manifest) {
     Assert-Condition ($manifest.schemaVersion -eq 1) 'Unsupported package manifest schema.'
     Assert-Condition ($manifest.architecture -eq 'x64') 'This installer is expected to target x64.'
     Assert-Condition ($manifest.ffiApiVersion -eq 1) 'The package does not declare the expected shared-core API version.'
+    $optionalModelIds = @($manifest.optionalModels | ForEach-Object id | Sort-Object)
+    Assert-Condition (($optionalModelIds -join ',') -eq 'parakeet-tdt-0.6b-v3-int8,whisper-base') 'The installer optional-model choices do not match the shared catalog.'
+    Assert-Condition (@($manifest.optionalModels | Where-Object { $_.sizeBytes -le 0 }).Count -eq 0) 'An optional-model download size is missing from the shared catalog.'
 
     $expected = @{}
     foreach ($file in $manifest.files) {
@@ -56,14 +59,16 @@ function Assert-Payload([string] $root, $manifest) {
     Assert-Condition ($actualFiles.Count -eq $expected.Count) 'Payload file count differs from the manifest.'
     foreach ($path in $actualFiles) {
         Assert-Condition $expected.ContainsKey($path) "Unexpected file is present in the production payload: $path"
-        Assert-Condition ($path -notmatch '(?i)(^|/)(tests?|fixtures?|mock)s?(/|$)|\.pdb$|testhost|coverlet') "Test-only/debug file found in production payload: $path"
+        Assert-Condition ($path -notmatch '(?i)(^|/)(tests?|fixtures?|mock)s?(/|$)|\.(pdb|ilk|exp|iobj|ipdb)$|testhost|coverlet') "Test-only/debug file found in production payload: $path"
         $knownWinUiRuntimeAsset = $path -ieq 'Microsoft.UI.Xaml/Assets/map.html'
         $legacyFrontendAsset = $path -match '(?i)(^|/)(tauri|node_modules|vite)(/|$)|\.(html|js|css)$'
         Assert-Condition (-not $legacyFrontendAsset -or $knownWinUiRuntimeAsset) "Legacy HTML/Tauri asset found in native payload: $path"
+        Assert-Condition ($path -notmatch '(?i)Assets\.xcassets|\.(onnx|ggml|tar\.bz2)$') "macOS assets or optional model data found in base payload: $path"
     }
 
     $appExe = Join-Path $root 'RimV.Windows.exe'
     Assert-Condition (Test-Path -LiteralPath $appExe -PathType Leaf) 'The native WinUI executable is missing.'
+    Assert-Condition (Test-Path -LiteralPath (Join-Path $root 'RimV.Identity.msix') -PathType Leaf) 'The signed sparse identity package is missing.'
     $appPe = Get-PeInfo $appExe
     Assert-Condition ($appPe.Machine -eq 0x8664) 'The app executable is not x64.'
     Assert-Condition ($appPe.Subsystem -eq 2) 'The app executable is not a GUI/WinExe program.'
@@ -159,6 +164,12 @@ $testInstaller = Join-Path $tempInstallerDirectory $expectedInstaller
 Copy-Item -LiteralPath $InstallerPath -Destination $testInstaller -Force
 $appExe = Join-Path $InstallDirectory 'RimV.Windows.exe'
 $dataDirectory = Join-Path $env:LOCALAPPDATA 'RimV'
+$modelsDirectory = Join-Path $dataDirectory 'models'
+$modelFilesBefore = if (Test-Path -LiteralPath $modelsDirectory) {
+    @(Get-ChildItem -LiteralPath $modelsDirectory -File -Recurse | ForEach-Object {
+        [pscustomobject]@{ Path = [IO.Path]::GetRelativePath($modelsDirectory, $_.FullName); Size = $_.Length; Hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash }
+    } | Sort-Object Path)
+} else { @() }
 $sentinel = Join-Path (Join-Path $dataDirectory 'recordings') 'phase4-uninstall-preservation.txt'
 $process = $null
 
@@ -167,6 +178,7 @@ try {
     $installArgs = "/S /D=$InstallDirectory"
     Invoke-Installer $testInstaller $installArgs 'Clean installer run'
     Assert-Condition (Test-Path -LiteralPath $appExe -PathType Leaf) 'The installer did not place the native app in the requested path containing spaces.'
+    Assert-Condition (@(Get-AppxPackage -Name 'RimV.Native.Windows').Count -gt 0) 'The installer did not register RimV package identity.'
     Assert-Condition (Test-Path -LiteralPath (Join-Path $InstallDirectory 'rimv_core_ffi.dll')) 'The installer omitted the shared Rust library.'
     Assert-Condition (Test-Path -LiteralPath (Join-Path $InstallDirectory 'Assets\rimv.ico')) 'The installer omitted the RimV icon.'
     foreach ($file in $manifest.files) {
@@ -185,6 +197,18 @@ try {
     $process.Refresh()
     Assert-Condition (-not $process.HasExited) "The installed WinUI process exited on first launch (code $($process.ExitCode))."
     Write-Host 'PASS: installed WinUI process started and remained running for the startup smoke window.'
+    $installerBytes = (Get-Item -LiteralPath $InstallerPath).Length
+    $installedFiles = @(Get-ChildItem -LiteralPath $InstallDirectory -File -Recurse)
+    $installedBytes = [long](($installedFiles | Measure-Object -Property Length -Sum).Sum)
+    $mainExecutableBytes = (Get-Item -LiteralPath $appExe).Length
+    Write-Host ('SIZE AUDIT: installer={0:N2} MB; installed={1:N2} MB; main executable={2:N2} MB; installed files={3}' -f ($installerBytes / 1e6), ($installedBytes / 1e6), ($mainExecutableBytes / 1e6), $installedFiles.Count)
+    $modelFilesAfter = if (Test-Path -LiteralPath $modelsDirectory) {
+        @(Get-ChildItem -LiteralPath $modelsDirectory -File -Recurse | ForEach-Object {
+            [pscustomobject]@{ Path = [IO.Path]::GetRelativePath($modelsDirectory, $_.FullName); Size = $_.Length; Hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash }
+        } | Sort-Object Path)
+    } else { @() }
+    Assert-Condition ((ConvertTo-Json -InputObject $modelFilesBefore -Compress) -eq (ConvertTo-Json -InputObject $modelFilesAfter -Compress)) 'Silent default installation changed the local model directory; optional downloads must be unchecked by default.'
+    Write-Host 'PASS: silent default installation did not download or alter transcription models.'
 
     # Hosted Windows runners have no reliable interactive tray session to exercise Quit.
     # Stop the smoke process so the installer/uninstaller lifecycle can continue.
@@ -213,6 +237,7 @@ try {
     Assert-AppStopped $appExe
     Invoke-Installer $uninstaller '/S' 'Uninstall'
     Assert-Condition (-not (Test-Path -LiteralPath $appExe)) 'Uninstall left the application executable installed.'
+    Assert-Condition (@(Get-AppxPackage -Name 'RimV.Native.Windows').Count -eq 0) 'Uninstall left RimV package identity registered.'
     Assert-Condition (-not (Test-Path -LiteralPath $startMenuLink)) 'Uninstall left the Start menu shortcut behind.'
     Assert-Condition (Test-Path -LiteralPath $sentinel -PathType Leaf) 'Uninstall deleted user recording/model data.'
     Write-Host 'PASS: install path with spaces, reinstall, Start menu integration, uninstall and user-data preservation.'

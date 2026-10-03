@@ -42,6 +42,9 @@ pub enum AsrBackendKind {
     Parakeet,
     Whisper,
     AppleNative,
+    /// Windows host bridge using Microsoft.Windows.AI.Speech. Recognition is
+    /// hosted by the WinUI process; Rust retains capture and transcript state.
+    WindowsNative,
 }
 
 /// Reports whether this build includes the requested inference backend.
@@ -50,6 +53,7 @@ pub const fn supports_backend(backend: AsrBackendKind) -> bool {
         AsrBackendKind::Parakeet => cfg!(feature = "parakeet"),
         AsrBackendKind::Whisper => cfg!(feature = "whisper"),
         AsrBackendKind::AppleNative => cfg!(all(target_os = "macos", feature = "apple-speech")),
+        AsrBackendKind::WindowsNative => cfg!(target_os = "windows"),
     }
 }
 
@@ -132,6 +136,9 @@ pub fn load_configured_backend(config: SpeechConfig) -> Result<Box<dyn SpeechToT
                 "Apple Speech is only available in the macOS app".into(),
             ))
         }
+        AsrBackendKind::WindowsNative => Err(SpeechError::ModelLoad(
+            "Windows Native Speech is hosted by the Windows app bridge".into(),
+        )),
     }
 }
 
