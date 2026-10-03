@@ -35,6 +35,18 @@
             <SolidColorBrush x:Key="RimVMenuLiveTextBrush" Color="#065F46" />
             <SolidColorBrush x:Key="RimVMenuStopBackgroundBrush" Color="#FEE2E2" />
             <SolidColorBrush x:Key="RimVMenuStopTextBrush" Color="#991B1B" />
+            <SolidColorBrush x:Key="ToggleButtonBackgroundChecked" Color="#E5F5F3" />
+            <SolidColorBrush x:Key="ToggleButtonBackgroundCheckedPointerOver" Color="#F6F7FB" />
+            <SolidColorBrush x:Key="ToggleButtonBackgroundCheckedPressed" Color="#084C49" />
+            <SolidColorBrush x:Key="ToggleButtonBackgroundCheckedDisabled" Color="#E7EBEB" />
+            <SolidColorBrush x:Key="ToggleButtonForegroundChecked" Color="#0B6E69" />
+            <SolidColorBrush x:Key="ToggleButtonForegroundCheckedPointerOver" Color="#0B6E69" />
+            <SolidColorBrush x:Key="ToggleButtonForegroundCheckedPressed" Color="#FFFFFF" />
+            <SolidColorBrush x:Key="ToggleButtonForegroundCheckedDisabled" Color="#596365" />
+            <SolidColorBrush x:Key="ToggleButtonBorderBrushChecked" Color="#0B6E69" />
+            <SolidColorBrush x:Key="ToggleButtonBorderBrushCheckedPointerOver" Color="#0B6E69" />
+            <SolidColorBrush x:Key="ToggleButtonBorderBrushCheckedPressed" Color="#0B6E69" />
+            <SolidColorBrush x:Key="ToggleButtonBorderBrushCheckedDisabled" Color="#D8DEDE" />
         </ResourceDictionary>
         <ResourceDictionary x:Key="Dark">
             <SolidColorBrush x:Key="RimVBackgroundBrush" Color="#0B0F19" />
@@ -69,6 +81,18 @@
             <SolidColorBrush x:Key="RimVMenuLiveTextBrush" Color="#86EFAC" />
             <SolidColorBrush x:Key="RimVMenuStopBackgroundBrush" Color="#7F1D1D" />
             <SolidColorBrush x:Key="RimVMenuStopTextBrush" Color="#FCA5A5" />
+            <SolidColorBrush x:Key="ToggleButtonBackgroundChecked" Color="#173B39" />
+            <SolidColorBrush x:Key="ToggleButtonBackgroundCheckedPointerOver" Color="#0F817C" />
+            <SolidColorBrush x:Key="ToggleButtonBackgroundCheckedPressed" Color="#095F5B" />
+            <SolidColorBrush x:Key="ToggleButtonBackgroundCheckedDisabled" Color="#3A4649" />
+            <SolidColorBrush x:Key="ToggleButtonForegroundChecked" Color="#72D7D0" />
+            <SolidColorBrush x:Key="ToggleButtonForegroundCheckedPointerOver" Color="#FFFFFF" />
+            <SolidColorBrush x:Key="ToggleButtonForegroundCheckedPressed" Color="#FFFFFF" />
+            <SolidColorBrush x:Key="ToggleButtonForegroundCheckedDisabled" Color="#C3CCCE" />
+            <SolidColorBrush x:Key="ToggleButtonBorderBrushChecked" Color="#72D7D0" />
+            <SolidColorBrush x:Key="ToggleButtonBorderBrushCheckedPointerOver" Color="#72D7D0" />
+            <SolidColorBrush x:Key="ToggleButtonBorderBrushCheckedPressed" Color="#72D7D0" />
+            <SolidColorBrush x:Key="ToggleButtonBorderBrushCheckedDisabled" Color="#3A4649" />
         </ResourceDictionary>
         <ResourceDictionary x:Key="HighContrast">
             <SolidColorBrush x:Key="RimVBackgroundBrush" Color="{ThemeResource SystemColorWindowColor}" />
@@ -103,6 +127,18 @@
             <SolidColorBrush x:Key="RimVMenuLiveTextBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
             <SolidColorBrush x:Key="RimVMenuStopBackgroundBrush" Color="{ThemeResource SystemColorWindowColor}" />
             <SolidColorBrush x:Key="RimVMenuStopTextBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
+            <SolidColorBrush x:Key="ToggleButtonBackgroundChecked" Color="{ThemeResource SystemColorWindowColor}" />
+            <SolidColorBrush x:Key="ToggleButtonBackgroundCheckedPointerOver" Color="{ThemeResource SystemColorHighlightColor}" />
+            <SolidColorBrush x:Key="ToggleButtonBackgroundCheckedPressed" Color="{ThemeResource SystemColorHighlightColor}" />
+            <SolidColorBrush x:Key="ToggleButtonBackgroundCheckedDisabled" Color="{ThemeResource SystemColorWindowColor}" />
+            <SolidColorBrush x:Key="ToggleButtonForegroundChecked" Color="{ThemeResource SystemColorWindowTextColor}" />
+            <SolidColorBrush x:Key="ToggleButtonForegroundCheckedPointerOver" Color="{ThemeResource SystemColorHighlightTextColor}" />
+            <SolidColorBrush x:Key="ToggleButtonForegroundCheckedPressed" Color="{ThemeResource SystemColorHighlightTextColor}" />
+            <SolidColorBrush x:Key="ToggleButtonForegroundCheckedDisabled" Color="{ThemeResource SystemColorGrayTextColor}" />
+            <SolidColorBrush x:Key="ToggleButtonBorderBrushChecked" Color="{ThemeResource SystemColorHighlightColor}" />
+            <SolidColorBrush x:Key="ToggleButtonBorderBrushCheckedPointerOver" Color="{ThemeResource SystemColorHighlightColor}" />
+            <SolidColorBrush x:Key="ToggleButtonBorderBrushCheckedPressed" Color="{ThemeResource SystemColorHighlightColor}" />
+            <SolidColorBrush x:Key="ToggleButtonBorderBrushCheckedDisabled" Color="{ThemeResource SystemColorGrayTextColor}" />
         </ResourceDictionary>
     </ResourceDictionary.ThemeDictionaries>
     <Style x:Key="RimVPrimaryButtonStyle" TargetType="Button">
