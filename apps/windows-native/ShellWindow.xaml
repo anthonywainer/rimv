@@ -14,7 +14,7 @@
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
-                        <Border Width="52" Height="52" CornerRadius="11" Background="{ThemeResource RimVMenuAccentBrush}">
+                        <Border Width="52" Height="52" CornerRadius="11" Background="{ThemeResource RimVBrandBrush}">
                             <StackPanel Orientation="Horizontal" Spacing="3" HorizontalAlignment="Center" VerticalAlignment="Center">
                                 <Border Width="2" Height="10" CornerRadius="1" Background="White"/>
                                 <Border Width="2" Height="21" CornerRadius="1" Background="White"/>

@@ -48,9 +48,9 @@ The table below written design guide. Exact channel values must be implemented a
 | `text-muted` | `#9AA3B5` | `#94A3B8` | Decorative or disabled metadata only when contrast permits |
 | `icon-primary` | `#171827` | `#F9FAFB` | Primary iconography |
 | `icon-secondary` | `#7A8194` | `#CBD5E1` | Secondary iconography |
-| `brand` | `#0B6E69` | `#72D7D0` | RimV green-teal brand accent |
+| `brand` | `#138D84` | `#72D7D0` | RimV green-teal brand accent |
 | `brand-hover` | `#0F817C` | `#94E5DF` | Visual hover accent |
-| `brand-pressed` | `#095F5B` | `#4FC7BF` | Press state |
+| `brand-pressed` | `#0B6E69` | `#4FC7BF` | Press state |
 | `action-solid` | `#0B6E69` | `#0B6E69` | High-emphasis button fill with readable light text |
 | `action-solid-hover` | `#095F5B` | `#0F817C` | Hover for solid actions |
 | `action-solid-pressed` | `#084C49` | `#095F5B` | Pressed action |
@@ -61,7 +61,7 @@ The table below written design guide. Exact channel values must be implemented a
 | `error` | `#DC2626` | `#F87171` | Errors/destructive operations |
 | `focus` | `#0B6E69` | `#72D7D0` | Visible keyboard focus |
 
-**Important contrast decision:** light `brand` and `action-solid` use `#0B6E69`, which provides approximately 6.1:1 contrast with white. The darkest dark-theme hover in this action family remains above 4.5:1 with `on-action`. Green-teal expresses RimV brand and primary interaction; purple remains reserved for AI-generated information, and red remains reserved for errors and destructive/stop actions. Light `text-muted` on white is too faint for ordinary meaningful text: use `text-secondary` for timestamps, descriptions and labels. Verify specific on-surface pairs before shipping; do not assume all combinations of approved tokens are accessible.
+**Important contrast decision:** light `brand` `#138D84` provides approximately 4.1:1 with white, so use it for brand graphics, borders and large accents, not small white-label buttons or ordinary small text. `action-solid` `#0B6E69` provides approximately 6.1:1 with white and remains the filled action color. Purple remains reserved for AI-generated information, and red remains reserved for errors and destructive/stop actions. Light `text-muted` on white is too faint for ordinary meaningful text: use `text-secondary` for timestamps, descriptions and labels. Verify specific on-surface pairs before shipping; do not assume all combinations of approved tokens are accessible.
 
 ### Semantic message surfaces
 

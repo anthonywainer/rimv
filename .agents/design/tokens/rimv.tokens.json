@@ -56,7 +56,7 @@
       },
       "brand": {
         "$type": "color",
-        "$value": "#0B6E69"
+        "$value": "#138D84"
       },
       "brand-hover": {
         "$type": "color",
@@ -64,7 +64,7 @@
       },
       "brand-pressed": {
         "$type": "color",
-        "$value": "#095F5B"
+        "$value": "#0B6E69"
       },
       "action-solid": {
         "$type": "color",

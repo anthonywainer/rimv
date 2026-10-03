@@ -450,7 +450,7 @@ static NSString *elapsed(uint64_t milliseconds) {
     NSView *mark = [[NSView alloc] initWithFrame:NSMakeRect(16, 34, 40, 40)];
     mark.wantsLayer = YES;
     mark.layer.cornerRadius = 11;
-    mark.layer.backgroundColor = [self color:11 green:110 blue:105 darkRed:11 green:110 blue:105].CGColor;
+    mark.layer.backgroundColor = [self color:19 green:141 blue:132 darkRed:11 green:110 blue:105].CGColor;
     [self.mainContentView addSubview:mark];
     NSImageView *markImage = [[NSImageView alloc] initWithFrame:NSMakeRect(8, 8, 24, 24)];
     markImage.image = [NSImage imageWithSystemSymbolName:@"waveform" accessibilityDescription:@"RimV"];
@@ -680,7 +680,7 @@ static NSString *elapsed(uint64_t milliseconds) {
         card.layer.backgroundColor = (active ? selectedSurface
                                              : [self color:255 green:255 blue:255 darkRed:24 green:38 blue:59]).CGColor;
         card.layer.borderWidth = active ? 2 : 1.2;
-        card.layer.borderColor = (active ? [self color:11 green:110 blue:105 darkRed:114 green:215 blue:208]
+        card.layer.borderColor = (active ? [self color:19 green:141 blue:132 darkRed:114 green:215 blue:208]
                                         : [self color:213 green:214 blue:218 darkRed:45 green:61 blue:85]).CGColor;
         NSColor *contentColor = !sourceAvailable ? [self color:94 green:100 blue:117 darkRed:148 green:163 blue:184]
             : active ? [self color:11 green:110 blue:105 darkRed:114 green:215 blue:208]
@@ -940,7 +940,7 @@ static NSString *elapsed(uint64_t milliseconds) {
         icon.image = [[NSImage imageWithSystemSymbolName:@"wand.and.stars" accessibilityDescription:nil]
             imageWithSymbolConfiguration:[NSImageSymbolConfiguration configurationWithPointSize:15 weight:NSFontWeightRegular]];
         icon.image.template = YES;
-        icon.contentTintColor = selected ? [self languageColor:11 green:110 blue:105 darkR:114 green:215 blue:208] : [self languageColor:94 green:100 blue:117 darkR:203 green:213 blue:225];
+        icon.contentTintColor = selected ? [self languageColor:19 green:141 blue:132 darkR:114 green:215 blue:208] : [self languageColor:94 green:100 blue:117 darkR:203 green:213 blue:225];
         [button addSubview:icon];
     } else {
         NSTextField *flag = [self languageLabel:[self languageFlag:code] frame:NSMakeRect(10, 9, 22, 22) size:16 weight:NSFontWeightRegular color:NSColor.labelColor];
@@ -952,7 +952,7 @@ static NSString *elapsed(uint64_t milliseconds) {
         NSImageView *check = [[NSImageView alloc] initWithFrame:NSMakeRect(264, 11, 18, 18)];
         check.image = [[NSImage imageWithSystemSymbolName:@"checkmark" accessibilityDescription:@"Selected"] imageWithSymbolConfiguration:[NSImageSymbolConfiguration configurationWithPointSize:15 weight:NSFontWeightBold]];
         check.image.template = YES;
-        check.contentTintColor = [self languageColor:11 green:110 blue:105 darkR:114 green:215 blue:208];
+        check.contentTintColor = [self languageColor:19 green:141 blue:132 darkR:114 green:215 blue:208];
         [button addSubview:check];
     }
     [self.languageListDocument addSubview:button];

@@ -12,7 +12,7 @@ Ratios use the W3C relative luminance contrast formula. Values are rounded to tw
 | `text-primary` #171827 | `surface` #FFFFFF | 17.55:1 | Meets numeric target (4.5:1) | ordinary text |
 | `text-secondary` #5E6475 | `surface` #FFFFFF | 5.91:1 | Meets numeric target (4.5:1) | ordinary text |
 | `text-muted` #9AA3B5 | `surface` #FFFFFF | 2.54:1 | Below numeric target (4.5:1) | if used as small essential text |
-| `brand` #0B6E69 | `surface` #FFFFFF | 6.09:1 | Meets numeric target (4.5:1) | if used as small text |
+| `brand` #138D84 | `surface` #FFFFFF | 4.06:1 | Below numeric target (4.5:1) | use for graphics/large accents, not small text |
 | `live` #16A34A | `surface` #FFFFFF | 3.30:1 | Below numeric target (4.5:1) | if used as small text |
 | `ai` #7C3AED | `surface` #FFFFFF | 5.70:1 | Meets numeric target (4.5:1) | if used as small text |
 | `warning` #B45309 | `surface` #FFFFFF | 5.02:1 | Meets numeric target (4.5:1) | if used as small text |
@@ -54,7 +54,7 @@ These are **examples for product review**, not automatic modifications to the ca
 ## Interpretation
 
 - Light `text-muted` is **too low contrast for essential small text on white**. It can remain decorative or be replaced at the point of use by a verified accessible text role.
-- Light `brand` is suitable for ordinary small text on white; the lighter `live` token still needs a darker text mapping when used for small status labels.
+- Light `brand` `#138D84` is below the normal-text contrast target against white. Use the darker `action-solid` mapping `#0B6E69` for small text or filled buttons; the lighter `live` token also needs a darker text mapping for small status labels.
 - Ordinary `border` and `border-strong` tokens in both themes are intentionally subtle. If an outline is the **only visual cue** that an input/control exists or is selected, use a separate stronger accessible-outline token or redundant high-contrast state treatment.
 - Text contrast, non-text contrast and focus appearance are separate requirements. A color passing one numeric check does not mean all component states are accessible.
 - WCAG AA includes exceptions: incidental text, inactive controls and some special content are treated differently. Do not mark every decorative separator as a WCAG failure.

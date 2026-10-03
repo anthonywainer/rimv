@@ -10,7 +10,7 @@
             <SolidColorBrush x:Key="RimVTextBrush" Color="#171827" />
             <SolidColorBrush x:Key="RimVSecondaryTextBrush" Color="#5E6475" />
             <SolidColorBrush x:Key="RimVPartialTranscriptBrush" Color="#707887" />
-            <SolidColorBrush x:Key="RimVBrandBrush" Color="#0B6E69" />
+            <SolidColorBrush x:Key="RimVBrandBrush" Color="#138D84" />
             <SolidColorBrush x:Key="RimVPrimaryForegroundBrush" Color="#FFFFFF" />
             <SolidColorBrush x:Key="RimVLiveBrush" Color="#16A34A" />
             <SolidColorBrush x:Key="RimVErrorBrush" Color="#DC2626" />
@@ -100,8 +100,8 @@
         </ResourceDictionary>
     </ResourceDictionary.ThemeDictionaries>
     <Style x:Key="RimVPrimaryButtonStyle" TargetType="Button">
-        <Setter Property="Background" Value="{ThemeResource RimVBrandBrush}" />
-        <Setter Property="Foreground" Value="{ThemeResource RimVPrimaryForegroundBrush}" />
+        <Setter Property="Background" Value="{ThemeResource RimVMenuAccentBrush}" />
+        <Setter Property="Foreground" Value="{ThemeResource RimVMenuActionForegroundBrush}" />
         <Setter Property="FontWeight" Value="SemiBold" />
     </Style>
     <Style x:Key="RimVSourceButtonStyle" TargetType="ToggleButton">
