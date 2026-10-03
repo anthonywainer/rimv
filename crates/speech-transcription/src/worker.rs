@@ -413,10 +413,10 @@ impl Drop for SpeechWorker {
 #[cfg(feature = "silero-vad")]
 fn load_source_vad(
     config: &VadConfig,
-    backend: AsrBackendKind,
+    _backend: AsrBackendKind,
 ) -> Result<Box<dyn VoiceActivityGate>> {
     #[cfg(all(target_os = "macos", feature = "apple-speech"))]
-    if backend == AsrBackendKind::AppleNative {
+    if _backend == AsrBackendKind::AppleNative {
         return Ok(Box::new(crate::apple_speech::AppleSpeechVad));
     }
     crate::SileroVad::load(config).map(|vad| Box::new(vad) as Box<dyn VoiceActivityGate>)
@@ -425,10 +425,10 @@ fn load_source_vad(
 #[cfg(not(feature = "silero-vad"))]
 fn load_source_vad(
     _config: &VadConfig,
-    backend: AsrBackendKind,
+    _backend: AsrBackendKind,
 ) -> Result<Box<dyn VoiceActivityGate>> {
     #[cfg(all(target_os = "macos", feature = "apple-speech"))]
-    if backend == AsrBackendKind::AppleNative {
+    if _backend == AsrBackendKind::AppleNative {
         return Ok(Box::new(crate::apple_speech::AppleSpeechVad));
     }
     Err(SpeechError::Vad(

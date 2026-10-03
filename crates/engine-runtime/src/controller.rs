@@ -156,7 +156,6 @@ impl Controller {
                                 == crate::AsrBackendKind::WindowsNative
                                 && self.native_provider_ready)
                             || self.config.transcription.model_path.is_some());
-                self.state.capabilities.transcription = self.state.transcription.available;
                 // Enabling is a preference change. A worker is only loaded
                 // during an active capture session.
                 self.state.transcription.status = crate::TranscriptionStatus::Disabled;
