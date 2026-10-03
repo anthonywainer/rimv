@@ -105,8 +105,8 @@ internal sealed class WindowsNativeSpeechProvider : INativeSpeechBridge
         {
             string text = args.Text?.Trim() ?? "";
             if (text.Length > 0)
-            ResultReceived?.Invoke(new NativeSpeechResult(source, text, true,
-                    (long)args.Offset.TotalMilliseconds, (long)args.Duration.TotalMilliseconds));
+                ResultReceived?.Invoke(new NativeSpeechResult(source, text, true,
+                    ToMilliseconds(args.Offset), ToMilliseconds(args.Duration)));
         };
 
         try
@@ -138,9 +138,13 @@ internal sealed class WindowsNativeSpeechProvider : INativeSpeechBridge
         ObjectDisposedException.ThrowIf(_disposed, this);
         if (samples.IsEmpty || !_streams.TryGetValue(source, out SourceStream? stream)) return;
         stream.Context.SetLatestInputStart(startMs);
-        ushort[] payload = new ushort[samples.Length];
+        byte[] payload = new byte[checked(samples.Length * sizeof(short))];
         for (int index = 0; index < samples.Length; index++)
-            payload[index] = unchecked((ushort)samples[index]);
+        {
+            ushort sample = unchecked((ushort)samples[index]);
+            payload[index * sizeof(short)] = (byte)sample;
+            payload[index * sizeof(short) + 1] = (byte)(sample >> 8);
+        }
         stream.Provider.PushData(payload);
     }
 
@@ -165,6 +169,13 @@ internal sealed class WindowsNativeSpeechProvider : INativeSpeechBridge
         var packageName = new StringBuilder(512);
         uint length = (uint)packageName.Capacity;
         return GetCurrentPackageFullName(ref length, packageName) == 0;
+    }
+
+    private static long ToMilliseconds(float seconds)
+    {
+        if (!float.IsFinite(seconds) || seconds <= 0) return 0;
+        double milliseconds = seconds * 1000d;
+        return milliseconds >= long.MaxValue ? long.MaxValue : (long)Math.Round(milliseconds);
     }
 
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
