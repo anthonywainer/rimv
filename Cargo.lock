@@ -3552,6 +3552,7 @@ dependencies = [
  "engine-protocol",
  "engine-runtime",
  "hound",
+ "libc",
  "model-manager",
  "serde",
  "serde_json",

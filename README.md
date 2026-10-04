@@ -431,28 +431,60 @@ git push origin v0.1.0-beta
 
 ## Benchmark Note
 
-Benchmarks are local tools for evaluating this repository, not universal
-performance claims. One pre-beta internal `realtime_capture` case measured:
+RimV was evaluated on 600 speech samples on Apple Silicon, covering read
+speech in English and Spanish, plus English conversational speech, noisy
+conversations, and accented speech. These single-machine, real-time replay
+results are not a cross-platform or professional-model ranking. WER and CER
+cover successful cases; detailed failures and methodology are in the
+[benchmark guide](docs/benchmarking.md). Windows has not been runtime-tested.
 
-| Metric | Result |
-|---|---:|
-| WER | 0.112 |
-| CER | 0.127 |
-| RTF | 0.028 |
-| Cases | 1 |
+<!-- BENCHMARK_RESULTS_START -->
+| Engine | WER ↓ | CER ↓ | First Partial ↓ | Finalization ↓ | RTF ↓ | Peak RAM |
+|---|---:|---:|---:|---:|---:|---:|
+| Native Apple | 25.0% | 19.3% | 761 ms | 203 ms | 0.037 | 48 MB* |
+| Parakeet | 16.2% | 10.6% | 1,406 ms | 193 ms | 0.043 | 1.74 GB |
+| Whisper Small | 18.7% | 10.9% | 2,100 ms | 1,335 ms | 0.483 | 1.03 GB |
+| Enhanced — Experimental | 18.9% | 11.0% | 1,396 ms | 194 ms | 0.047 | 2.52 GB |
+<!-- BENCHMARK_RESULTS_END -->
 
-These numbers describe one internal case only. They should not be used as a
-cross-platform performance guarantee.
+*Apple Speech runs partly outside RimV’s process, so its RAM figure excludes
+some system-service memory. Lower WER, CER, latency, and RTF are better. WER/CER
+are aggregated over successful cases; latency and RTF are averages across
+successful cases. The generated table is based on the validated
+[benchmark results](benchmark-results/macos-full/benchmark-results.json).
+
+### Which engine should I use?
+
+- **Parakeet:** Recommended for students and professors, journalists and
+  interviewers, recruiters and meeting attendants, and general real-time use.
+  It had the best measured accuracy and real-time speed balance in this run.
+- **Native Apple:** A good fit for fast live captions or limited-compute Macs.
+  It had the fastest first partial and lowest measured RimV process memory;
+  Apple Speech also uses system resources outside the process.
+- **Whisper Small:** Consider it when broader language support is useful for a
+  meeting in a language you do not speak natively, or for recording and
+  post-transcription workflows where latency matters less.
+
+No engine is best for every workflow. Results depend on language, hardware,
+and whether accuracy, response time, or resource use matters most.
+
+### Enhanced — Experimental
+
+Enhanced combines Parakeet’s real-time transcription with asynchronous Whisper
+refinement. It is available for testing, but the current benchmark did not
+improve overall accuracy compared with Parakeet alone. Parakeet remains the
+recommended local engine; Enhanced is not the default recommendation.
 
 Run local benchmarks with:
 
 ```sh
-cargo run -p rimv -- benchmark --mode direct-file --model /path/to/parakeet-model-dir
-cargo run -p rimv -- benchmark --mode realtime-capture --model /path/to/parakeet-model-dir
+cargo run --release -p rimv -- benchmark --mode realtime-replay --corpus ./benchmark-corpus/fleurs --backend parakeet --model /path/to/parakeet-model-dir --output ./benchmark-output
+python3 scripts/benchmark/update_readme.py ./benchmark-output/benchmark-results.json
 ```
 
-`realtime-capture` is macOS-only because it uses ScreenCaptureKit and
-`/usr/bin/afplay`.
+Prepare additional conversational, noisy, and accented cases using the second
+command in [docs/benchmarking.md](docs/benchmarking.md). The Windows native
+adapter and Windows runtime results remain pending.
 
 ## Server And Web Security
 

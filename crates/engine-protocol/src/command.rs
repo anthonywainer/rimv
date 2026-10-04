@@ -24,6 +24,9 @@ pub enum EngineCommand {
     SetTranscriptionModel {
         path: String,
     },
+    SetTranscriptionRefinementModel {
+        path: String,
+    },
     /// Clears the selected ASR model and makes transcription unavailable.
     ClearTranscriptionModel,
     /// Selects the loaded ASR implementation for a future transcription

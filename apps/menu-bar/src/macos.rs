@@ -406,6 +406,7 @@ fn model_for_code(code: u32, base: u32) -> Option<&'static str> {
         5 => Some("whisper-large"),
         6 => Some("whisper-turbo"),
         7 => Some("native-apple"),
+        8 => Some("enhanced-parakeet-whisper"),
         _ => None,
     }
 }
@@ -455,8 +456,14 @@ fn publish_model_catalog() {
     let mut items: Vec<_> = models.catalog().iter().filter(|model| model.backend == "parakeet" || model.backend == "whisper").map(|model| {
         let size = model.files.first().and_then(|file| file.expected_size_bytes).map(|bytes| format!("{:.1} GB", bytes as f64 / 1_000_000_000.0)).unwrap_or_else(|| match model.id.as_str() { "whisper-medium" => "1.5 GB".into(), "whisper-large" => "3.1 GB".into(), _ => "Managed package".into() });
         let progress_text = progress.get(&model.id).map(|(done, total)| match total { Some(total) => format!("{:.0}% · {:.1} MB / {:.1} MB", *done as f64 * 100.0 / *total as f64, *done as f64 / 1_000_000.0, *total as f64 / 1_000_000.0), None => format!("{:.1} MB downloaded", *done as f64 / 1_000_000.0) });
-        serde_json::json!({"id":model.id,"name":model.display_name,"description":model.install_hint.as_deref().unwrap_or("Local transcription model."),"size":size,"progress":progress_text,"state":if models.state(model)==ModelState::Ready {"installed"} else if downloading.contains(&model.id) {"downloading"} else {"available"},"selected":model.id==selected})
+        serde_json::json!({"id":model.id,"name":model.display_name,"backend":model.backend,"description":model.install_hint.as_deref().unwrap_or("Local transcription model."),"size":size,"progress":progress_text,"state":if models.state(model)==ModelState::Ready {"installed"} else if downloading.contains(&model.id) {"downloading"} else {"available"},"selected":model.id==selected})
     }).collect();
+    let enhanced_pair = model_manager::enhanced_models(models, None);
+    let enhanced_ready = enhanced_pair.is_some();
+    let enhanced_hint = model_manager::enhanced_guidance(models).unwrap_or_else(|| {
+        "Parakeet live transcription with asynchronous Whisper refinement.".into()
+    });
+    items.push(serde_json::json!({"id":"enhanced-parakeet-whisper","name":"Enhanced — Parakeet + Whisper","backend":"enhanced","description":enhanced_hint,"size":"","progress":serde_json::Value::Null,"state":if enhanced_ready {"installed"} else {"unsupported"},"selected":selected == "enhanced-parakeet-whisper"}));
     if !apple_supported_languages().is_empty() {
         items.insert(
             0,
@@ -576,6 +583,29 @@ fn selected_language_for_model(saved: Option<String>, model: Option<&ModelDescri
             .first()
             .cloned()
             .unwrap_or_else(|| "auto".into())
+    }
+}
+
+fn selected_language_for_languages(saved: Option<String>, languages: &[String]) -> String {
+    if let Some(saved) = saved {
+        if saved == "auto" {
+            return "auto".into();
+        }
+        let code = saved.split(['-', '_']).next().unwrap_or(&saved);
+        if let Some(language) = languages
+            .iter()
+            .find(|language| language.eq_ignore_ascii_case(code))
+        {
+            return language.clone();
+        }
+    }
+    "auto".into()
+}
+
+fn update_enhanced_selector_state(languages: &[String]) {
+    let state = serde_json::json!({"model":"Enhanced — Parakeet + Whisper", "languages":languages, "language_presentations":present_languages(languages), "auto_detect":true});
+    if let Ok(text) = CString::new(state.to_string()) {
+        unsafe { rimv_menu_set_selector_state(text.as_ptr()) };
     }
 }
 
@@ -920,6 +950,7 @@ mod recording_metadata_tests {
         assert_eq!(model_for_code(40, 40), Some("parakeet-tdt-0.6b-v3-int8"));
         assert_eq!(model_for_code(46, 40), Some("whisper-turbo"));
         assert_eq!(model_for_code(67, 60), Some("native-apple"));
+        assert_eq!(model_for_code(68, 60), Some("enhanced-parakeet-whisper"));
         assert!(!(40..=46).contains(&SELECT_CAPTURE_SOURCE_COMMAND));
     }
 
@@ -1221,10 +1252,16 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     let models = ModelManager::new(model_root);
     let catalog = models.catalog();
     let saved_model_id = saved_model(&support);
+    let enhanced_requested = saved_model_id.as_deref() == Some("enhanced-parakeet-whisper");
+    let enhanced_pair = model_manager::enhanced_models(&models, None);
+    let enhanced_ready = enhanced_pair.is_some();
     let selected_model = saved_model_id
         .as_deref()
         .filter(|id| *id != "native-apple")
         .and_then(|id| {
+            if id == "enhanced-parakeet-whisper" {
+                return enhanced_pair.map(|(parakeet, _)| parakeet.clone());
+            }
             catalog
                 .iter()
                 .find(|model| model.id == id && models.state(model) == ModelState::Ready)
@@ -1265,8 +1302,12 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     let (microphone_enabled, system_audio_enabled) = saved_capture_source(&support).enabled();
     config.microphone.enabled = microphone_enabled;
     config.system_audio.enabled = system_audio_enabled;
+    let enhanced_selected =
+        !native_selected && enhanced_requested && enhanced_ready && selected_model.is_some();
     config.transcription.backend = if native_selected {
         AsrBackendKind::AppleNative
+    } else if enhanced_selected {
+        AsrBackendKind::Enhanced
     } else if selected_model
         .as_ref()
         .is_some_and(|model| model.backend == "whisper")
@@ -1275,12 +1316,24 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     } else {
         AsrBackendKind::Parakeet
     };
+    let enhanced_languages = enhanced_pair
+        .map(|(parakeet, whisper)| {
+            model_manager::intersect_languages(&parakeet.languages, &whisper.languages)
+        })
+        .unwrap_or_default();
+    if enhanced_selected {
+        let (_, whisper) =
+            enhanced_pair.expect("Enhanced is selected only when its model pair is ready");
+        config.transcription.refinement_model_path = Some(models.runtime_path(whisper)?);
+    }
     let selected_language = if native_selected {
         native_language_selection(
             saved_native_language_or_general(&support).as_deref(),
             &supported_native_languages,
         )
         .unwrap_or_else(|| "auto".into())
+    } else if enhanced_selected {
+        selected_language_for_languages(saved_language(&support), &enhanced_languages)
     } else {
         selected_language_for_model(saved_language(&support), selected_model.as_ref())
     };
@@ -1312,7 +1365,9 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         .set(directory.clone())
         .map_err(|_| "recordings root already initialized")?;
     SELECTED_MODEL
-        .set(Mutex::new(
+        .set(Mutex::new(if enhanced_selected {
+            "enhanced-parakeet-whisper".into()
+        } else {
             selected_model
                 .as_ref()
                 .map(|model| model.id.clone())
@@ -1322,8 +1377,8 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
                     } else {
                         String::new()
                     }
-                }),
-        ))
+                })
+        }))
         .map_err(|_| "selected model already initialized")?;
     let root = CString::new(directory.to_string_lossy().as_bytes())?;
     let initial = CString::new(serde_json::to_string(&engine.snapshot())?)?;
@@ -1341,7 +1396,11 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     if saved_model_id.is_none() && native_selected {
         persist_model(&support, "native-apple")?;
     }
-    update_selector_state(selected_model.as_ref(), native_selected);
+    if enhanced_selected {
+        update_enhanced_selector_state(&enhanced_languages);
+    } else {
+        update_selector_state(selected_model.as_ref(), native_selected);
+    }
     let primary = models.descriptor("parakeet-tdt-0.6b-v3-int8")?;
     let summary = CString::new(format!(
         "Primary ASR: {}\nStatus: {:?}\n{}\n\nLegacy Whisper downloads remain optional.",
@@ -1494,6 +1553,30 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
                             show_error("model manager is not initialized");
                             continue;
                         };
+                        if id == "enhanced-parakeet-whisper" {
+                            let (Some((parakeet, whisper)), None) = (model_manager::enhanced_models(manager, None), model_manager::enhanced_guidance(manager)) else {
+                                show_error(&model_manager::enhanced_guidance(manager).unwrap_or_else(|| "Enhanced is unavailable in this build.".into()));
+                                continue;
+                            };
+                            let (Ok(parakeet_path), Ok(whisper_path)) = (manager.runtime_path(parakeet), manager.runtime_path(whisper)) else {
+                                show_error("Could not locate both Enhanced models in Model Manager.");
+                                continue;
+                            };
+                            let languages = model_manager::intersect_languages(&parakeet.languages, &whisper.languages);
+                            let language = selected_language_for_languages(saved_language(&support), &languages);
+                            let result = controller_engine.send(EngineCommand::SetTranscriptionBackend { backend:"enhanced".into() })
+                                .and_then(|_| controller_engine.send(EngineCommand::SetTranscriptionModel { path:parakeet_path.to_string_lossy().into_owned() }))
+                                .and_then(|_| controller_engine.send(EngineCommand::SetTranscriptionRefinementModel { path:whisper_path.to_string_lossy().into_owned() }))
+                                .and_then(|_| controller_engine.send(EngineCommand::SetTranscriptionLanguage { language:(language != "auto").then_some(language.clone()) }))
+                                .and_then(|_| controller_engine.send(EngineCommand::SetTranscriptionEnabled { enabled:true }));
+                            if let Err(error)=result { show_engine_error(&error); continue; }
+                            if let Some(selected)=SELECTED_MODEL.get(){*selected.lock().expect("selected model lock poisoned")=id.clone();}
+                            if let Err(error)=persist_model(&support,&id).and_then(|_|persist_language(&support,(language!="auto").then_some(language.as_str()))){show_error(&format!("could not save Enhanced preference: {error}"));}
+                            update_enhanced_selector_state(&languages);
+                            if let Ok(selected_language)=CString::new(language.clone()){unsafe{rimv_menu_set_language(selected_language.as_ptr())};}
+                            publish_model_catalog();
+                            continue;
+                        }
                         let Ok(model) = manager.descriptor(&id) else {
                             show_error("unknown model");
                             continue;

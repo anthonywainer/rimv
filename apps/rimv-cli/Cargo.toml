@@ -11,9 +11,10 @@ audio-core.workspace = true
 clap = { version = "4", features = ["derive"] }
 ctrlc = "3"
 engine-protocol.workspace = true
-engine-runtime.workspace = true
+engine-runtime = { workspace = true, features = ["apple-speech"] }
 model-manager.workspace = true
 hound = "3.5"
+libc = "0.2"
 serde.workspace = true
 serde_json.workspace = true
 speech-transcription = { workspace = true, features = ["whisper", "parakeet"] }

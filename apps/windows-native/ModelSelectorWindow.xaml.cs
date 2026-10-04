@@ -52,15 +52,18 @@ public sealed partial class ModelSelectorWindow : Window
         ModelSelectorRow[] rows = installed.Select(model =>
         {
             bool selected = model.Descriptor.Id == current;
-            string status = selected ? "Installed · Selected" : "Installed and ready";
+            bool ready = model.State == "installed";
+            string name = ModelSelectorPolicy.SelectorLabel(model.Descriptor);
+            string status = ready ? selected ? "Installed · Selected" : "Installed and ready"
+                : $"{model.Descriptor.InstallHint ?? "Install a Parakeet and a Whisper model to enable Enhanced."} · Manage Models";
             return new ModelSelectorRow
             {
                 Id = model.Descriptor.Id,
-                Name = model.Descriptor.DisplayName,
+                Name = name,
                 Status = status,
                 Checkmark = selected ? "✓" : "",
-                CanSelect = idle,
-                AccessibleName = $"{model.Descriptor.DisplayName}, {status}",
+                CanSelect = idle && ready,
+                AccessibleName = $"{name}, {status}",
             };
         }).ToArray();
         ModelList.ItemsSource = rows;

@@ -1,5 +1,6 @@
 use crate::{
-    ASR_SAMPLE_RATE, SpeechEvent, SpeechMetrics, SpeechToTextEngine, TranscriptUpdate, Utterance,
+    ASR_SAMPLE_RATE, FinalRefiner, SpeechEvent, SpeechMetrics, SpeechToTextEngine,
+    TranscriptUpdate, Utterance,
 };
 use engine_protocol::AudioSource;
 use std::{
@@ -161,6 +162,8 @@ pub(crate) struct Decoder {
     queue: Arc<(Mutex<Queue>, Condvar)>,
     metrics: Arc<Mutex<SpeechMetrics>>,
     join: JoinHandle<()>,
+    refinement_sender: Option<std::sync::mpsc::SyncSender<(TranscriptUpdate, Vec<f32>)>>,
+    refinement_join: Option<JoinHandle<()>>,
 }
 impl Decoder {
     pub fn start(
@@ -169,6 +172,10 @@ impl Decoder {
         metrics: Arc<Mutex<SpeechMetrics>>,
         final_overflow: Arc<Mutex<VecDeque<TranscriptUpdate>>>,
     ) -> Self {
+        let refiner = engine.take_final_refiner();
+        let (refinement_sender, refinement_join) =
+            start_refiner(refiner, events.clone(), metrics.clone());
+        let worker_refinement_sender = refinement_sender.clone();
         let queue = Arc::new((Mutex::new(Queue::default()), Condvar::new()));
         let shared = queue.clone();
         let measured = metrics.clone();
@@ -222,6 +229,9 @@ impl Decoder {
                     / (work.audio.samples.len() as f64 / ASR_SAMPLE_RATE as f64);
                 m.rtf_total += rtf;
                 m.rtf_max = m.rtf_max.max(rtf);
+                if rtf > 1.0 {
+                    m.deadline_misses = m.deadline_misses.saturating_add(1);
+                }
                 drop(m);
                 match result {
                     Ok(segments) => {
@@ -270,18 +280,37 @@ impl Decoder {
                             inference_ms=ms,
                             "transcript update emitted"
                         );
-                        if let Err(
+                        let update_delivered = if let Err(
                             std::sync::mpsc::TrySendError::Full(SpeechEvent::Update(update))
                             | std::sync::mpsc::TrySendError::Disconnected(SpeechEvent::Update(
                                 update,
                             )),
-                        ) = events.try_send(SpeechEvent::Update(update))
+                        ) =
+                            events.try_send(SpeechEvent::Update(update.clone()))
                         {
                             let mut overflow = final_overflow.lock().unwrap();
                             if update.is_final && overflow.len() < FINAL_CAPACITY {
                                 overflow.push_back(update);
                             } else {
                                 measured.lock().unwrap().dropped_events += 1;
+                            }
+                            false
+                        } else {
+                            true
+                        };
+                        if work.final_result
+                            && update_delivered
+                            && let Some(sender) = &worker_refinement_sender
+                        {
+                            if sender
+                                .try_send((update.clone(), work.audio.samples.clone()))
+                                .is_err()
+                            {
+                                measured
+                                    .lock()
+                                    .unwrap_or_else(|p| p.into_inner())
+                                    .dropped_work += 1;
+                                tracing::warn!(utterance_id=%update.utterance_id, "Whisper refinement queue is full; keeping the Parakeet final");
                             }
                         }
                         if work.final_result {
@@ -301,6 +330,8 @@ impl Decoder {
             queue,
             metrics,
             join,
+            refinement_sender,
+            refinement_join,
         }
     }
     pub fn submit(&self, source: AudioSource, audio: Utterance, final_result: bool) {
@@ -347,7 +378,41 @@ impl Decoder {
         self.queue.0.lock().unwrap().closed = true;
         self.queue.1.notify_one();
         let _ = self.join.join();
+        drop(self.refinement_sender);
+        if let Some(join) = self.refinement_join {
+            let _ = join.join();
+        }
     }
+}
+
+fn start_refiner(
+    refiner: Option<Box<dyn FinalRefiner>>,
+    events: SyncSender<SpeechEvent>,
+    metrics: Arc<Mutex<SpeechMetrics>>,
+) -> (
+    Option<std::sync::mpsc::SyncSender<(TranscriptUpdate, Vec<f32>)>>,
+    Option<JoinHandle<()>>,
+) {
+    let Some(mut refiner) = refiner else {
+        return (None, None);
+    };
+    let (sender, receiver) = std::sync::mpsc::sync_channel::<(TranscriptUpdate, Vec<f32>)>(2);
+    let join = thread::Builder::new().name("speech-refinement".into()).spawn(move || {
+        while let Ok((mut update, audio)) = receiver.recv() {
+            match refiner.refine(&audio) {
+                Ok(text) if !text.trim().is_empty() => {
+                    update.stable_text = text.trim().to_owned();
+                    update.unstable_text.clear();
+                    if events.try_send(SpeechEvent::Update(update)).is_err() {
+                        metrics.lock().unwrap_or_else(|p| p.into_inner()).dropped_events += 1;
+                    }
+                }
+                Ok(_) => {}
+                Err(error) => tracing::warn!(error=%error, "Whisper refinement failed; preserving Parakeet final"),
+            }
+        }
+    }).ok();
+    (Some(sender), join)
 }
 
 fn bounded_partial_audio(utterance_start_ms: u64, samples: &[f32]) -> Utterance {
@@ -364,6 +429,236 @@ fn bounded_partial_audio(utterance_start_ms: u64, samples: &[f32]) -> Utterance 
 #[cfg(test)]
 mod tests {
     use super::*;
+    struct HybridTestEngine;
+    impl SpeechToTextEngine for HybridTestEngine {
+        fn info(&self) -> crate::AsrBackendInfo {
+            crate::AsrBackendInfo {
+                backend_id: "test".into(),
+                backend_name: "test".into(),
+                model_id: "test".into(),
+                model_name: "test".into(),
+                capabilities: crate::AsrCapabilities {
+                    supports_incremental_audio: false,
+                    supports_partial_results: true,
+                    supports_word_timestamps: false,
+                    supports_language_detection: false,
+                    supports_true_streaming: false,
+                },
+            }
+        }
+        fn transcribe(&mut self, _: &[f32], _: u64) -> crate::Result<Vec<crate::SpeechSegment>> {
+            Ok(vec![crate::SpeechSegment {
+                source: AudioSource::Microphone,
+                start_ms: 0,
+                end_ms: 500,
+                text: "Parakeet final".into(),
+            }])
+        }
+        fn take_final_refiner(&mut self) -> Option<Box<dyn crate::FinalRefiner>> {
+            Some(Box::new(TestRefiner))
+        }
+    }
+    struct TestRefiner;
+    impl crate::FinalRefiner for TestRefiner {
+        fn refine(&mut self, _: &[f32]) -> crate::Result<String> {
+            Ok("Whisper refinement".into())
+        }
+    }
+    struct FailingRefiner;
+    impl crate::FinalRefiner for FailingRefiner {
+        fn refine(&mut self, _: &[f32]) -> crate::Result<String> {
+            Err(crate::SpeechError::Inference("test failure".into()))
+        }
+    }
+    struct FailingHybridEngine;
+    impl SpeechToTextEngine for FailingHybridEngine {
+        fn info(&self) -> crate::AsrBackendInfo {
+            HybridTestEngine.info()
+        }
+        fn transcribe(
+            &mut self,
+            audio: &[f32],
+            offset: u64,
+        ) -> crate::Result<Vec<crate::SpeechSegment>> {
+            let mut engine = HybridTestEngine;
+            engine.transcribe(audio, offset)
+        }
+        fn take_final_refiner(&mut self) -> Option<Box<dyn crate::FinalRefiner>> {
+            Some(Box::new(FailingRefiner))
+        }
+    }
+
+    struct BlockingHybridEngine {
+        started: Option<std::sync::mpsc::SyncSender<()>>,
+        release: Option<std::sync::mpsc::Receiver<()>>,
+    }
+    impl SpeechToTextEngine for BlockingHybridEngine {
+        fn info(&self) -> crate::AsrBackendInfo {
+            HybridTestEngine.info()
+        }
+        fn transcribe(&mut self, _: &[f32], _: u64) -> crate::Result<Vec<crate::SpeechSegment>> {
+            let mut engine = HybridTestEngine;
+            engine.transcribe(&[], 0)
+        }
+        fn take_final_refiner(&mut self) -> Option<Box<dyn crate::FinalRefiner>> {
+            Some(Box::new(BlockingRefiner {
+                started: self.started.take().unwrap(),
+                release: self.release.take().unwrap(),
+            }))
+        }
+    }
+    struct BlockingRefiner {
+        started: std::sync::mpsc::SyncSender<()>,
+        release: std::sync::mpsc::Receiver<()>,
+    }
+    impl crate::FinalRefiner for BlockingRefiner {
+        fn refine(&mut self, _: &[f32]) -> crate::Result<String> {
+            let _ = self.started.send(());
+            let _ = self.release.recv();
+            Ok("refined".into())
+        }
+    }
+
+    #[test]
+    fn refinement_revises_the_same_final_utterance_without_a_second_final_row() {
+        let (events_tx, events_rx) = std::sync::mpsc::sync_channel(8);
+        let metrics = Arc::new(Mutex::new(SpeechMetrics::default()));
+        let decoder = Decoder::start(
+            Box::new(HybridTestEngine),
+            events_tx,
+            metrics,
+            Arc::new(Mutex::new(VecDeque::new())),
+        );
+        decoder.submit(
+            AudioSource::Microphone,
+            Utterance {
+                start_ms: 0,
+                end_ms: 500,
+                samples: vec![0.0; 8000],
+            },
+            true,
+        );
+        let first = events_rx
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .unwrap();
+        let refined = events_rx
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .unwrap();
+        let (SpeechEvent::Update(first), SpeechEvent::Update(refined)) = (first, refined) else {
+            panic!("expected updates")
+        };
+        assert!(first.is_final && refined.is_final);
+        assert_eq!(first.utterance_id, refined.utterance_id);
+        assert_eq!(first.stable_text, "Parakeet final");
+        assert_eq!(refined.stable_text, "Whisper refinement");
+        decoder.finish();
+    }
+
+    #[test]
+    fn whisper_failure_keeps_the_parakeet_final_and_emits_no_second_row() {
+        let (events_tx, events_rx) = std::sync::mpsc::sync_channel(8);
+        let decoder = Decoder::start(
+            Box::new(FailingHybridEngine),
+            events_tx,
+            Arc::new(Mutex::new(SpeechMetrics::default())),
+            Arc::new(Mutex::new(VecDeque::new())),
+        );
+        decoder.submit(
+            AudioSource::Microphone,
+            Utterance {
+                start_ms: 0,
+                end_ms: 500,
+                samples: vec![0.0; 8000],
+            },
+            true,
+        );
+        let final_update = events_rx
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .unwrap();
+        assert!(
+            matches!(final_update,SpeechEvent::Update(ref u) if u.is_final && u.stable_text=="Parakeet final")
+        );
+        decoder.finish();
+        assert!(events_rx.try_recv().is_err());
+    }
+
+    #[test]
+    fn next_parakeet_partial_is_emitted_while_whisper_refinement_is_blocked() {
+        let (started_tx, started_rx) = std::sync::mpsc::sync_channel(1);
+        let (release_tx, release_rx) = std::sync::mpsc::sync_channel(1);
+        let (events_tx, events_rx) = std::sync::mpsc::sync_channel(8);
+        let decoder = Decoder::start(
+            Box::new(BlockingHybridEngine {
+                started: Some(started_tx),
+                release: Some(release_rx),
+            }),
+            events_tx,
+            Arc::new(Mutex::new(SpeechMetrics::default())),
+            Arc::new(Mutex::new(VecDeque::new())),
+        );
+        decoder.submit(
+            AudioSource::Microphone,
+            Utterance {
+                start_ms: 0,
+                end_ms: 500,
+                samples: vec![0.0; 8000],
+            },
+            true,
+        );
+        let final_update = events_rx
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .unwrap();
+        assert!(matches!(final_update,SpeechEvent::Update(ref u) if u.is_final));
+        started_rx
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .unwrap();
+        decoder.partial(AudioSource::Microphone, 1_000, &vec![0.0; 8_000]);
+        assert!(
+            matches!(events_rx.recv_timeout(std::time::Duration::from_secs(2)).unwrap(),SpeechEvent::Update(u) if !u.is_final)
+        );
+        release_tx.send(()).unwrap();
+        assert!(
+            matches!(events_rx.recv_timeout(std::time::Duration::from_secs(2)).unwrap(),SpeechEvent::Update(u) if u.is_final && u.stable_text=="refined")
+        );
+        decoder.finish();
+    }
+
+    #[test]
+    fn stop_waits_for_pending_refinement_without_losing_parakeet_final() {
+        let (started_tx, started_rx) = std::sync::mpsc::sync_channel(1);
+        let (release_tx, release_rx) = std::sync::mpsc::sync_channel(1);
+        let (events_tx, events_rx) = std::sync::mpsc::sync_channel(8);
+        let decoder = Decoder::start(
+            Box::new(BlockingHybridEngine {
+                started: Some(started_tx),
+                release: Some(release_rx),
+            }),
+            events_tx,
+            Arc::new(Mutex::new(SpeechMetrics::default())),
+            Arc::new(Mutex::new(VecDeque::new())),
+        );
+        decoder.submit(
+            AudioSource::Microphone,
+            Utterance {
+                start_ms: 0,
+                end_ms: 500,
+                samples: vec![0.0; 8000],
+            },
+            true,
+        );
+        assert!(
+            matches!(events_rx.recv_timeout(std::time::Duration::from_secs(2)).unwrap(),SpeechEvent::Update(u) if u.is_final && u.stable_text=="Parakeet final")
+        );
+        started_rx
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .unwrap();
+        let stop = thread::spawn(move || decoder.finish());
+        release_tx.send(()).unwrap();
+        stop.join().unwrap();
+        assert!(events_rx.try_iter().any(
+            |event| matches!(event,SpeechEvent::Update(u) if u.is_final && u.stable_text=="refined")
+        ));
+    }
     fn work(source: AudioSource, final_result: bool) -> Work {
         Work {
             source,

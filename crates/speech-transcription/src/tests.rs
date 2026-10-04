@@ -14,6 +14,10 @@ fn backend_capabilities_match_compiled_features() {
         cfg!(feature = "whisper")
     );
     assert_eq!(
+        supports_backend(AsrBackendKind::Enhanced),
+        cfg!(all(feature = "parakeet", feature = "whisper"))
+    );
+    assert_eq!(
         supports_backend(AsrBackendKind::AppleNative),
         cfg!(all(target_os = "macos", feature = "apple-speech"))
     );

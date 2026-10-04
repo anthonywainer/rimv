@@ -140,7 +140,14 @@ public static class ModelSelectorPolicy
 {
     /// <summary>Only the shared core's Ready state is selectable in the compact selector.</summary>
     public static IReadOnlyList<ModelRecord> InstalledReady(IEnumerable<ModelRecord> models) =>
-        models.Where(model => model.State == "installed" && model.Descriptor.Backend != "vad").ToArray();
+        models.Where(model => model.Descriptor.Backend == "enhanced" || model.State == "installed" && model.Descriptor.Backend != "vad").ToArray();
+
+    public static string SelectorLabel(ModelDescriptor descriptor) => descriptor.Backend switch
+    {
+        "enhanced" => "Enhanced — Experimental",
+        "parakeet" => "Parakeet — Recommended",
+        _ => descriptor.DisplayName,
+    };
 }
 
 public static class PopupSizingPolicy

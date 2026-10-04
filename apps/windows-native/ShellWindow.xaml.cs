@@ -282,6 +282,10 @@ public sealed partial class ShellWindow : Window
         LanguageFlag.Source = LanguageFlagAssets.ForRegion(languagePresentation?.RegionCode);
         LanguageFlag.Visibility = LanguageFlag.Source is null ? Visibility.Collapsed : Visibility.Visible;
         ErrorMessage.Text = _coordinator.ErrorMessage ?? "";
+        ErrorTitle.Text = _coordinator.ErrorMessage is string error
+            && error.Contains("model in Model Manager", StringComparison.OrdinalIgnoreCase)
+            ? "Models required"
+            : "No active source";
         ErrorCard.Visibility = visibleError ? Visibility.Visible : Visibility.Collapsed;
         ModelInfo.Message = !_coordinator.IsCoreAvailable
             ? "The shared Rust engine is unavailable. Rebuild with rimv_core_ffi.dll to use capture and transcription."

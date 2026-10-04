@@ -42,6 +42,14 @@ pub trait SpeechToTextEngine: Send + 'static {
     ) -> Result<Vec<SpeechSegment>> {
         self.transcribe(audio_16khz_mono, offset_ms)
     }
+
+    fn take_final_refiner(&mut self) -> Option<Box<dyn FinalRefiner>> {
+        None
+    }
+}
+
+pub trait FinalRefiner: Send + 'static {
+    fn refine(&mut self, audio_16khz_mono: &[f32]) -> Result<String>;
 }
 
 impl<T: SpeechToTextEngine + ?Sized> SpeechToTextEngine for Box<T> {
@@ -72,12 +80,16 @@ impl<T: SpeechToTextEngine + ?Sized> SpeechToTextEngine for Box<T> {
     ) -> Result<Vec<SpeechSegment>> {
         (**self).transcribe_final(audio_16khz_mono, offset_ms)
     }
+    fn take_final_refiner(&mut self) -> Option<Box<dyn FinalRefiner>> {
+        (**self).take_final_refiner()
+    }
 }
 
 #[derive(Debug, Clone)]
 pub struct SpeechConfig {
     pub backend: AsrBackendKind,
     pub model_path: Option<PathBuf>,
+    pub refinement_model_path: Option<PathBuf>,
     pub language: Option<String>,
     pub threads: usize,
     pub use_gpu: bool,
@@ -100,6 +112,7 @@ impl Default for SpeechConfig {
         Self {
             backend: AsrBackendKind::Parakeet,
             model_path: std::env::var_os("RIMV_PARAKEET_MODEL_DIR").map(PathBuf::from),
+            refinement_model_path: None,
             language: None,
             threads: 4,
             use_gpu: cfg!(target_os = "macos"),
@@ -118,6 +131,8 @@ pub struct SpeechMetrics {
     pub dropped_blocks: u64,
     pub queue_depth: usize,
     pub model_load_ms: u64,
+    /// ASR work whose inference elapsed longer than its input audio duration.
+    pub deadline_misses: u64,
     pub first_latency_ms: Option<u64>,
     pub inferences: u64,
     pub queued_work: usize,
@@ -417,7 +432,7 @@ fn load_source_vad(
 ) -> Result<Box<dyn VoiceActivityGate>> {
     #[cfg(all(target_os = "macos", feature = "apple-speech"))]
     if _backend == AsrBackendKind::AppleNative {
-        return Ok(Box::new(crate::apple_speech::AppleSpeechVad));
+        return Ok(Box::new(crate::apple_speech::AppleSpeechVad::default()));
     }
     crate::SileroVad::load(config).map(|vad| Box::new(vad) as Box<dyn VoiceActivityGate>)
 }
@@ -429,7 +444,7 @@ fn load_source_vad(
 ) -> Result<Box<dyn VoiceActivityGate>> {
     #[cfg(all(target_os = "macos", feature = "apple-speech"))]
     if _backend == AsrBackendKind::AppleNative {
-        return Ok(Box::new(crate::apple_speech::AppleSpeechVad));
+        return Ok(Box::new(crate::apple_speech::AppleSpeechVad::default()));
     }
     Err(SpeechError::Vad(
         "Silero VAD support is not compiled".into(),

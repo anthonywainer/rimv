@@ -39,6 +39,35 @@ pub struct RimvEngine {
     model_event_sender: SyncSender<ModelProgress>,
 }
 
+fn enhanced_selection_commands(
+    models: &ModelManager,
+    language: Option<String>,
+) -> Result<Vec<EngineCommand>, String> {
+    let (parakeet, whisper) = model_manager::enhanced_models(models, None).ok_or_else(|| {
+        model_manager::enhanced_guidance(models)
+            .unwrap_or_else(|| "Enhanced is unavailable in this build.".into())
+    })?;
+    let parakeet_path = models
+        .runtime_path(parakeet)
+        .map_err(|error| error.to_string())?;
+    let whisper_path = models
+        .runtime_path(whisper)
+        .map_err(|error| error.to_string())?;
+    Ok(vec![
+        EngineCommand::SetTranscriptionBackend {
+            backend: "enhanced".into(),
+        },
+        EngineCommand::SetTranscriptionModel {
+            path: parakeet_path.to_string_lossy().into_owned(),
+        },
+        EngineCommand::SetTranscriptionRefinementModel {
+            path: whisper_path.to_string_lossy().into_owned(),
+        },
+        EngineCommand::SetTranscriptionLanguage { language },
+        EngineCommand::SetTranscriptionEnabled { enabled: true },
+    ])
+}
+
 #[derive(Deserialize)]
 struct InitConfig {
     recordings_directory: PathBuf,
@@ -527,7 +556,7 @@ pub unsafe extern "C" fn rimv_engine_request(
                     .model_operations
                     .lock()
                     .unwrap_or_else(std::sync::PoisonError::into_inner);
-                let models = engine
+                let mut models = engine
                     .models
                     .catalog()
                     .iter()
@@ -549,6 +578,25 @@ pub unsafe extern "C" fn rimv_engine_request(
                         serde_json::json!({"descriptor":descriptor,"state":state,"selected":selected})
                     })
                     .collect::<Vec<_>>();
+                if let Some((parakeet, whisper)) =
+                    model_manager::enhanced_models(&engine.models, None)
+                {
+                    let languages =
+                        model_manager::intersect_languages(&parakeet.languages, &whisper.languages);
+                    models.push(serde_json::json!({
+                        "descriptor": { "id":"enhanced-parakeet-whisper", "backend":"enhanced", "display_name":"Enhanced — Parakeet + Whisper", "version":"local", "storage_directory":"", "files":[], "languages":languages, "quantization":null, "capabilities":{"supports_partials":true,"supports_true_streaming":false,"supports_language_detection":true}, "install_hint":"Uses Parakeet for live transcription and Whisper to refine finalized utterances." },
+                        "state": "installed",
+                        "selected": selected_model_id.as_deref() == Some("enhanced-parakeet-whisper")
+                    }));
+                } else {
+                    let hint = model_manager::enhanced_guidance(&engine.models)
+                        .unwrap_or_else(|| "Enhanced is unavailable in this build.".into());
+                    models.push(serde_json::json!({
+                        "descriptor": { "id":"enhanced-parakeet-whisper", "backend":"enhanced", "display_name":"Enhanced — Parakeet + Whisper", "version":"local", "storage_directory":"", "files":[], "languages":[], "quantization":null, "capabilities":{"supports_partials":true,"supports_true_streaming":false,"supports_language_detection":true}, "install_hint":hint },
+                        "state":"unsupported",
+                        "selected": selected_model_id.as_deref() == Some("enhanced-parakeet-whisper")
+                    }));
+                }
                 serde_json::to_value(models).map_err(|e| e.to_string())?
             }
             Request::ListInputDevices => {
@@ -610,6 +658,45 @@ pub unsafe extern "C" fn rimv_engine_request(
                         .send(EngineCommand::GetState)
                         .map_err(|error| error.to_string())?;
                     return serde_json::to_value(snapshot).map_err(|error| error.to_string());
+                }
+                if model_id == "enhanced-parakeet-whisper" {
+                    if !engine_runtime::supports_asr_backend("enhanced") {
+                        return Err(
+                            "Enhanced requires Parakeet and Whisper support in this RimV build."
+                                .into(),
+                        );
+                    }
+                    let (parakeet, whisper) = model_manager::enhanced_models(&engine.models, None)
+                        .ok_or_else(|| {
+                            model_manager::enhanced_guidance(&engine.models)
+                                .unwrap_or_else(|| "Enhanced is unavailable in this build.".into())
+                        })?;
+                    if language.as_deref().is_some_and(|language| {
+                        !parakeet
+                            .languages
+                            .iter()
+                            .any(|item| item.eq_ignore_ascii_case(language))
+                            || !whisper
+                                .languages
+                                .iter()
+                                .any(|item| item.eq_ignore_ascii_case(language))
+                    }) {
+                        return Err(
+                            "That language is not supported by both Parakeet and Whisper.".into(),
+                        );
+                    }
+                    for command in enhanced_selection_commands(&engine.models, language)? {
+                        engine.runtime.send(command).map_err(|e| e.to_string())?;
+                    }
+                    *engine
+                        .selected_model_id
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(model_id);
+                    let snapshot = engine
+                        .runtime
+                        .send(EngineCommand::GetState)
+                        .map_err(|e| e.to_string())?;
+                    return serde_json::to_value(snapshot).map_err(|e| e.to_string());
                 }
                 let descriptor = engine
                     .models
@@ -852,5 +939,54 @@ pub unsafe extern "C" fn rimv_engine_destroy(engine: *mut RimvEngine) {
             stop_model_workers(&engine);
             let _ = engine.runtime.shutdown();
         }));
+    }
+}
+
+#[cfg(test)]
+mod enhanced_selection_tests {
+    use super::enhanced_selection_commands;
+    use engine_protocol::EngineCommand;
+    use model_manager::ModelManager;
+    use std::path::PathBuf;
+
+    fn install(manager: &ModelManager, id: &str) {
+        let model = manager.descriptor(id).unwrap();
+        for file in model.files.iter().filter(|file| file.required) {
+            let path = manager.path(model, file);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, b"test model marker").unwrap();
+        }
+    }
+
+    #[test]
+    fn enhanced_selection_configures_the_hybrid_provider_with_both_models() {
+        let root = tempfile::tempdir().unwrap();
+        let models = ModelManager::new(root.path());
+        install(&models, "parakeet-tdt-0.6b-v3-int8");
+        install(&models, "whisper-small");
+
+        let commands = enhanced_selection_commands(&models, Some("en".into())).unwrap();
+        assert!(
+            matches!(&commands[0], EngineCommand::SetTranscriptionBackend { backend } if backend == "enhanced")
+        );
+        let parakeet_path = models
+            .runtime_path(models.descriptor("parakeet-tdt-0.6b-v3-int8").unwrap())
+            .unwrap();
+        let whisper_path = models
+            .runtime_path(models.descriptor("whisper-small").unwrap())
+            .unwrap();
+        assert!(
+            matches!(&commands[1], EngineCommand::SetTranscriptionModel { path } if PathBuf::from(path) == parakeet_path)
+        );
+        assert!(
+            matches!(&commands[2], EngineCommand::SetTranscriptionRefinementModel { path } if PathBuf::from(path) == whisper_path)
+        );
+        assert!(
+            matches!(&commands[3], EngineCommand::SetTranscriptionLanguage { language: Some(language) } if language == "en")
+        );
+        assert!(matches!(
+            &commands[4],
+            EngineCommand::SetTranscriptionEnabled { enabled: true }
+        ));
     }
 }

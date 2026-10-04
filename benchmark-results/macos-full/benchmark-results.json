@@ -1,0 +1,184 @@
+{
+  "schema_version": 1,
+  "artifact_type": "validated_benchmark_summary",
+  "validation_status": "validated_with_case_failures",
+  "validation_note": "Corpus manifests and references integrity-checked; backend identity checked; Enhanced refined/fallback transcript behavior checked; known per-case failures are disclosed below. Validation means report integrity, not zero transcription failures.",
+  "generated_at_unix_ms": 1791105727095,
+  "corpus": "FLEURS 300 + AMI conversational 100 + seeded 10 dB AMI noisy 100 + VoxPopuli accented English 100",
+  "cases_per_engine": 600,
+  "dataset_integrity": "600 audio/reference pairs checked against pinned manifests and hashes; no integrity issues",
+  "dataset_versions": {
+    "FLEURS": {
+      "revision": "d83087acf4dc369a38e49cc2da58296d2725e959",
+      "subset": "100 each: en_us, es_419, ru_ru",
+      "license": "CC-BY-4.0"
+    },
+    "AMI": {
+      "revision": "46f28f2503e2ec48f8867a84eef356c70476beab",
+      "subset": "ihm/test; 100 conversational samples",
+      "license": "CC-BY-4.0"
+    },
+    "Noisy AMI": {
+      "subset": "same 100 AMI samples with deterministic Gaussian noise, 10 dB SNR; seed base 20261003; NumPy 2.2.4 PCG64",
+      "license": "CC-BY-4.0 source"
+    },
+    "VoxPopuli": {
+      "revision": "42f01879c780b4a2e90ec0b4f616c2ece526e4f1",
+      "subset": "en_accented/test; 100 accented English samples",
+      "license": "CC0-1.0"
+    }
+  },
+  "environment": {
+    "os": "macOS",
+    "os_version": null,
+    "architecture": "Apple Silicon",
+    "logical_cpu_count": 12,
+    "physical_memory_bytes": 25769803776
+  },
+  "full_artifacts_location": "/private/tmp/rimv-benchmark-results-full",
+  "engine_summaries": {
+    "Native": {
+      "model": "Apple Speech on-device",
+      "counts": {
+        "total": 600,
+        "successful": 244,
+        "failed": 356,
+        "failure_reasons": {
+          "speech inference failed: Apple Speech error 8: No speech detected": 249,
+          "backend produced no finalized transcript": 7,
+          "failed to load model: Apple Speech unavailable: On-device Apple Speech is unavailable for the selected locale.": 100
+        },
+        "unsupported_locale": 100,
+        "failure_summary": {
+          "no speech detected": 249,
+          "unsupported Russian (ru_ru) locale": 100,
+          "no final transcript": 7
+        }
+      },
+      "metrics": {
+        "wer": 0.25,
+        "cer": 0.193,
+        "first_partial_ms": 761.32,
+        "finalization_latency_ms": 202.516,
+        "rtf": 0.037,
+        "partial_count": 11.82,
+        "partial_stability": 0.943,
+        "average_cpu_percent": 0.067,
+        "peak_cpu_percent": 0.716,
+        "average_rss_bytes": 38139661.352,
+        "peak_rss_bytes": 50757632,
+        "model_load_ms": 4.184,
+        "dropped_audio": 0,
+        "deadline_misses": 0,
+        "average_partial_latency_ms": 18.766
+      }
+    },
+    "Parakeet": {
+      "model": "NVIDIA Parakeet TDT 0.6B v3 INT8",
+      "counts": {
+        "total": 600,
+        "successful": 550,
+        "failed": 50,
+        "failure_reasons": {
+          "backend produced no finalized transcript": 50
+        },
+        "failure_summary": {
+          "no final transcript": 50
+        }
+      },
+      "metrics": {
+        "wer": 0.162,
+        "cer": 0.106,
+        "first_partial_ms": 1406.14,
+        "finalization_latency_ms": 193.1,
+        "rtf": 0.043,
+        "partial_count": 15.275,
+        "partial_stability": 0.701,
+        "average_cpu_percent": 8.426,
+        "peak_cpu_percent": 46.339,
+        "average_rss_bytes": 1549694228.305,
+        "peak_rss_bytes": 1828454400,
+        "model_load_ms": 583.595,
+        "dropped_audio": 0,
+        "deadline_misses": 0,
+        "average_partial_latency_ms": 84.495
+      }
+    },
+    "Whisper": {
+      "model": "Whisper Small (ggml-small.bin)",
+      "counts": {
+        "total": 600,
+        "successful": 583,
+        "failed": 17,
+        "failure_reasons": {
+          "backend produced no finalized transcript": 17
+        },
+        "failure_summary": {
+          "no final transcript": 17
+        }
+      },
+      "metrics": {
+        "wer": 0.187,
+        "cer": 0.109,
+        "first_partial_ms": 2099.883,
+        "finalization_latency_ms": 1335.408,
+        "rtf": 0.483,
+        "partial_count": 11.364,
+        "partial_stability": 0.636,
+        "average_cpu_percent": 24.502,
+        "peak_cpu_percent": 33.901,
+        "average_rss_bytes": 872761259.036,
+        "peak_rss_bytes": 1078624256,
+        "model_load_ms": 128.021,
+        "dropped_audio": 0,
+        "deadline_misses": 657,
+        "average_partial_latency_ms": 925.835
+      }
+    },
+    "Enhanced": {
+      "model": "Parakeet TDT 0.6B v3 INT8 + Whisper Small",
+      "counts": {
+        "total": 600,
+        "successful": 586,
+        "failed": 14,
+        "failure_reasons": {
+          "backend produced no finalized transcript": 14
+        },
+        "refined": 547,
+        "fallback": 39,
+        "improved": 154,
+        "worsened": 225,
+        "unchanged_wer": 168,
+        "changed_but_equal_wer": 70,
+        "failure_summary": {
+          "no final transcript": 14
+        }
+      },
+      "metrics": {
+        "wer": 0.189,
+        "cer": 0.11,
+        "first_partial_ms": 1395.521,
+        "finalization_latency_ms": 194.246,
+        "rtf": 0.047,
+        "partial_count": 14.797,
+        "partial_stability": 0.69,
+        "average_cpu_percent": 11.291,
+        "peak_cpu_percent": 57.485,
+        "average_rss_bytes": 2076988368.355,
+        "peak_rss_bytes": 2646212608,
+        "model_load_ms": 693.118,
+        "dropped_audio": 0,
+        "deadline_misses": 0,
+        "refinement_latency_ms": 787.484,
+        "average_partial_latency_ms": 87.503
+      }
+    }
+  },
+  "source_artifacts": {
+    "Native": "native-apple-full/benchmark-results.json",
+    "Parakeet": "parakeet-full/benchmark-results.json",
+    "Whisper": "whisper-small-full/benchmark-results.json",
+    "Enhanced": "enhanced-full-reportfix/benchmark-results.json"
+  },
+  "source_artifacts_location": "The four 600-case source benchmark-results.json files from this run"
+}

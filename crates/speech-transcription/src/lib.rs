@@ -3,6 +3,8 @@
 #[cfg(all(target_os = "macos", feature = "apple-speech"))]
 mod apple_speech;
 mod audio;
+#[cfg(all(feature = "parakeet", feature = "whisper"))]
+mod hybrid;
 #[cfg(feature = "parakeet")]
 mod parakeet;
 mod realtime;
@@ -22,6 +24,8 @@ pub use apple_speech::{
     apple_speech_locale_catalog, default_locale as apple_speech_default_locale,
 };
 pub use audio::{Mono16k, Preprocessor};
+#[cfg(all(feature = "parakeet", feature = "whisper"))]
+pub use hybrid::EnhancedEngine;
 #[cfg(feature = "parakeet")]
 pub use parakeet::{ParakeetEngine, ParakeetModelLayout};
 pub use rolling::{RollingWindow, deduplicate_overlap};
@@ -32,7 +36,9 @@ pub use vad::SileroVad;
 pub use vad::{SpeechSegmenter, Utterance, VadConfig, VoiceActivityGate};
 #[cfg(feature = "whisper")]
 pub use whisper::WhisperEngine;
-pub use worker::{SpeechConfig, SpeechEvent, SpeechMetrics, SpeechToTextEngine, SpeechWorker};
+pub use worker::{
+    FinalRefiner, SpeechConfig, SpeechEvent, SpeechMetrics, SpeechToTextEngine, SpeechWorker,
+};
 
 use engine_protocol::AudioSource;
 use thiserror::Error;
@@ -44,6 +50,7 @@ pub enum AsrBackendKind {
     #[default]
     Parakeet,
     Whisper,
+    Enhanced,
     AppleNative,
     /// Windows host bridge using Microsoft.Windows.AI.Speech. Recognition is
     /// hosted by the WinUI process; Rust retains capture and transcript state.
@@ -55,6 +62,7 @@ pub const fn supports_backend(backend: AsrBackendKind) -> bool {
     match backend {
         AsrBackendKind::Parakeet => cfg!(feature = "parakeet"),
         AsrBackendKind::Whisper => cfg!(feature = "whisper"),
+        AsrBackendKind::Enhanced => cfg!(all(feature = "parakeet", feature = "whisper")),
         AsrBackendKind::AppleNative => cfg!(all(target_os = "macos", feature = "apple-speech")),
         AsrBackendKind::WindowsNative => cfg!(target_os = "windows"),
     }
@@ -126,6 +134,18 @@ pub fn load_configured_backend(config: SpeechConfig) -> Result<Box<dyn SpeechToT
             Err(SpeechError::ModelLoad(
                 "Whisper backend is not compiled".into(),
             ))
+        }
+        AsrBackendKind::Enhanced => {
+            #[cfg(all(feature = "parakeet", feature = "whisper"))]
+            {
+                Ok(Box::new(EnhancedEngine::load(config)?))
+            }
+            #[cfg(not(all(feature = "parakeet", feature = "whisper")))]
+            {
+                Err(SpeechError::ModelLoad(
+                    "Enhanced requires Parakeet and Whisper support".into(),
+                ))
+            }
         }
         AsrBackendKind::AppleNative => {
             #[cfg(all(target_os = "macos", feature = "apple-speech"))]

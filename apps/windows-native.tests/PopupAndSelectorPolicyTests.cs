@@ -160,6 +160,26 @@ public sealed class PopupAndSelectorPolicyTests
     }
 
     [Fact]
+    public void ModelSelectorLabelsParakeetRecommendedAndEnhancedExperimental()
+    {
+        Assert.Equal("Parakeet — Recommended", ModelSelectorPolicy.SelectorLabel(new ModelDescriptor
+        {
+            Backend = "parakeet",
+            DisplayName = "Parakeet TDT 0.6B v3 INT8",
+        }));
+        Assert.Equal("Enhanced — Experimental", ModelSelectorPolicy.SelectorLabel(new ModelDescriptor
+        {
+            Backend = "enhanced",
+            DisplayName = "Enhanced — Parakeet + Whisper",
+        }));
+        Assert.Equal("Whisper Small", ModelSelectorPolicy.SelectorLabel(new ModelDescriptor
+        {
+            Backend = "whisper",
+            DisplayName = "Whisper Small",
+        }));
+    }
+
+    [Fact]
     public void ModelManagerDisablesRemovalForSelectedOrBusyModelsAndReportsProgress()
     {
         ModelRecord selected = TestModel("installed", "selected");

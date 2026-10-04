@@ -35,16 +35,52 @@ pub(crate) struct AppleSpeechEngine {
 
 /// Apple Native does not depend on the separately managed Silero model. This
 /// small energy gate only segments the stream; Apple Speech performs ASR.
-pub(crate) struct AppleSpeechVad;
+pub(crate) struct AppleSpeechVad {
+    trailing_silence_samples: usize,
+    has_speech: bool,
+}
+
+const APPLE_SPEECH_ENERGY_THRESHOLD: f32 = 0.0015;
+const APPLE_SPEECH_HANGOVER_MS: usize = 800;
+
+impl Default for AppleSpeechVad {
+    fn default() -> Self {
+        Self {
+            trailing_silence_samples: 0,
+            has_speech: false,
+        }
+    }
+}
 
 impl VoiceActivityGate for AppleSpeechVad {
     fn is_speech(&mut self, samples: &[f32]) -> Result<bool> {
         let energy =
             samples.iter().map(|sample| sample * sample).sum::<f32>() / samples.len().max(1) as f32;
-        Ok(energy.sqrt() >= 0.008)
+        if energy.sqrt() >= APPLE_SPEECH_ENERGY_THRESHOLD {
+            self.trailing_silence_samples = 0;
+            self.has_speech = true;
+            return Ok(true);
+        }
+        if !self.has_speech {
+            return Ok(false);
+        }
+
+        // Match the shared VAD end-silence interval. The energy gate has no
+        // model-level hangover, so short pauses must not split Apple Speech
+        // requests into word-sized fragments.
+        self.trailing_silence_samples = self.trailing_silence_samples.saturating_add(samples.len());
+        let hangover_samples = (ASR_SAMPLE_RATE as usize * APPLE_SPEECH_HANGOVER_MS) / 1000;
+        if self.trailing_silence_samples < hangover_samples {
+            Ok(true)
+        } else {
+            self.has_speech = false;
+            Ok(false)
+        }
     }
 
     fn flush(&mut self) -> Result<()> {
+        self.trailing_silence_samples = 0;
+        self.has_speech = false;
         Ok(())
     }
 }
@@ -291,4 +327,23 @@ pub fn apple_speech_available(locale: &str) -> bool {
 pub fn apple_speech_authorized() -> bool {
     // SAFETY: the function reads the process authorization state and takes no pointers.
     unsafe { rimv_apple_speech_authorized() }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn energy_vad_keeps_short_pauses_inside_an_utterance() {
+        let mut vad = AppleSpeechVad::default();
+        let speech = vec![0.002; 1_600];
+        let silence = vec![0.0005; 1_600];
+        assert!(vad.is_speech(&speech).unwrap());
+        for _ in 0..7 {
+            assert!(vad.is_speech(&silence).unwrap());
+        }
+        assert!(!vad.is_speech(&silence).unwrap());
+        assert!(!vad.is_speech(&silence).unwrap());
+        assert!(vad.is_speech(&speech).unwrap());
+    }
 }

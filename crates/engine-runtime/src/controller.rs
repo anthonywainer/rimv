@@ -155,7 +155,10 @@ impl Controller {
                             || (self.config.transcription.backend
                                 == crate::AsrBackendKind::WindowsNative
                                 && self.native_provider_ready)
-                            || self.config.transcription.model_path.is_some());
+                            || (self.config.transcription.model_path.is_some()
+                                && (self.config.transcription.backend
+                                    != crate::AsrBackendKind::Enhanced
+                                    || self.config.transcription.refinement_model_path.is_some())));
                 // Enabling is a preference change. A worker is only loaded
                 // during an active capture session.
                 self.state.transcription.status = crate::TranscriptionStatus::Disabled;
@@ -186,8 +189,31 @@ impl Controller {
                     ));
                 }
                 self.config.transcription.model_path = Some(path);
-                self.state.transcription.available = true;
-                self.state.capabilities.transcription = true;
+                self.state.transcription.available =
+                    speech_transcription::supports_backend(self.config.transcription.backend)
+                        && (self.config.transcription.backend != crate::AsrBackendKind::Enhanced
+                            || self.config.transcription.refinement_model_path.is_some());
+                self.state.capabilities.transcription = self.state.transcription.available;
+            }
+            EngineCommand::SetTranscriptionRefinementModel { path } => {
+                if self.session.is_some() {
+                    return Err(EngineError::new(
+                        EngineErrorCode::AlreadyRecording,
+                        "change the refinement model after capture stops",
+                    ));
+                }
+                let path = std::path::PathBuf::from(path);
+                if !path.exists() {
+                    return Err(EngineError::new(
+                        EngineErrorCode::TranscriptionModelMissing,
+                        "selected Whisper refinement model path does not exist",
+                    ));
+                }
+                self.config.transcription.refinement_model_path = Some(path);
+                self.state.transcription.available =
+                    speech_transcription::supports_backend(self.config.transcription.backend)
+                        && self.config.transcription.model_path.is_some();
+                self.state.capabilities.transcription = self.state.transcription.available;
             }
             EngineCommand::ClearTranscriptionModel => {
                 if self.session.is_some() {
@@ -197,6 +223,7 @@ impl Controller {
                     ));
                 }
                 self.config.transcription.model_path = None;
+                self.config.transcription.refinement_model_path = None;
                 self.native_provider_ready = false;
                 self.native_preprocessors.clear();
                 self.config.transcription_enabled = false;
@@ -215,6 +242,7 @@ impl Controller {
                 self.config.transcription.backend = match backend.as_str() {
                     "parakeet" => crate::AsrBackendKind::Parakeet,
                     "whisper" => crate::AsrBackendKind::Whisper,
+                    "enhanced" => crate::AsrBackendKind::Enhanced,
                     "native_apple" => crate::AsrBackendKind::AppleNative,
                     "native_windows" => crate::AsrBackendKind::WindowsNative,
                     _ => {
@@ -236,7 +264,10 @@ impl Controller {
                             || (self.config.transcription.backend
                                 == crate::AsrBackendKind::WindowsNative
                                 && self.native_provider_ready)
-                            || self.config.transcription.model_path.is_some());
+                            || (self.config.transcription.model_path.is_some()
+                                && (self.config.transcription.backend
+                                    != crate::AsrBackendKind::Enhanced
+                                    || self.config.transcription.refinement_model_path.is_some())));
                 self.state.capabilities.transcription = self.state.transcription.available;
             }
             EngineCommand::SetTranscriptionLanguage { language } => {
@@ -627,6 +658,7 @@ impl Controller {
                 match self.config.transcription.backend {
                     crate::AsrBackendKind::Parakeet => "parakeet",
                     crate::AsrBackendKind::Whisper => "whisper",
+                    crate::AsrBackendKind::Enhanced => "enhanced",
                     crate::AsrBackendKind::AppleNative => "native_apple",
                     crate::AsrBackendKind::WindowsNative => "native_windows",
                 },
@@ -689,6 +721,8 @@ impl Controller {
                             dropped_work: metrics.dropped_work,
                             dropped_events: metrics.dropped_events,
                             vad_segments: metrics.vad_segments,
+                            model_load_ms: metrics.model_load_ms,
+                            deadline_misses: metrics.deadline_misses,
                             average_inference_ms: metrics.inference_average_ms as u64,
                             maximum_inference_ms: metrics.inference_max_ms,
                             average_rtf_milli: (metrics.rtf_total * 1000.0
@@ -842,15 +876,29 @@ impl Controller {
                     unstable_chars=update.unstable_text.chars().count(),
                     "shared transcript update accepted"
                 );
+                let was_already_final = session
+                    .transcript_utterance_ids
+                    .iter()
+                    .any(|id| id == &update.utterance_id);
                 if update.is_final {
-                    session
-                        .transcript_segments
-                        .push(speech_transcription::SpeechSegment {
-                            source: update.source,
-                            start_ms: update.start_ms,
-                            end_ms: update.end_ms,
-                            text: update.stable_text.clone(),
-                        });
+                    let segment = speech_transcription::SpeechSegment {
+                        source: update.source,
+                        start_ms: update.start_ms,
+                        end_ms: update.end_ms,
+                        text: update.stable_text.clone(),
+                    };
+                    if let Some(index) = session
+                        .transcript_utterance_ids
+                        .iter()
+                        .position(|id| id == &update.utterance_id)
+                    {
+                        session.transcript_segments[index] = segment;
+                    } else {
+                        session
+                            .transcript_utterance_ids
+                            .push(update.utterance_id.clone());
+                        session.transcript_segments.push(segment);
+                    }
                 }
                 let legacy = crate::TranscriptSegment {
                     source: update.source,
@@ -862,9 +910,9 @@ impl Controller {
                         .collect::<Vec<_>>()
                         .join(" "),
                 };
-                if update.is_final {
+                if update.is_final && !was_already_final {
                     self.bus.transcript_final(legacy);
-                } else {
+                } else if !update.is_final {
                     self.bus.transcript_partial(legacy);
                 }
                 self.bus.transcript_update(update);

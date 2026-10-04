@@ -65,6 +65,11 @@ pub struct AsrMetrics {
     pub dropped_work: u64,
     pub dropped_events: u64,
     pub vad_segments: u64,
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub model_load_ms: u64,
+    #[cfg_attr(feature = "serde", serde(default))]
+    /// Count of ASR inferences whose wall time exceeded their audio duration.
+    pub deadline_misses: u64,
     pub average_inference_ms: u64,
     pub maximum_inference_ms: u64,
     /// Average real-time factor multiplied by 1000.

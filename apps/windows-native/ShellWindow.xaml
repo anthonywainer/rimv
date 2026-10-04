@@ -95,7 +95,7 @@
                             <FontIcon Glyph="&#xEA39;" FontFamily="Segoe Fluent Icons" FontSize="18"
                                       Foreground="{ThemeResource RimVErrorBrush}" AutomationProperties.Name="Error"/>
                             <StackPanel Grid.Column="1" Spacing="5">
-                                <TextBlock Text="No active source" FontSize="15" FontWeight="SemiBold"
+                                <TextBlock x:Name="ErrorTitle" Text="No active source" FontSize="15" FontWeight="SemiBold"
                                            Foreground="{ThemeResource RimVMenuTextBrush}"/>
                                 <TextBlock x:Name="ErrorMessage" TextWrapping="Wrap" FontSize="13"
                                            Foreground="{ThemeResource RimVMenuSecondaryTextBrush}"/>

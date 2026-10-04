@@ -507,6 +507,9 @@ public sealed class AppCoordinator
         await GuardAsync(async () =>
         {
             ModelRecord? selected = Models.FirstOrDefault(item => item.Descriptor.Id == modelId);
+            if (modelId == "enhanced-parakeet-whisper" && selected?.State != "installed")
+                throw new CoreRequestException(selected?.Descriptor.InstallHint
+                    ?? "Install a Parakeet model and a Whisper model in Model Manager to enable Enhanced.");
             if (selected is null || !NativeWindowsPolicy.CanSelectModel(selected.State, Snapshot.Status))
                 throw new CoreRequestException("Select an installed model while RimV is idle.");
             string? language = SelectedLanguage is not null && selected.Descriptor.Languages.Contains(SelectedLanguage)

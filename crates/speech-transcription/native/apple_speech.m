@@ -158,6 +158,14 @@ int32_t rimv_apple_speech_transcribe(const char *locale_id,
             return 5;
         }
 
+        // CLI callers may synchronously wait for task completion without
+        // pumping the main run loop. Speech handlers default to the main
+        // queue, so give this task a serial background queue to ensure partial
+        // and final callbacks are delivered in both the app and CLI.
+        NSOperationQueue *recognitionQueue = [NSOperationQueue new];
+        recognitionQueue.maxConcurrentOperationCount = 1;
+        recognizer.queue = recognitionQueue;
+
         AVAudioFormat *format = [[AVAudioFormat alloc] initWithCommonFormat:AVAudioPCMFormatFloat32
                                                                  sampleRate:16000
                                                                    channels:1

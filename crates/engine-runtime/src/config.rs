@@ -46,6 +46,7 @@ impl Default for EngineConfig {
 pub struct TranscriptionSettings {
     pub backend: speech_transcription::AsrBackendKind,
     pub model_path: Option<PathBuf>,
+    pub refinement_model_path: Option<PathBuf>,
     pub language: Option<String>,
     pub threads: usize,
     pub use_gpu: bool,
@@ -74,6 +75,7 @@ impl Default for TranscriptionSettings {
             model_path: std::env::var_os("RIMV_PARAKEET_MODEL_DIR")
                 .map(PathBuf::from)
                 .or_else(|| parakeet.is_dir().then_some(parakeet)),
+            refinement_model_path: None,
             language: None,
             threads: 4,
             use_gpu: cfg!(target_os = "macos"),
@@ -106,6 +108,7 @@ impl TranscriptionSettings {
         speech_transcription::SpeechConfig {
             backend: self.backend,
             model_path: self.model_path.clone(),
+            refinement_model_path: self.refinement_model_path.clone(),
             language: self.language.clone(),
             threads: self.threads,
             use_gpu: self.use_gpu,

@@ -56,6 +56,154 @@ pub struct ModelDescriptor {
     pub install_hint: Option<String>,
 }
 
+/// Returns provider language IDs supported by both models, preserving the
+/// primary provider's display order and canonical IDs.
+pub fn intersect_languages(primary: &[String], secondary: &[String]) -> Vec<String> {
+    primary
+        .iter()
+        .filter(|language| {
+            secondary
+                .iter()
+                .any(|candidate| candidate.eq_ignore_ascii_case(language))
+        })
+        .cloned()
+        .collect()
+}
+
+/// Resolve the installed models required by Enhanced. A preferred Whisper ID
+/// is honored when it is installed; otherwise resolution follows a stable
+/// catalog priority (Base, Small, Turbo, Medium, Large, Tiny).
+pub fn enhanced_models<'a>(
+    manager: &'a ModelManager,
+    preferred_whisper_id: Option<&str>,
+) -> Option<(&'a ModelDescriptor, &'a ModelDescriptor)> {
+    let parakeet = manager
+        .catalog()
+        .iter()
+        .find(|model| model.backend == "parakeet" && manager.state(model) == ModelState::Ready)?;
+    let whisper_models: Vec<_> = manager
+        .catalog()
+        .iter()
+        .filter(|model| model.backend == "whisper" && manager.state(model) == ModelState::Ready)
+        .collect();
+    let whisper = preferred_whisper_id
+        .and_then(|id| whisper_models.iter().copied().find(|model| model.id == id))
+        .or_else(|| {
+            [
+                "whisper-base",
+                "whisper-small",
+                "whisper-turbo",
+                "whisper-medium",
+                "whisper-large",
+                "whisper-tiny",
+            ]
+            .iter()
+            .find_map(|id| whisper_models.iter().copied().find(|model| model.id == *id))
+        })?;
+    Some((parakeet, whisper))
+}
+
+/// Human-readable Model Manager guidance based on the dependencies that are
+/// actually missing from the local model catalog.
+pub fn enhanced_guidance(manager: &ModelManager) -> Option<String> {
+    let has_parakeet = manager
+        .catalog()
+        .iter()
+        .any(|model| model.backend == "parakeet" && manager.state(model) == ModelState::Ready);
+    let has_whisper = manager
+        .catalog()
+        .iter()
+        .any(|model| model.backend == "whisper" && manager.state(model) == ModelState::Ready);
+    match (has_parakeet, has_whisper) {
+        (true, true) => None,
+        (false, false) => Some(
+            "Install a Parakeet model and a Whisper model in Model Manager to enable Enhanced."
+                .into(),
+        ),
+        (false, true) => {
+            Some("Install a Parakeet model in Model Manager to enable Enhanced.".into())
+        }
+        (true, false) => {
+            Some("Install a Whisper model in Model Manager to enable Enhanced.".into())
+        }
+    }
+}
+
+#[cfg(test)]
+mod language_intersection_tests {
+    use super::intersect_languages;
+    #[test]
+    fn enhanced_languages_are_the_case_insensitive_intersection() {
+        let a = ["en".into(), "es".into(), "fr".into()];
+        let b = ["ES".into(), "en".into(), "de".into()];
+        assert_eq!(
+            intersect_languages(&a, &b),
+            vec!["en".to_owned(), "es".to_owned()]
+        );
+    }
+}
+
+#[cfg(test)]
+mod enhanced_model_tests {
+    use super::{ModelManager, enhanced_models};
+
+    fn install(manager: &ModelManager, id: &str) {
+        let model = manager.descriptor(id).unwrap();
+        for file in model.files.iter().filter(|file| file.required) {
+            let path = manager.path(model, file);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, b"test model marker").unwrap();
+        }
+    }
+
+    #[test]
+    fn enhanced_resolves_small_and_base_whisper_and_requires_both_engines() {
+        let root = tempfile::tempdir().unwrap();
+        let manager = ModelManager::new(root.path());
+        assert!(enhanced_models(&manager, None).is_none());
+
+        install(&manager, "parakeet-tdt-0.6b-v3-int8");
+        assert!(enhanced_models(&manager, None).is_none());
+        install(&manager, "whisper-small");
+        let (parakeet, whisper) = enhanced_models(&manager, None).unwrap();
+        assert_eq!(parakeet.id, "parakeet-tdt-0.6b-v3-int8");
+        assert_eq!(whisper.id, "whisper-small");
+
+        install(&manager, "whisper-base");
+        assert_eq!(
+            enhanced_models(&manager, None).unwrap().1.id,
+            "whisper-base"
+        );
+        assert_eq!(
+            enhanced_models(&manager, Some("whisper-small"))
+                .unwrap()
+                .1
+                .id,
+            "whisper-small"
+        );
+    }
+
+    #[test]
+    fn enhanced_is_unavailable_with_whisper_but_without_parakeet() {
+        let root = tempfile::tempdir().unwrap();
+        let manager = ModelManager::new(root.path());
+        install(&manager, "whisper-small");
+        assert!(enhanced_models(&manager, None).is_none());
+    }
+
+    #[test]
+    fn enhanced_resolves_base_when_it_is_the_only_whisper_model_installed() {
+        let root = tempfile::tempdir().unwrap();
+        let manager = ModelManager::new(root.path());
+        install(&manager, "parakeet-tdt-0.6b-v3-int8");
+        install(&manager, "whisper-base");
+        assert_eq!(
+            enhanced_models(&manager, None).unwrap().1.id,
+            "whisper-base"
+        );
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ModelState {
     Missing,

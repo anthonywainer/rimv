@@ -16,6 +16,7 @@ use std::{
 
 mod benchmark;
 mod media;
+mod resource;
 mod terminal_output;
 mod transcript_renderer;
 
@@ -141,14 +142,17 @@ struct ServeArgs {
 struct BenchmarkArgs {
     #[arg(long, default_value = "resources/audio")]
     corpus: PathBuf,
-    #[arg(long, value_enum, default_value_t = benchmark::BenchmarkMode::RealtimeCapture)]
+    #[arg(long, value_enum, default_value_t = benchmark::BenchmarkMode::RealtimeReplay)]
     mode: benchmark::BenchmarkMode,
     #[arg(long)]
     output: Option<PathBuf>,
     #[arg(long)]
     model: Option<PathBuf>,
-    #[arg(long, value_enum, default_value_t = Backend::Parakeet)]
-    backend: Backend,
+    /// Whisper model path when --backend whisper, or Parakeet path when enhanced.
+    #[arg(long)]
+    refinement_model: Option<PathBuf>,
+    #[arg(long, value_enum, default_value_t = benchmark::BenchmarkBackend::Parakeet)]
+    backend: benchmark::BenchmarkBackend,
     #[arg(long, visible_alias = "lang", default_value = "auto")]
     language: String,
     #[arg(long, default_value = "cpu")]
@@ -527,12 +531,27 @@ fn serve(args: ServeArgs) -> Result<()> {
 }
 
 fn benchmark(args: BenchmarkArgs) -> Result<()> {
+    let backend = engine_runtime::AsrBackendKind::from(args.backend);
+    let model = match args.backend {
+        benchmark::BenchmarkBackend::Parakeet | benchmark::BenchmarkBackend::Enhanced => {
+            args.model.or_else(default_model_path)
+        }
+        benchmark::BenchmarkBackend::Whisper => args.model.or_else(default_whisper_model_path),
+        benchmark::BenchmarkBackend::NativeApple | benchmark::BenchmarkBackend::NativeWindows => {
+            None
+        }
+    };
     benchmark::run(benchmark::BenchmarkOptions {
         corpus: args.corpus,
         mode: args.mode,
         output: args.output,
-        model: args.model.or_else(default_model_path),
-        backend: args.backend.into(),
+        model,
+        refinement_model: args.refinement_model.or_else(|| {
+            (backend == AsrBackendKind::Enhanced)
+                .then(default_whisper_model_path)
+                .flatten()
+        }),
+        backend,
         language: language(args.language),
         provider: args.provider,
         use_gpu: !args.cpu,
@@ -583,6 +602,12 @@ fn stop_flag() -> Result<Arc<AtomicBool>> {
 
 fn default_model_path() -> Option<PathBuf> {
     engine_runtime::TranscriptionSettings::default().model_path
+}
+
+fn default_whisper_model_path() -> Option<PathBuf> {
+    let manager = ModelManager::new(model_root());
+    let descriptor = manager.descriptor("whisper-base").ok()?;
+    manager.runtime_path(descriptor).ok()
 }
 
 fn default_vad_model_path() -> Option<PathBuf> {

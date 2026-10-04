@@ -3,6 +3,7 @@
 /target/benchmarks/
 **/bin/
 **/obj/
+StartupProfileData-NonInteractive
 /apps/windows/runtime/*.dll
 /apps/windows/runtime/runtime-dlls.txt
 

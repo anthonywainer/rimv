@@ -93,6 +93,7 @@ static BOOL RimvIsDark(NSAppearance *appearance) {
 @property(nonatomic, copy) NSString *modelSummary;
 @property(nonatomic, strong) NSButton *errorItem;
 @property(nonatomic, strong) NSView *errorCard;
+@property(nonatomic, strong) NSTextField *errorTitle;
 @property(nonatomic, strong) NSTextField *errorMessage;
 @property(nonatomic) BOOL errorDismissed;
 @property(nonatomic, strong) NSPopover *popover;
@@ -503,10 +504,10 @@ static NSString *elapsed(uint64_t milliseconds) {
     errorIcon.image = [NSImage imageWithSystemSymbolName:@"exclamationmark.circle.fill" accessibilityDescription:@"Capture error"];
     errorIcon.contentTintColor = NSColor.systemRedColor;
     [self.errorCard addSubview:errorIcon];
-    NSTextField *errorTitle = [NSTextField labelWithString:@"No active source"];
-    errorTitle.frame = NSMakeRect(47, 12, 245, 22);
-    errorTitle.font = [NSFont systemFontOfSize:15 weight:NSFontWeightSemibold];
-    [self.errorCard addSubview:errorTitle];
+    self.errorTitle = [NSTextField labelWithString:@"No active source"];
+    self.errorTitle.frame = NSMakeRect(47, 12, 245, 22);
+    self.errorTitle.font = [NSFont systemFontOfSize:15 weight:NSFontWeightSemibold];
+    [self.errorCard addSubview:self.errorTitle];
     NSButton *dismissError = [RimvHandCursorButton buttonWithImage:[NSImage imageWithSystemSymbolName:@"xmark" accessibilityDescription:@"Dismiss capture error"] target:self action:@selector(dismissError:)];
     dismissError.frame = NSMakeRect(302, 10, 26, 26);
     dismissError.bordered = NO;
@@ -1296,6 +1297,8 @@ static NSString *elapsed(uint64_t milliseconds) {
 - (void)showError:(NSString *)message {
     if (![self.displayedError isEqualToString:message]) self.errorDismissed = NO;
     self.displayedError = message;
+    self.errorTitle.stringValue = [message localizedCaseInsensitiveContainsString:@"model in Model Manager"]
+        ? @"Models required" : @"No active source";
     self.errorMessage.stringValue = message ?: @"All selected sources failed to start. Check your audio permissions and input devices.";
     [self setErrorCardVisible:!self.errorDismissed];
 }

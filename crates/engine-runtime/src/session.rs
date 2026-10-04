@@ -161,6 +161,7 @@ pub(crate) struct CaptureSession {
     pub system: SourceSlot,
     pub transcription: Option<(SpeechWorker, Receiver<SpeechEvent>)>,
     pub transcript_segments: Vec<SpeechSegment>,
+    pub transcript_utterance_ids: Vec<String>,
 }
 impl CaptureSession {
     pub fn begin_recording(&mut self) {
@@ -178,6 +179,7 @@ impl CaptureSession {
             system: SourceSlot::new(&directory, AudioSource::System),
             transcription: None,
             transcript_segments: Vec::new(),
+            transcript_utterance_ids: Vec::new(),
             directory,
         }
     }
