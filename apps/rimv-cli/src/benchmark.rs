@@ -1,6 +1,8 @@
 use audio_core::{AudioFormat, AudioFrame, AudioSourceKind};
 use clap::ValueEnum;
-use engine_protocol::{AudioSource, EngineEvent, EngineSnapshot, TranscriptUpdate};
+#[cfg(target_os = "macos")]
+use engine_protocol::EngineEvent;
+use engine_protocol::{AudioSource, EngineSnapshot, TranscriptUpdate};
 use engine_runtime::AsrBackendKind;
 #[cfg(target_os = "macos")]
 use engine_runtime::{EngineConfig, EngineRuntime};
@@ -1197,6 +1199,7 @@ fn spawn_collector(
     })
 }
 
+#[cfg(target_os = "macos")]
 fn observe(event: EngineEvent, started: Instant, observations: &Mutex<Observations>) {
     let arrival = elapsed_ms(started);
     let mut state = observations.lock().unwrap_or_else(|lock| lock.into_inner());
@@ -1754,16 +1757,16 @@ fn write_summary(
         serde_json::to_vec_pretty(&summary)?,
     )?;
     let mut markdown = format!(
-        "# RimV benchmark results\n\n- Suite: `{}`\n- Benchmark version: `{}`\n- Validation: `{}`\n- Corpus: `{}`\n- Generated (Unix ms): `{}`\n- Git commit: `{}`\n- Environment: `{}` / `{}` / `{}`\n- Cases: {} successful, {} failed\n- Aggregate WER: {}\n- Aggregate CER: {}\n- Normalization: {}\n\n| Case | Mode | Status | WER | CER | RTF |\n|---|---|---:|---:|---:|---:|\n",
+        "# RimV benchmark results\n\n- Suite: `{}`\n- Benchmark version: `{}`\n- Validation: `{}`\n- Corpus: `{}`\n- Generated (Unix ms): `{}`\n- Git commit: `{}`\n- Environment: `{:?}` / `{}` / `{:?}`\n- Cases: {} successful, {} failed\n- Aggregate WER: {}\n- Aggregate CER: {}\n- Normalization: {}\n\n| Case | Mode | Status | WER | CER | RTF |\n|---|---|---:|---:|---:|---:|\n",
         SUITE,
         summary.benchmark_version,
         summary.validation_status,
         options.corpus.display(),
         summary.generated_at_unix_ms,
         summary.git_commit.as_deref().unwrap_or("unknown"),
-        format!("{:?}", summary.environment.os),
+        summary.environment.os,
         summary.environment.os_version,
-        format!("{:?}", summary.environment.architecture),
+        summary.environment.architecture,
         summary.successful_cases,
         summary.failed_cases,
         format_rate(summary.aggregate_wer),

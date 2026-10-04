@@ -35,6 +35,7 @@ pub(crate) struct AppleSpeechEngine {
 
 /// Apple Native does not depend on the separately managed Silero model. This
 /// small energy gate only segments the stream; Apple Speech performs ASR.
+#[derive(Default)]
 pub(crate) struct AppleSpeechVad {
     trailing_silence_samples: usize,
     has_speech: bool,
@@ -42,15 +43,6 @@ pub(crate) struct AppleSpeechVad {
 
 const APPLE_SPEECH_ENERGY_THRESHOLD: f32 = 0.0015;
 const APPLE_SPEECH_HANGOVER_MS: usize = 800;
-
-impl Default for AppleSpeechVad {
-    fn default() -> Self {
-        Self {
-            trailing_silence_samples: 0,
-            has_speech: false,
-        }
-    }
-}
 
 impl VoiceActivityGate for AppleSpeechVad {
     fn is_speech(&mut self, samples: &[f32]) -> Result<bool> {

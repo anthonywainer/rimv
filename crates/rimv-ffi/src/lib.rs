@@ -947,7 +947,7 @@ mod enhanced_selection_tests {
     use super::enhanced_selection_commands;
     use engine_protocol::EngineCommand;
     use model_manager::ModelManager;
-    use std::path::PathBuf;
+    use std::path::Path;
 
     fn install(manager: &ModelManager, id: &str) {
         let model = manager.descriptor(id).unwrap();
@@ -976,10 +976,10 @@ mod enhanced_selection_tests {
             .runtime_path(models.descriptor("whisper-small").unwrap())
             .unwrap();
         assert!(
-            matches!(&commands[1], EngineCommand::SetTranscriptionModel { path } if PathBuf::from(path) == parakeet_path)
+            matches!(&commands[1], EngineCommand::SetTranscriptionModel { path } if Path::new(path) == parakeet_path.as_path())
         );
         assert!(
-            matches!(&commands[2], EngineCommand::SetTranscriptionRefinementModel { path } if PathBuf::from(path) == whisper_path)
+            matches!(&commands[2], EngineCommand::SetTranscriptionRefinementModel { path } if Path::new(path) == whisper_path.as_path())
         );
         assert!(
             matches!(&commands[3], EngineCommand::SetTranscriptionLanguage { language: Some(language) } if language == "en")
