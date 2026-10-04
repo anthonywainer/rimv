@@ -131,6 +131,15 @@ struct Work {
     utterance_start_ms: u64,
     final_result: bool,
 }
+
+type RefinementMessage = (TranscriptUpdate, Vec<f32>);
+type RefinementSender = std::sync::mpsc::SyncSender<RefinementMessage>;
+
+struct RefinementWorker {
+    sender: Option<RefinementSender>,
+    join: Option<JoinHandle<()>>,
+}
+
 #[derive(Default)]
 struct Queue {
     finals: VecDeque<Work>,
@@ -162,7 +171,7 @@ pub(crate) struct Decoder {
     queue: Arc<(Mutex<Queue>, Condvar)>,
     metrics: Arc<Mutex<SpeechMetrics>>,
     join: JoinHandle<()>,
-    refinement_sender: Option<std::sync::mpsc::SyncSender<(TranscriptUpdate, Vec<f32>)>>,
+    refinement_sender: Option<RefinementSender>,
     refinement_join: Option<JoinHandle<()>>,
 }
 impl Decoder {
@@ -173,9 +182,8 @@ impl Decoder {
         final_overflow: Arc<Mutex<VecDeque<TranscriptUpdate>>>,
     ) -> Self {
         let refiner = engine.take_final_refiner();
-        let (refinement_sender, refinement_join) =
-            start_refiner(refiner, events.clone(), metrics.clone());
-        let worker_refinement_sender = refinement_sender.clone();
+        let refinement = start_refiner(refiner, events.clone(), metrics.clone());
+        let worker_refinement_sender = refinement.sender.clone();
         let queue = Arc::new((Mutex::new(Queue::default()), Condvar::new()));
         let shared = queue.clone();
         let measured = metrics.clone();
@@ -301,17 +309,15 @@ impl Decoder {
                         if work.final_result
                             && update_delivered
                             && let Some(sender) = &worker_refinement_sender
-                        {
-                            if sender
+                            && sender
                                 .try_send((update.clone(), work.audio.samples.clone()))
                                 .is_err()
-                            {
-                                measured
-                                    .lock()
-                                    .unwrap_or_else(|p| p.into_inner())
-                                    .dropped_work += 1;
-                                tracing::warn!(utterance_id=%update.utterance_id, "Whisper refinement queue is full; keeping the Parakeet final");
-                            }
+                        {
+                            measured
+                                .lock()
+                                .unwrap_or_else(|p| p.into_inner())
+                                .dropped_work += 1;
+                            tracing::warn!(utterance_id=%update.utterance_id, "Whisper refinement queue is full; keeping the Parakeet final");
                         }
                         if work.final_result {
                             stabilizers.remove(&work.source);
@@ -330,8 +336,8 @@ impl Decoder {
             queue,
             metrics,
             join,
-            refinement_sender,
-            refinement_join,
+            refinement_sender: refinement.sender,
+            refinement_join: refinement.join,
         }
     }
     pub fn submit(&self, source: AudioSource, audio: Utterance, final_result: bool) {
@@ -389,14 +395,14 @@ fn start_refiner(
     refiner: Option<Box<dyn FinalRefiner>>,
     events: SyncSender<SpeechEvent>,
     metrics: Arc<Mutex<SpeechMetrics>>,
-) -> (
-    Option<std::sync::mpsc::SyncSender<(TranscriptUpdate, Vec<f32>)>>,
-    Option<JoinHandle<()>>,
-) {
+) -> RefinementWorker {
     let Some(mut refiner) = refiner else {
-        return (None, None);
+        return RefinementWorker {
+            sender: None,
+            join: None,
+        };
     };
-    let (sender, receiver) = std::sync::mpsc::sync_channel::<(TranscriptUpdate, Vec<f32>)>(2);
+    let (sender, receiver) = std::sync::mpsc::sync_channel::<RefinementMessage>(2);
     let join = thread::Builder::new().name("speech-refinement".into()).spawn(move || {
         while let Ok((mut update, audio)) = receiver.recv() {
             match refiner.refine(&audio) {
@@ -412,7 +418,10 @@ fn start_refiner(
             }
         }
     }).ok();
-    (Some(sender), join)
+    RefinementWorker {
+        sender: Some(sender),
+        join,
+    }
 }
 
 fn bounded_partial_audio(utterance_start_ms: u64, samples: &[f32]) -> Utterance {

@@ -15,7 +15,7 @@ impl EnhancedEngine {
         let whisper_path = config.refinement_model_path.take();
         let parakeet = ParakeetEngine::load(config.clone())?;
         let whisper = whisper_path
-            .ok_or_else(|| crate::SpeechError::ModelMissing)
+            .ok_or(crate::SpeechError::ModelMissing)
             .and_then(|path| {
                 config.backend = crate::AsrBackendKind::Whisper;
                 config.model_path = Some(path);
